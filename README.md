@@ -1,0 +1,42 @@
+mlidea
+================================
+
+[![mlidea](https://img.shields.io/badge/❓-mlidea-green)](https://github.com/stefan-grafberger/mlidea)
+[![GitHub license](https://img.shields.io/badge/License-Apache%202.0-yellowgreen.svg)](https://github.com/stefan-grafberger/mlidea/blob/master/LICENSE)
+[![Build Status](https://github.com/stefan-grafberger/mlidea/actions/workflows/build.yml/badge.svg)](https://github.com/stefan-grafberger/mlidea/actions/workflows/build.yml)
+[![codecov](https://codecov.io/gh/stefan-grafberger/mlidea/branch/main/graph/badge.svg?token=NFGV6VEJTI)](https://codecov.io/gh/stefan-grafberger/mlidea)
+
+Interactively Improving ML Data Preparation Code via Shadow Pipelines.
+
+This project uses the [mlinspect](https://github.com/stefan-grafberger/mlinspect) project as a foundation, mainly for its plan extraction from native ML pipelines.
+
+## Run mlidea locally
+
+Prerequisite: Python 3.11
+
+1. Clone this repository (optionally, with [Git LFS](https://github.com/git-lfs/git-lfs), to also download the datasets for the scalability experiment)
+2. Set up the environment
+
+	`cd mlwhatif` <br>
+	`python -m venv venv` <br>
+	`source venv/bin/activate` <br>
+
+3. If you want to use the visualisation functions we provide, install graphviz which can not be installed via pip
+
+    `Linux: ` `apt-get install graphviz` <br>
+    `MAC OS: ` `brew install graphviz` <br>
+	
+4. Install pip dependencies 
+
+    `pip install -e .` <br>
+
+5. To ensure everything works, you can run the tests (without graphviz, the visualisation test will fail)
+
+    `python -m pytest` <br>
+
+## Notes
+* For debugging in PyCharm, set the pytest flag `--no-cov` ([Link](https://stackoverflow.com/questions/34870962/how-to-debug-py-test-in-pycharm-when-coverage-is-enabled))
+* If you want to see log output in PyCharm, you can also set the pytest flags `--log-cli-level=10 -s`. The `-s` is needed because otherwise pytest breaks the stdout capturing.
+
+## License
+This library is licensed under the Apache 2.0 License.
