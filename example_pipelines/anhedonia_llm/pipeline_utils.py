@@ -144,7 +144,7 @@ def initialize_environment():
     random.seed(seed)
     set_llm_cache(SQLiteCache(database_path=f"{str(get_project_root())}/example_pipelines/anhedonia_llm/"
                                             f"offline/.langchain.db"))
-    os.environ["OPENAI_API_KEY"] = getpass.getpass("OpenAI API Key:")
-    # os.environ["OPENAI_API_KEY"] = "not_required_because_of_sqlite_caching"
+    # os.environ["OPENAI_API_KEY"] = getpass.getpass("OpenAI API Key:")
+    os.environ["OPENAI_API_KEY"] = "not_required_because_of_sqlite_caching"
     os.environ["TOKENIZERS_PARALLELISM"] = "False"
     os.environ["ANONYMIZED_TELEMETRY"] = "False"

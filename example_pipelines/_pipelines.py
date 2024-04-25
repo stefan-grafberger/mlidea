@@ -17,3 +17,9 @@ COMPAS_PNG = os.path.join(str(get_project_root()), "example_pipelines", "compas"
 
 HEALTHCARE_PY = os.path.join(str(get_project_root()), "example_pipelines", "healthcare", "healthcare.py")
 HEALTHCARE_PNG = os.path.join(str(get_project_root()), "example_pipelines", "healthcare", "healthcare.png")
+
+ANHEDONIA_ML_PY = os.path.join(str(get_project_root()), "example_pipelines", "anhedonia_ml", "anhedonia_ml.py")
+ANHEDONIA_ML_PNG = os.path.join(str(get_project_root()), "example_pipelines", "anhedonia_ml", "anhedonia_ml.png")
+
+ANHEDONIA_LLM_PY = os.path.join(str(get_project_root()), "example_pipelines", "anhedonia_llm", "anhedonia_llm.py")
+ANHEDONIA_LLM_PNG = os.path.join(str(get_project_root()), "example_pipelines", "anhedonia_llm", "anhedonia_llm.png")

@@ -124,6 +124,8 @@ def get_df_shape(result_or_inplace_obj):
         # A few operations like train_test_split return a list
         if len(result_or_inplace_obj) > 1 and isinstance(result_or_inplace_obj[0], str):
             shape = (len(result_or_inplace_obj), 1)
+        elif isinstance(result_or_inplace_obj[0], numpy.ndarray) and result_or_inplace_obj[0].ndim == 1:
+            shape = (len(result_or_inplace_obj), len(result_or_inplace_obj[0]))
         else:
             assert len(result_or_inplace_obj) == 2
             shape_a = get_df_shape(result_or_inplace_obj[0])
