@@ -9,8 +9,9 @@ from functools import partial
 
 import gorilla
 from langchain_core.language_models import BaseChatModel
-from langchain_core.runnables import base
+from langchain_core.runnables import base, RunnableParallel, RunnableSequence
 from langchain_core import vectorstores
+from langchain_core.vectorstores import VectorStoreRetriever
 
 
 @gorilla.patches(base.RunnableSequence)
@@ -54,11 +55,33 @@ class RunnableSequencePatching:
         # return execute_patched_func(original, execute_inspections, *args, **kwargs)
 
         for step in self.steps:
+            if isinstance(step, VectorStoreRetriever):
+                print("retriever step found")
+                print(step)
+            if isinstance(step, RunnableParallel):
+                child_retrievers = [(step_name, step_content) for (step_name, step_content) in step.steps.items()
+                                    if isinstance(step_content, VectorStoreRetriever)]
+                if len(child_retrievers) >= 1:
+                    print("retriever step found")
+                    print(step)
+                child_sequences = [(step_name, step_content) for (step_name, step_content) in step.steps.items()
+                                   if isinstance(step_content, RunnableSequence)]
+                # TODO: Beware of recursive calls, these are the same as the current class. Introduce a singleton
+                #  with a boolean again to make sure that only the parent one is patched?
+                for child_sequence in child_sequences:
+                    for child_sequence_step in child_sequence[1].steps:
+                        if isinstance(child_sequence_step, VectorStoreRetriever):
+                            print("retriever step found")
+                            print(step)
+
+        for step in self.steps:
             if isinstance(step, BaseChatModel):
+                print("llm step found")
                 print(step)
 
         new_result = original(self, *args, **kwargs)
         return new_result
+
 
 @gorilla.patches(vectorstores.VectorStoreRetriever)
 class VectorStoreRetrieverPatching:
