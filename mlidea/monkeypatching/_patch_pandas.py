@@ -496,6 +496,37 @@ class DataFramePatching:
 
         return execute_patched_func_no_op_id(original, execute_inspections, self, *args, **kwargs)
 
+    @gorilla.name('to_dict')
+    @gorilla.settings(allow_hit=True)
+    def patched_to_dict(self, *args, **kwargs):
+        """ Patch for ('pandas.core.frame', 'to_dict') """
+        original = gorilla.get_original_attribute(pandas.DataFrame, 'to_dict')
+        func_args = kwargs
+
+        def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
+            """ Execute inspections, add DAG node """
+            function_info = FunctionInfo('pandas.core.frame', 'to_dict')
+            input_info = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
+                                        optional_source_code)
+            operator_context = OperatorContext(OperatorType.PROJECTION, function_info)
+            description = "dict conversion"
+            processing_func = lambda df: original(df, *args, **kwargs)
+            initial_func = partial(original, input_info.annotated_dfobject.result_data, **func_args)
+            optimizer_info, result = capture_optimizer_info(initial_func)
+            dag_node = DagNode(op_id,
+                               BasicCodeLocation(caller_filename, lineno),
+                               operator_context,
+                               DagNodeDetails(description, list(result.keys()), optimizer_info),
+                               get_optional_code_info_or_none(optional_code_reference, optional_source_code),
+                               processing_func)
+            function_call_result = FunctionCallResult(result)
+            add_dag_node(dag_node, [input_info.dag_node], function_call_result)
+            new_result = function_call_result.function_result
+
+            return new_result
+
+        return execute_patched_func(original, execute_inspections, self, **func_args)
+
 
 @gorilla.patches(pandas.core.groupby.generic.DataFrameGroupBy)
 class DataFrameGroupByPatching:

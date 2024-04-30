@@ -143,6 +143,9 @@ def get_df_shape(result_or_inplace_obj):
     elif isinstance(result_or_inplace_obj, (float, MetricFrame)):
         # E.g., a score metric output from estimator.score
         shape = (1, 1)
+    elif isinstance(result_or_inplace_obj, dict) and isinstance(list(result_or_inplace_obj.values())[0], dict):
+        # E.g., pandas dataframe to_dict output
+        shape = (len(list(result_or_inplace_obj.values())[0]), len(result_or_inplace_obj))
     else:
         shape = None
     return shape

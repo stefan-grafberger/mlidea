@@ -10,6 +10,11 @@ class MlinspectList(list):
     _mlinspect_annotation = None
 
 
+class MlinspectDict(dict):
+    """A list wrapper that can store mlinspect annotations"""
+    _mlinspect_dag_node = None
+    _mlinspect_annotation = None
+
 class MlinspectNdarray(numpy.ndarray):
     """
     A wrapper for numpy ndarrays to store our additional annotations.

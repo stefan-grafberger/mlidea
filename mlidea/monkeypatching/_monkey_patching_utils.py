@@ -15,7 +15,7 @@ from mlidea.execution import _pipeline_executor
 from mlidea.instrumentation._dag_node import DagNode, CodeReference, BasicCodeLocation, DagNodeDetails, \
     OptionalCodeInfo, OptimizerInfo
 from mlidea.execution._pipeline_executor import singleton
-from mlidea.monkeypatching._mlinspect_ndarray import MlinspectNdarray, MlinspectList
+from mlidea.monkeypatching._mlinspect_ndarray import MlinspectNdarray, MlinspectList, MlinspectDict
 
 
 @dataclasses.dataclass(frozen=False)
@@ -228,6 +228,8 @@ def wrap_in_mlinspect_array_if_necessary(df_object):
         df_object = MlinspectNdarray(df_object)
     elif isinstance(df_object, list):
         df_object = MlinspectList(df_object)
+    elif isinstance(df_object, dict):
+        df_object = MlinspectDict(df_object)
     return df_object
 
 
