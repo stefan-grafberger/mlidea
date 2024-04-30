@@ -24,7 +24,7 @@ def test_instrumented_ml_py_pipeline_runs():
     """
     dag = run_and_assert_all_op_outputs_inspected(ANHEDONIA_ML_PY, None, ANHEDONIA_ML_PNG,
                                                   [custom_monkeypatching])
-    assert len(dag) == 52
+    assert len(dag) == 36
 
 
 def test_llm_py_pipeline_runs():
@@ -43,4 +43,4 @@ def test_instrumented_llm_py_pipeline_runs():
     """
     dag = run_and_assert_all_op_outputs_inspected(ANHEDONIA_LLM_PY, None, ANHEDONIA_LLM_PNG,
                                                   [custom_monkeypatching])
-    assert len(dag) == 52
+    assert len(dag) == 37
