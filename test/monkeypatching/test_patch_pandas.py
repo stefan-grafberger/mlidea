@@ -1122,6 +1122,50 @@ def test_series__logical_method():
     pandas.testing.assert_series_equal(extracted_func_result.reset_index(drop=True), expected.reset_index(drop=True))
 
 
+def test_series__invert__():
+    """
+    Tests whether the monkey patching of ('pandas.core.series', '__invert__') works
+    """
+    test_code = cleandoc("""
+                import pandas as pd
+                mask1 = pd.Series([True, False, True, True], name='A')
+                mask2 = ~mask1
+                pd.testing.assert_series_equal(mask2, pd.Series([False, True, False, False], name='A'))
+                """)
+
+    inspector_result = _pipeline_executor.singleton.run(python_code=test_code, track_code_references=True)
+    inspector_result.original_dag.remove_node(list(inspector_result.original_dag.nodes)[2])
+
+    expected_dag = networkx.DiGraph()
+    expected_data_source1 = DagNode(0,
+                                    BasicCodeLocation("<string-source>", 2),
+                                    OperatorContext(OperatorType.DATA_SOURCE,
+                                                    FunctionInfo('pandas.core.series', 'Series')),
+                                    DagNodeDetails(None, ['A'], OptimizerInfo(RangeComparison(0, 200), (4, 1),
+                                                                              RangeComparison(0, 800))),
+                                    OptionalCodeInfo(CodeReference(2, 8, 2, 54),
+                                                     "pd.Series([True, False, True, True], name='A')"),
+                                    Comparison(partial))
+    expected_subscript = DagNode(1,
+                                 BasicCodeLocation("<string-source>", 3),
+                                 OperatorContext(OperatorType.SUBSCRIPT,
+                                                 FunctionInfo('pandas.core.series', '__invert__')),
+                                 DagNodeDetails('~', ['A'], OptimizerInfo(RangeComparison(0, 200), (4, 1),
+                                                                          RangeComparison(0, 800))),
+                                 OptionalCodeInfo(CodeReference(3, 8, 3, 14),
+                                                  "~mask1"),
+                                 Comparison(FunctionType))
+    expected_dag.add_edge(expected_data_source1, expected_subscript, arg_index=0)
+
+    compare(networkx.to_dict_of_dicts(inspector_result.original_dag), networkx.to_dict_of_dicts(expected_dag))
+
+    extracted_node = list(inspector_result.original_dag.nodes)[1]
+    pd_series1 = pandas.Series([True, False, True, True], name='C')
+    extracted_func_result = extracted_node.processing_func(pd_series1)
+    expected = pandas.Series([False, True, False, False], name='C')
+    pandas.testing.assert_series_equal(extracted_func_result.reset_index(drop=True), expected.reset_index(drop=True))
+
+
 def test_series_as_numpy():
     """
     Tests whether the monkey patching of ('pandas.core.series', 'Series') works
@@ -1245,6 +1289,53 @@ def test_series_str_match():
                             DagNodeDetails("match r'^(a|c)*$'", ['A'], OptimizerInfo(RangeComparison(0, 200), (4, 1),
                                                                                      RangeComparison(0, 800))),
                             OptionalCodeInfo(CodeReference(5, 7, 5, 33), 'pd_series.str.match(regex)'),
+                            Comparison(FunctionType))
+    expected_dag.add_edge(expected_data_source, expected_isin, arg_index=0)
+
+    compare(extracted_dag, expected_dag)
+
+    extracted_node = list(extracted_dag.nodes)[1]
+    pd_series = pandas.Series(['aaaa', '', 'dd', 'cccc'], name='b')
+    extracted_func_result = extracted_node.processing_func(pd_series)
+    expected = pandas.Series([True, True, False, True], name='b')
+    pandas.testing.assert_series_equal(extracted_func_result.reset_index(drop=True), expected.reset_index(drop=True))
+
+
+def test_series_str_contains():
+    """
+    Tests whether the monkey patching of 'pandas.core.strings.StringMethods', 'contains' works
+    """
+    test_code = cleandoc("""
+        import pandas as pd
+
+        pd_series = pd.Series(['aa', 'b', 'ccc', ''], name='A')
+        regex = r"^(a|c)*$"
+        lens = pd_series.str.contains(regex, regex=True)
+        expected = pd.Series([True, False, True, True], name='A')
+        pd.testing.assert_series_equal(lens.reset_index(drop=True), expected.reset_index(drop=True))
+        """)
+    inspector_result = _pipeline_executor.singleton.run(python_code=test_code, track_code_references=True)
+
+    extracted_dag = inspector_result.original_dag
+    extracted_dag.remove_node(list(extracted_dag.nodes)[2])
+
+    expected_dag = networkx.DiGraph()
+    expected_data_source = DagNode(0,
+                                   BasicCodeLocation("<string-source>", 3),
+                                   OperatorContext(OperatorType.DATA_SOURCE,
+                                                   FunctionInfo('pandas.core.series', 'Series')),
+                                   DagNodeDetails(None, ['A'], OptimizerInfo(RangeComparison(0, 200), (4, 1),
+                                                                             RangeComparison(0, 800))),
+                                   OptionalCodeInfo(CodeReference(3, 12, 3, 55),
+                                                    "pd.Series(['aa', 'b', 'ccc', ''], name='A')"),
+                                   Comparison(partial))
+    expected_isin = DagNode(1,
+                            BasicCodeLocation("<string-source>", 5),
+                            OperatorContext(OperatorType.SUBSCRIPT,
+                                            FunctionInfo('pandas.core.strings.StringMethods', 'contains')),
+                            DagNodeDetails("contains r'^(a|c)*$'", ['A'], OptimizerInfo(RangeComparison(0, 200), (4, 1),
+                                                                                     RangeComparison(0, 800))),
+                            OptionalCodeInfo(CodeReference(5, 7, 5, 48), 'pd_series.str.contains(regex, regex=True)'),
                             Comparison(FunctionType))
     expected_dag.add_edge(expected_data_source, expected_isin, arg_index=0)
 

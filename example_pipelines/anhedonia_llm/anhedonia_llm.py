@@ -20,7 +20,7 @@ boolean_dictionary = {True: 'anhedonia', False: 'regular'}
 def load_train_data(user_location, tweet_location, included_countries):
     # pylint: disable=redefined-outer-name
     users = pd.read_parquet(user_location)
-    users = users[users.country.isin(included_countries)]
+    users = users[users['country'].isin(included_countries)]
     tweets = pd.read_parquet(tweet_location)
     return users.merge(tweets, on='user_id')
 

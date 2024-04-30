@@ -60,6 +60,15 @@ class CallCaptureTransformer(ast.NodeTransformer):
         self.bool_op_add_set_code_reference(node)
         return node
 
+    def visit_UnaryOp(self, node: ast.UnaryOp):
+        """
+        Instrument all function calls
+        """
+        # pylint: disable=invalid-name
+        ast.NodeTransformer.generic_visit(self, node)
+        self.unary_op_add_set_code_reference(node)
+        return node
+
     @staticmethod
     def call_add_set_code_reference(node):
         """
@@ -141,3 +150,12 @@ class CallCaptureTransformer(ast.NodeTransformer):
         last_previously_processed_val = node.values[-1]
         call_node = CallCaptureTransformer.create_set_code_reference_node_subscript(node, last_previously_processed_val)
         node.values[-1] = call_node
+
+    @staticmethod
+    def unary_op_add_set_code_reference(node):
+        """
+        When the __getitem__ method of some object is called, capture the arguments of the method before executing it
+        """
+        unary_op_arg = node.operand
+        call_node = CallCaptureTransformer.create_set_code_reference_node_subscript(node, unary_op_arg)
+        node.operand = call_node
