@@ -56,6 +56,35 @@ class PandasPatching:
 
         return execute_patched_func(original, execute_inspections, *args, **kwargs)
 
+    @gorilla.name('read_parquet')
+    @gorilla.settings(allow_hit=True)
+    def patched_read_parquet(*args, **kwargs):
+        """ Patch for ('pandas.io.parsers', 'read_parquet') """
+        # pylint: disable=no-self-argument
+        original = gorilla.get_original_attribute(pandas, 'read_parquet')
+
+        def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
+            """ Execute inspections, add DAG node """
+            function_info = FunctionInfo('pandas.io.parsers', 'read_parquet')
+
+            operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info)
+            processing_func = partial(original, *args, **kwargs)
+            optimizer_info, result = capture_optimizer_info(processing_func)
+
+            description = f"{args[0].split(os.path.sep)[-1]}"
+            dag_node = DagNode(op_id,
+                               BasicCodeLocation(caller_filename, lineno),
+                               operator_context,
+                               DagNodeDetails(description, list(result.columns), optimizer_info),
+                               get_optional_code_info_or_none(optional_code_reference, optional_source_code),
+                               processing_func)
+            function_call_result = FunctionCallResult(result)
+            add_dag_node(dag_node, [], function_call_result)
+            new_result = function_call_result.function_result
+            return new_result
+
+        return execute_patched_func(original, execute_inspections, *args, **kwargs)
+
 
 @gorilla.patches(pandas.DataFrame)
 class DataFramePatching:

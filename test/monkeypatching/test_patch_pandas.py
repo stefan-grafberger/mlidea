@@ -51,6 +51,38 @@ def test_read_csv():
     assert len(extracted_node.processing_func()) == 22792
 
 
+def test_read_parquet():
+    """
+    Tests whether the monkey patching of ('pandas.io.parsers', 'read_parquet') works
+    """
+    test_code = cleandoc("""
+        import os
+        import pandas as pd
+        from mlidea.utils import get_project_root
+
+        train_file = os.path.join(str(get_project_root()), "example_pipelines", "anhedonia_ml", "data", "users.pqt")
+        raw_data = pd.read_parquet(train_file)
+        assert len(raw_data) == 900
+        """)
+
+    inspector_result = _pipeline_executor.singleton.run(python_code=test_code, track_code_references=True)
+
+    extracted_node: DagNode = list(inspector_result.original_dag.nodes)[0]
+    expected_node = DagNode(0,
+                            BasicCodeLocation("<string-source>", 6),
+                            OperatorContext(OperatorType.DATA_SOURCE, FunctionInfo('pandas.io.parsers', 'read_parquet')),
+                            DagNodeDetails(StringComparison(r".*\.pqt"),
+                                           ['user_id', 'lang', 'country'],
+                                           OptimizerInfo(RangeComparison(0, 100000), (900, 3),
+                                                         RangeComparison(0, 30000000))),
+                            OptionalCodeInfo(CodeReference(6, 11, 6, 38),
+                                             "pd.read_parquet(train_file)"),
+                            Comparison(partial))
+    compare(extracted_node, expected_node)
+
+    assert len(extracted_node.processing_func()) == 900
+
+
 def test_from_records():
     """
     Tests whether the monkey patching of ('pandas.io.parsers', 'read_csv') works
