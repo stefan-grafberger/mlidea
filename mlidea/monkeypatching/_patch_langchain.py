@@ -2,13 +2,27 @@
 Monkey patching for sklearn
 """
 from functools import partial
+from typing import (
+    Any,
+    List,
+    Optional,
+    Union, cast,
+)
 
 import gorilla
 from langchain_community import vectorstores as community_vectorstores
 from langchain_community.embeddings import huggingface
 from langchain_core import vectorstores as core_vectorstores
 from langchain_core.language_models import BaseChatModel
+from langchain_core.load.dump import dumpd
 from langchain_core.runnables import base, RunnableParallel, RunnableSequence
+from langchain_core.runnables.config import (
+    RunnableConfig,
+    get_config_list, patch_config,
+)
+from langchain_core.runnables.utils import (
+    Input, Output,
+)
 from langchain_core.vectorstores import VectorStoreRetriever
 
 from execution._stat_tracking import capture_optimizer_info
@@ -32,76 +46,123 @@ class RunnableSequencePatching:
     """ Patches for sklearn """
 
     # pylint: disable=too-few-public-methods
-
     @gorilla.name('batch')
     @gorilla.settings(allow_hit=True)
-    def patched_batch(self, *args, **kwargs):
-        # pylint: disable=no-self-argument
+    def patched_batch(self, inputs: List[Input],
+        config: Optional[Union[RunnableConfig, List[RunnableConfig]]] = None,
+        *,
+        return_exceptions: bool = False,
+        **kwargs: Optional[Any]):
         original = gorilla.get_original_attribute(base.RunnableSequence, 'batch')
-
-        # def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
-        #     """ Execute inspections, add DAG node """
-        #     function_info = FunctionInfo('sklearn.preprocessing._label', 'label_binarize')
-        #     input_info = get_input_info(args[0], caller_filename, lineno, function_info, optional_code_reference,
-        #                                 optional_source_code)
-        #
-        #     operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, function_info)
-        #     initial_func = partial(original, input_info.annotated_dfobject.result_data, *args[1:], **kwargs)
-        #     optimizer_info, result = capture_optimizer_info(initial_func)
-        #     processing_func = lambda df: original(df, *args[1:], **kwargs)
-        #
-        #     classes = kwargs['classes']
-        #     description = f"label_binarize, classes: {classes}"
-        #     dag_node = DagNode(op_id,
-        #                        BasicCodeLocation(caller_filename, lineno),
-        #                        operator_context,
-        #                        DagNodeDetails(description, ["array"], optimizer_info),
-        #                        get_optional_code_info_or_none(optional_code_reference, optional_source_code),
-        #                        processing_func)
-        #     function_call_result = FunctionCallResult(result)
-        #     add_dag_node(dag_node, [input_info.dag_node], function_call_result)
-        #     new_result = function_call_result.function_result
-        #
-        #     return new_result
-
-        # return execute_patched_func(original, execute_inspections, *args, **kwargs)
-
         if call_info_singleton.runnable_sequence_active is False:
-            for step in self.steps:
+            call_info_singleton.runnable_sequence_active = True
+
+            if return_exceptions is True:
+                raise NotImplementedError("Exception propagation not supported currently")
+
+
+            # Setup code
+            from langchain_core.beta.runnables.context import config_with_context
+            from langchain_core.callbacks.manager import CallbackManager
+
+            if not inputs:
+                return []
+
+            # setup callbacks and context
+            configs = [
+                config_with_context(c, self.steps)
+                for c in get_config_list(config, len(inputs))
+            ]
+            callback_managers = [
+                CallbackManager.configure(
+                    inheritable_callbacks=config.get("callbacks"),
+                    local_callbacks=None,
+                    verbose=False,
+                    inheritable_tags=config.get("tags"),
+                    local_tags=None,
+                    inheritable_metadata=config.get("metadata"),
+                    local_metadata=None,
+                )
+                for config in configs
+            ]
+            # start the root runs, one per input
+            run_managers = [
+                cm.on_chain_start(
+                    dumpd(self),
+                    input,
+                    name=config.get("run_name") or self.get_name(),
+                    run_id=config.pop("run_id", None),
+                )
+                for cm, input, config in zip(callback_managers, inputs, configs)
+            ]
+            # End setup
+            # TODO: Now we can look for the retrieval step and create a DAG node for it and precompute the result
+            retriever_step = None
+            for i, step in enumerate(self.steps):
                 if isinstance(step, VectorStoreRetriever):
-                    print("retriever step found")
-                    print(step)
+                    raise NotImplementedError("Only VectorStoreRetriever that appear nested in a step are supported "
+                                              "currently!")
                 if isinstance(step, RunnableParallel):
                     child_retrievers = [(step_name, step_content) for (step_name, step_content) in step.steps.items()
                                         if isinstance(step_content, VectorStoreRetriever)]
                     if len(child_retrievers) >= 1:
-                        print("retriever step found")
-                        print(step)
+                        raise NotImplementedError("Retriever steps that appear directly as a runnable child without a "
+                                                  "formatting function are not supported right now!")
                     child_sequences = [(step_name, step_content) for (step_name, step_content) in step.steps.items()
                                        if isinstance(step_content, RunnableSequence)]
-                    # TODO: Beware of recursive calls, these are the same as the current class. Introduce a singleton
-                    #  with a boolean again to make sure that only the parent one is patched?
-                    retrieval_corpus_input_dag_node_id = None
                     for child_sequence in child_sequences:
                         for child_sequence_step in child_sequence[1].steps:
                             if isinstance(child_sequence_step, VectorStoreRetriever):
                                 print("retriever step found")
+                                retriever_step = i
                                 print(step)
-                                retrieval_corpus_input_dag_node_id = child_sequence_step._mlinspect_dag_node
                                 child_sequence_step.precompute_results()
+            if retriever_step != 0:
+                print(retriever_step)
+                raise NotImplementedError("Only Retrievers at the beginning of langchain pipeliens are supported right "
+                                          "now!")
+            # TODO: Now we can execute the rest of the langchain pipeline while making sure to reuse the computed result
+            for i, step in enumerate(self.steps):
+                inputs = step.batch(
+                    inputs,
+                    [
+                        # each step a child run of the corresponding root run
+                        patch_config(
+                            config, callbacks=rm.get_child(f"seq:step:{i + 1}")
+                        )
+                        for rm, config in zip(run_managers, configs)
+                    ],
+                )
+            new_result = cast(List[Output], inputs)
 
-                    # This child_sequence here is the one that ultimately becomes the DAG node!
+            # def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
+            #     """ Execute inspections, add DAG node """
+            #     function_info = FunctionInfo('sklearn.preprocessing._label', 'label_binarize')
+            #     input_info = get_input_info(args[0], caller_filename, lineno, function_info, optional_code_reference,
+            #                                 optional_source_code)
+            #
+            #     operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, function_info)
+            #     initial_func = partial(original, input_info.annotated_dfobject.result_data, *args[1:], **kwargs)
+            #     optimizer_info, result = capture_optimizer_info(initial_func)
+            #     processing_func = lambda df: original(df, *args[1:], **kwargs)
+            #
+            #     classes = kwargs['classes']
+            #     description = f"label_binarize, classes: {classes}"
+            #     dag_node = DagNode(op_id,
+            #                        BasicCodeLocation(caller_filename, lineno),
+            #                        operator_context,
+            #                        DagNodeDetails(description, ["array"], optimizer_info),
+            #                        get_optional_code_info_or_none(optional_code_reference, optional_source_code),
+            #                        processing_func)
+            #     function_call_result = FunctionCallResult(result)
+            #     add_dag_node(dag_node, [input_info.dag_node], function_call_result)
+            #     new_result = function_call_result.function_result
+            #
+            #     return new_result
 
-            for step in self.steps:
-                if isinstance(step, BaseChatModel):
-                    print("llm step found")
-                    print(step)
-
-            call_info_singleton.runnable_sequence_active = True
-            new_result = original(self, *args, **kwargs)
             call_info_singleton.runnable_sequence_active = False
         else:
-            new_result = original(self, *args, **kwargs)
+            new_result = original(self, inputs, config, return_exceptions=return_exceptions, **kwargs)
         return new_result
 
 
