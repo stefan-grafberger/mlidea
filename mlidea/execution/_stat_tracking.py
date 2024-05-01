@@ -126,6 +126,8 @@ def get_df_shape(result_or_inplace_obj):
             shape = (len(result_or_inplace_obj), 1)
         elif isinstance(result_or_inplace_obj[0], numpy.ndarray) and result_or_inplace_obj[0].ndim == 1:
             shape = (len(result_or_inplace_obj), len(result_or_inplace_obj[0]))
+        elif isinstance(result_or_inplace_obj, list) and isinstance(result_or_inplace_obj[0], dict):
+            shape = (len(result_or_inplace_obj), len(list(result_or_inplace_obj[0].keys())))
         elif isinstance(result_or_inplace_obj, list) and not isinstance(result_or_inplace_obj[0],
                                                                            (list, numpy.ndarray)):
             shape = (len(result_or_inplace_obj), 1)

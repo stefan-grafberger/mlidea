@@ -498,10 +498,10 @@ class DataFramePatching:
 
     @gorilla.name('to_dict')
     @gorilla.settings(allow_hit=True)
-    def patched_to_dict(self, *args, **kwargs):
+    def patched_to_dict(self, orient='dict', into=dict, **kwargs):
         """ Patch for ('pandas.core.frame', 'to_dict') """
         original = gorilla.get_original_attribute(pandas.DataFrame, 'to_dict')
-        func_args = kwargs
+        func_args = {'orient': orient, 'into': into, **kwargs}
 
         def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
             """ Execute inspections, add DAG node """
@@ -510,13 +510,21 @@ class DataFramePatching:
                                         optional_source_code)
             operator_context = OperatorContext(OperatorType.PROJECTION, function_info)
             description = "dict conversion"
-            processing_func = lambda df: original(df, *args, **kwargs)
+            processing_func = lambda df: original(df, **func_args)
             initial_func = partial(original, input_info.annotated_dfobject.result_data, **func_args)
             optimizer_info, result = capture_optimizer_info(initial_func)
+
+            if isinstance(result, dict) and isinstance(list(result.values())[0], dict):
+                columns = list(result.keys())
+            elif isinstance(result, list) and isinstance(result[0], dict):
+                columns = list(result[0].keys())
+            else:
+                raise NotImplementedError("TODO: Support all to_dict output formats if ever needed")
+
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
                                operator_context,
-                               DagNodeDetails(description, list(result.keys()), optimizer_info),
+                               DagNodeDetails(description, columns, optimizer_info),
                                get_optional_code_info_or_none(optional_code_reference, optional_source_code),
                                processing_func)
             function_call_result = FunctionCallResult(result)

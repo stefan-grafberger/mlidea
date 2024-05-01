@@ -767,7 +767,7 @@ def test_groupby_agg():
     pandas.testing.assert_frame_equal(df_groupby_agg.reset_index(drop=False), df_expected.reset_index(drop=True))
 
 
-def test_to_dict():
+def test_to_dict_default():
     """
     Tests whether the monkey patching of ('pandas.core.frame', 'to_dict') works.
     """
@@ -797,7 +797,7 @@ def test_to_dict():
                                                    FunctionInfo('pandas.core.frame', 'to_dict')),
                                    DagNodeDetails("dict conversion",
                                                   ['group', 'value'],
-                                                  OptimizerInfo(RangeComparison(0, 1000), (3, 2),
+                                                  OptimizerInfo(RangeComparison(0, 1000), (5, 2),
                                                                 RangeComparison(0, 800))),
                                    OptionalCodeInfo(CodeReference(4, 10, 4, 22), "df.to_dict()"),
                                    Comparison(FunctionType))
@@ -811,6 +811,52 @@ def test_to_dict():
     assert len(list(df_dict.values())[0]) == 4
     assert df_dict["A"][0] == 'A'
     assert df_dict["B"][2] == 7
+
+
+def test_to_dict_records():
+    """
+    Tests whether the monkey patching of ('pandas.core.frame', 'to_dict') works.
+    """
+    test_code = cleandoc("""
+        import pandas as pd
+
+        df = pd.DataFrame({'group': ['A', 'B', 'A', 'C', 'B'], 'value': [1, 2, 1, 3, 4]})
+        df_list = df.to_dict("records")
+        assert len(df_list) == 5
+        assert df_list._mlinspect_dag_node >= 1
+        """)
+    inspector_result = _pipeline_executor.singleton.run(python_code=test_code, track_code_references=True)
+
+    expected_dag = networkx.DiGraph()
+    expected_data = DagNode(0,
+                            BasicCodeLocation("<string-source>", 3),
+                            OperatorContext(OperatorType.DATA_SOURCE, FunctionInfo('pandas.core.frame', 'DataFrame')),
+                            DagNodeDetails(None, ['group', 'value'], OptimizerInfo(RangeComparison(0, 200), (5, 2),
+                                                                                   RangeComparison(0, 800))),
+                            OptionalCodeInfo(CodeReference(3, 5, 3, 81),
+                                             "pd.DataFrame({'group': ['A', 'B', 'A', 'C', 'B'], "
+                                             "'value': [1, 2, 1, 3, 4]})"),
+                            Comparison(partial))
+    expected_groupby_agg = DagNode(1,
+                                   BasicCodeLocation("<string-source>", 4),
+                                   OperatorContext(OperatorType.PROJECTION,
+                                                   FunctionInfo('pandas.core.frame', 'to_dict')),
+                                   DagNodeDetails("dict conversion",
+                                                  ['group', 'value'],
+                                                  OptimizerInfo(RangeComparison(0, 1000), (5, 2),
+                                                                RangeComparison(0, 800))),
+                                   OptionalCodeInfo(CodeReference(4, 10, 4, 31), """df.to_dict("records")"""),
+                                   Comparison(FunctionType))
+    expected_dag.add_edge(expected_data, expected_groupby_agg, arg_index=0)
+    compare(networkx.to_dict_of_dicts(inspector_result.original_dag), networkx.to_dict_of_dicts(expected_dag))
+
+    pandas_df = pandas.DataFrame({'A': ['A', 'B', 'A', 'B'], 'B': [1, 2, 7, 4]})
+    extracted_node_groupby_agg = list(inspector_result.original_dag.nodes)[1]
+    df_list = extracted_node_groupby_agg.processing_func(pandas_df)
+    assert len(df_list) == 4
+    assert len(df_list[0]) == 2
+    assert df_list[0]["A"] == 'A'
+    assert df_list[2]["B"] == 7
 
 
 def test_series__init__():
