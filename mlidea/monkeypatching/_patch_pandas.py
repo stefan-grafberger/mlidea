@@ -814,6 +814,46 @@ class SeriesPatching:
 
         return execute_patched_func(original, execute_inspections, self, **func_args)
 
+    @gorilla.name('replace')
+    @gorilla.settings(allow_hit=True)
+    def patched_replace(self, *args, **kwargs):
+        """ Patch for ('pandas.core.frame', 'replace') """
+        original = gorilla.get_original_attribute(pandas.Series, 'replace')
+
+        def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
+            """ Execute inspections, add DAG node """
+            function_info = FunctionInfo('pandas.core.series', 'replace')
+
+            input_info = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
+                                        optional_source_code)
+            operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, function_info)
+            # No input_infos copy needed because it's only a selection and the rows not being removed don't change
+            initial_func = partial(original, input_info.annotated_dfobject.result_data, *args, **kwargs)
+            optimizer_info, result = capture_optimizer_info(initial_func, self)
+            if isinstance(args[0], dict):
+                replacement_items = list(args[0].items())[1:]
+                to_replace, replacement = list(args[0].items())[0]
+                description = f"Replace '{to_replace}'->'{replacement}'"
+                for to_replace, replacement in replacement_items:
+                    description += f", '{to_replace}'->'{replacement}'"
+            else:
+                description = f"Replace '{args[0]}' with '{args[1]}'"
+            processing_func = lambda df: original(df, *args, **kwargs)
+            dag_node = DagNode(op_id,
+                               BasicCodeLocation(caller_filename, lineno),
+                               operator_context,
+                               DagNodeDetails(description, [self.name], optimizer_info),
+                               get_optional_code_info_or_none(optional_code_reference, optional_source_code),
+                               processing_func)
+
+            function_call_result = FunctionCallResult(result)
+            add_dag_node(dag_node, [input_info.dag_node], function_call_result)
+            new_result = function_call_result.function_result
+
+            return new_result
+
+        return execute_patched_func(original, execute_inspections, self, *args, **kwargs)
+
     @gorilla.name('isin')
     @gorilla.settings(allow_hit=True)
     def patched_isin(self, *args, **kwargs):
