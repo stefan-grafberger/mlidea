@@ -15,6 +15,7 @@ from scikeras import wrappers
 from scipy.sparse import csr_matrix
 
 from mlidea.instrumentation._dag_node import OptimizerInfo
+from monkeypatching._mlinspect_ndarray import MlideaChromaVectorStoreRetrieverPlaceHolder
 
 
 def capture_optimizer_info(instrumented_function_call: partial, obj_for_inplace_ops: any or None = None,
@@ -148,6 +149,8 @@ def get_df_shape(result_or_inplace_obj):
     elif isinstance(result_or_inplace_obj, dict) and isinstance(list(result_or_inplace_obj.values())[0], dict):
         # E.g., pandas dataframe to_dict output
         shape = (len(list(result_or_inplace_obj.values())[0]), len(result_or_inplace_obj))
+    elif isinstance(result_or_inplace_obj, MlideaChromaVectorStoreRetrieverPlaceHolder):
+        shape = (len(result_or_inplace_obj.retrieval_corpus_X), len(result_or_inplace_obj.retrieval_corpus_y[0]) + 1)
     else:
         shape = None
     return shape

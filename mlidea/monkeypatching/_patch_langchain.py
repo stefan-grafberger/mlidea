@@ -1,21 +1,21 @@
 """
 Monkey patching for sklearn
 """
-import copy
-import dataclasses
-import warnings
-from collections.abc import Callable
 from functools import partial
 
 import gorilla
+from langchain_community import vectorstores as community_vectorstores
 from langchain_community.embeddings import huggingface
+from langchain_core import vectorstores as core_vectorstores
 from langchain_core.language_models import BaseChatModel
 from langchain_core.runnables import base, RunnableParallel, RunnableSequence
-from langchain_community import vectorstores as community_vectorstores
-from langchain_core import vectorstores as core_vectorstores
 from langchain_core.vectorstores import VectorStoreRetriever
 
-from execution._pipeline_executor import singleton
+from execution._stat_tracking import capture_optimizer_info
+from mlidea import DagNode, BasicCodeLocation, DagNodeDetails, FunctionInfo, OperatorContext, OperatorType
+from monkeypatching._mlinspect_ndarray import MlideaChromaVectorStoreRetrieverPlaceHolder
+from monkeypatching._monkey_patching_utils import execute_patched_func, get_optional_code_info_or_none, \
+    FunctionCallResult, add_dag_node, get_input_info
 
 
 class LangchainCallInfo:
@@ -87,7 +87,9 @@ class RunnableSequencePatching:
                             if isinstance(child_sequence_step, VectorStoreRetriever):
                                 print("retriever step found")
                                 print(step)
-                                retrieval_corpus_input_dag_node_id = child_sequence_step.vectorstore._mlinspect_input_dag_node
+                                retrieval_corpus_input_dag_node_id = child_sequence_step._mlinspect_dag_node
+                                child_sequence_step.precompute_results()
+
                     # This child_sequence here is the one that ultimately becomes the DAG node!
 
             for step in self.steps:
@@ -126,16 +128,54 @@ class ChromaPatching:
 
     @gorilla.name('from_texts')
     @gorilla.settings(allow_hit=True)
-    def patched_from_texts(*args, **kwargs):
+    def patched_from_texts(texts, metadatas=None, embedding=None, **kwargs):
         # pylint: disable=no-self-argument
         # We might not want to patch this one directly, only catch the batch call above
         original = gorilla.get_original_attribute(community_vectorstores.Chroma, 'from_texts')
-        new_result = original(*args, **kwargs)
-        # FIXME: Make sure that to_list forwards the mlinspect_dag_node and does not loose it
-        new_result._mlinspect_input_dag_node = "test input forwarding"
-        # new_result._mlinspect_input_dag_node = kwargs['texts']._mlinspect_dag_node
-        # Actually use add_dag_node etc
-        return new_result
+
+        def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
+            function_info = FunctionInfo('sklearn.compose._column_transformer', 'ColumnTransformer')
+            input_infos = []
+            if metadatas is None:
+                raise NotImplementedError("Vectorstore only supported in LLM+RAG scenarios with labels currently!")
+            input_info_X_train = get_input_info(texts, caller_filename, lineno, function_info,
+                                                optional_code_reference, optional_source_code)
+            input_infos.append(input_info_X_train)
+            input_info_y_train = get_input_info(metadatas, caller_filename, lineno, function_info,
+                                                optional_code_reference, optional_source_code)
+            input_infos.append(input_info_y_train)
+
+            operator_context = OperatorContext(OperatorType.CONCATENATION, function_info)
+            # input_annotated_dfs = [input_info.annotated_dfobject for input_info in input_infos]
+            # No input_infos copy needed because it's only a selection and the rows not being removed don't change
+            def processing_func(*input_dfs):
+                assert isinstance(input_dfs[0], list) and isinstance(input_dfs[0][0], str)
+                assert isinstance(input_dfs[1], list) and isinstance(input_dfs[1][0], dict)
+                new_result = MlideaChromaVectorStoreRetrieverPlaceHolder(input_dfs[0], input_dfs[1], embedding)
+                return new_result
+
+            initial_func = partial(processing_func, texts, metadatas, **kwargs)
+            optimizer_info, result = capture_optimizer_info(initial_func)
+
+            dag_node = DagNode(op_id,
+                               BasicCodeLocation(caller_filename,lineno),
+                               operator_context,
+                               DagNodeDetails(None, result.columns(), optimizer_info),
+                               get_optional_code_info_or_none(optional_code_reference, optional_source_code),
+                               processing_func)
+            input_dag_nodes = [input_info.dag_node for input_info in input_infos]
+            function_call_result = FunctionCallResult(result)
+            add_dag_node(dag_node, input_dag_nodes, function_call_result)
+            new_result = function_call_result.function_result
+
+            # For us, the actual embedding similarity join will happen in the langchain LLM chain
+            # initial_func = partial(original, self, texts=texts, metadatas=metadatas, embedding=embedding, **kwargs)
+            # optimizer_info, result = capture_optimizer_info(initial_func)
+
+            return new_result
+
+        return execute_patched_func(original, execute_inspections, texts=texts, metadatas=metadatas,
+                                    embedding=embedding, **kwargs)
 
 
 @gorilla.patches(huggingface.HuggingFaceEmbeddings)
