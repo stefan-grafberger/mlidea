@@ -44,12 +44,12 @@ train = weak_labeling(train)
 test = pd.read_parquet(test_location)
 
 # pylint: disable=no-member
-vectorstore = Chroma.from_texts(texts=train['tweet'].tolist(), metadatas=train[['label']].to_dict('records'),
+vectorstore = Chroma.from_texts(texts=train['tweet'].to_list(), metadatas=train[['label']].to_dict('records'),
                                 embedding=HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2'))
 
 rag_chain = get_langchain_rag_binary_classification(list(boolean_dictionary.values()), vectorstore.as_retriever())
 
-y_predicted = wait_llm_call(partial(rag_chain.batch, test['tweet'].tolist()), test)
+y_predicted = wait_llm_call(partial(rag_chain.batch, test['tweet'].to_list()), test)
 y_test_binarized = label_binarize(test['anhedonia'], classes=[True, False])
 accuracy = accuracy_score(y_predicted, y_test_binarized)
 print(f'Test accuracy is: {accuracy}')
