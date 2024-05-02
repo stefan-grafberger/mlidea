@@ -6,6 +6,7 @@ from typing import Any
 import numpy
 from langchain_community.vectorstores.chroma import Chroma
 from langchain_core.embeddings import Embeddings
+from langchain_core.runnables.utils import Input
 from langchain_core.vectorstores import VectorStoreRetriever
 from pydantic import PrivateAttr
 
@@ -68,13 +69,7 @@ class MlideaChromaVectorStoreRetrieverPlaceHolder(VectorStoreRetriever):
         self.embedding = embedding
 
     def invoke(self, *args: Any, **kwargs: Any):
-        return self.precomputed_result.invoke(*args, **kwargs)
-
-    def precompute_results(self):
-        self.precomputed_result = Chroma.from_texts(texts=self.retrieval_corpus_X, metadatas=self.retrieval_corpus_y,
-                                                    embedding=self.embedding).as_retriever()
-        # FIXME: Not sure yet how we can replace the individual invokes with a batch invoke or how else
-        #  we should handle this. Should we complete replace the langchain batch implementation?
+        raise ValueError("This is only a placeholder, the actual similarity join should be executed by the wrapper")
 
     def as_retriever(self):
         return self

@@ -12,6 +12,7 @@ from typing import (
 import gorilla
 from langchain_community import vectorstores as community_vectorstores
 from langchain_community.embeddings import huggingface
+from langchain_community.vectorstores.chroma import Chroma
 from langchain_core import vectorstores as core_vectorstores
 from langchain_core.language_models import BaseChatModel
 from langchain_core.load.dump import dumpd
@@ -39,6 +40,12 @@ class LangchainCallInfo:
 
 
 call_info_singleton = LangchainCallInfo()
+
+
+def execute_embedding_similarity_join(retrieval_corpus_X, retrieval_corpus_y, embedding, inputs: list[Input]):
+    filled_vectorstore = Chroma.from_texts(texts=retrieval_corpus_X, metadatas=retrieval_corpus_y,
+                                           embedding=embedding).as_retriever()
+    return filled_vectorstore.batch(inputs)
 
 
 @gorilla.patches(base.RunnableSequence)
@@ -98,6 +105,7 @@ class RunnableSequencePatching:
             # End setup
             # TODO: Now we can look for the retrieval step and create a DAG node for it and precompute the result
             retriever_step = None
+            retriever_dict = {}
             for i, step in enumerate(self.steps):
                 if isinstance(step, VectorStoreRetriever):
                     raise NotImplementedError("Only VectorStoreRetriever that appear nested in a step are supported "
@@ -111,28 +119,52 @@ class RunnableSequencePatching:
                     child_sequences = [(step_name, step_content) for (step_name, step_content) in step.steps.items()
                                        if isinstance(step_content, RunnableSequence)]
                     for child_sequence in child_sequences:
+                        is_retriever_and_its_processing = False
                         for child_sequence_step in child_sequence[1].steps:
                             if isinstance(child_sequence_step, VectorStoreRetriever):
+                                is_retriever_and_its_processing = True
                                 print("retriever step found")
                                 retriever_step = i
-                                print(step)
-                                child_sequence_step.precompute_results()
-            if retriever_step != 0:
-                print(retriever_step)
-                raise NotImplementedError("Only Retrievers at the beginning of langchain pipeliens are supported right "
-                                          "now!")
+                                if retriever_step != 0:
+                                    print(retriever_step)
+                                    raise NotImplementedError(
+                                        "Only Retrievers at the beginning of langchain pipeliens are supported right "
+                                        "now!")
+                        if is_retriever_and_its_processing:
+                            retrieval_results = inputs
+                            for child_sequence_step in child_sequence[1].steps:
+                                if isinstance(child_sequence_step, VectorStoreRetriever):
+                                    retrieval_results = execute_embedding_similarity_join(
+                                        child_sequence_step.retrieval_corpus_X, child_sequence_step.retrieval_corpus_y,
+                                        child_sequence_step.embedding, retrieval_results)
+                                else:
+                                    retrieval_results = child_sequence_step.batch(retrieval_results)
+                            retriever_dict[i] = (child_sequence[0], retrieval_results)
+
             # TODO: Now we can execute the rest of the langchain pipeline while making sure to reuse the computed result
             for i, step in enumerate(self.steps):
-                inputs = step.batch(
-                    inputs,
-                    [
-                        # each step a child run of the corresponding root run
-                        patch_config(
-                            config, callbacks=rm.get_child(f"seq:step:{i + 1}")
-                        )
-                        for rm, config in zip(run_managers, configs)
-                    ],
-                )
+                if i not in retriever_dict:
+                    inputs = step.batch(
+                        inputs,
+                        [
+                            # each step a child run of the corresponding root run
+                            patch_config(
+                                config, callbacks=rm.get_child(f"seq:step:{i + 1}")
+                            )
+                            for rm, config in zip(run_managers, configs)
+                        ],
+                    )
+                elif i in retriever_dict and isinstance(step, RunnableParallel):
+                    named_steps = dict(step.steps)
+                    retriever_step_name, retriever_step_result = retriever_dict[i]
+                    # FIXME: The output is currently derived using the global retrieval result for every input,
+                    #  need to fix this, maybe don't use RunnableParallel
+                    named_steps[retriever_step_name] = lambda x: retriever_step_result
+                    new_step = RunnableParallel(named_steps)
+                    inputs = new_step.batch(inputs)
+                else:
+                    raise NotImplementedError("TODO: Add support for langchain pipelines not following this pattern"
+                                              " if necessary")
             new_result = cast(List[Output], inputs)
 
             # def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
