@@ -30,11 +30,13 @@ from langchain_core.beta.runnables.context import config_with_context
 from langchain_core.callbacks.manager import CallbackManager
 from langchain_core.vectorstores import VectorStoreRetriever
 
+from execution._pipeline_executor import singleton
 from execution._stat_tracking import capture_optimizer_info
 from mlidea import DagNode, BasicCodeLocation, DagNodeDetails, FunctionInfo, OperatorContext, OperatorType
 from monkeypatching._mlinspect_ndarray import MlideaChromaVectorStoreRetrieverPlaceHolder
 from monkeypatching._monkey_patching_utils import execute_patched_func, get_optional_code_info_or_none, \
-    FunctionCallResult, add_dag_node, get_input_info
+    FunctionCallResult, add_dag_node, get_input_info, execute_patched_func_indirect_allowed, \
+    execute_patched_func_indirect_allowed_with_op_id
 
 
 class LangchainCallInfo:
@@ -63,46 +65,47 @@ class RunnableSequencePatching:
                       *, return_exceptions: bool = False, **kwargs: Optional[Any]):
         original = gorilla.get_original_attribute(base.RunnableSequence, 'batch')
         if call_info_singleton.runnable_sequence_active is False:
-            call_info_singleton.runnable_sequence_active = True
-            # TODO: Now we can look for the retrieval step and create a DAG node for it and precompute the result
-            retriever_with_info = self.find_and_execute_retriever()
-            retriever_result = self.execute_retriever(inputs, retriever_with_info)
-            new_result = self.execute_langchain_batch_with_preexecuted_retriever(retriever_result, config, inputs,
-                                                                                 return_exceptions)
+            def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
+                """ Execute inspections, add DAG node """
+                call_info_singleton.runnable_sequence_active = True
+                # TODO: Maybe use vectorstore info here and not the LLM info
+                function_info = FunctionInfo('langchain_core.runnables.base', 'batch')
+                retriever_with_info = self.find_retriever()
+                input_info_a = get_input_info(retriever_with_info[3], caller_filename, lineno, function_info,
+                                              optional_code_reference, optional_source_code)
+                input_info_b = get_input_info(inputs, caller_filename, lineno, function_info,
+                                              optional_code_reference, optional_source_code)
+                operator_context = OperatorContext(OperatorType.JOIN, function_info)
 
-            # def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
-            #     """ Execute inspections, add DAG node """
-            #     function_info = FunctionInfo('sklearn.preprocessing._label', 'label_binarize')
-            #     input_info = get_input_info(args[0], caller_filename, lineno, function_info, optional_code_reference,
-            #                                 optional_source_code)
-            #
-            #     operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, function_info)
-            #     initial_func = partial(original, input_info.annotated_dfobject.result_data, *args[1:], **kwargs)
-            #     optimizer_info, result = capture_optimizer_info(initial_func)
-            #     processing_func = lambda df: original(df, *args[1:], **kwargs)
-            #
-            #     classes = kwargs['classes']
-            #     description = f"label_binarize, classes: {classes}"
-            #     dag_node = DagNode(op_id,
-            #                        BasicCodeLocation(caller_filename, lineno),
-            #                        operator_context,
-            #                        DagNodeDetails(description, ["array"], optimizer_info),
-            #                        get_optional_code_info_or_none(optional_code_reference, optional_source_code),
-            #                        processing_func)
-            #     function_call_result = FunctionCallResult(result)
-            #     add_dag_node(dag_node, [input_info.dag_node], function_call_result)
-            #     new_result = function_call_result.function_result
-            #
-            #     return new_result
+                processing_func = partial(self.execute_retriever, inputs, retriever_with_info)
+                optimizer_info, result = capture_optimizer_info(processing_func)
+                description = "Embedding similarity join"
+                dag_node = DagNode(op_id,
+                                   BasicCodeLocation(caller_filename, lineno),
+                                   operator_context,
+                                   DagNodeDetails(description, ["array"], optimizer_info),
+                                   get_optional_code_info_or_none(optional_code_reference, optional_source_code),
+                                   processing_func)
+                function_call_result = FunctionCallResult(result)
+                add_dag_node(dag_node, [input_info_a.dag_node, input_info_b.dag_node], function_call_result)
+                embedding_join_result = function_call_result.function_result
 
-            call_info_singleton.runnable_sequence_active = False
+                # TODO: Create second LLM node
+                new_result = self.execute_langchain_batch_with_preexecuted_retriever(embedding_join_result, config,
+                                                                                     inputs, return_exceptions)
+                call_info_singleton.runnable_sequence_active = False
+
+                return new_result
+
+            new_result = execute_patched_func_indirect_allowed_with_op_id(execute_inspections)
+
         else:
             new_result = original(self, inputs, config, return_exceptions=return_exceptions, **kwargs)
         return new_result
 
     @staticmethod
     def execute_retriever(inputs, retriever_with_info):
-        retriever_step_index, retriever_sub_step_name, retriever_sub_step = retriever_with_info
+        retriever_step_index, retriever_sub_step_name, retriever_sub_step, _ = retriever_with_info
         retrieval_results = inputs
         if retrieval_results:
             for child_sequence_step in retriever_sub_step.steps:
@@ -115,7 +118,7 @@ class RunnableSequencePatching:
         found_retriever = (retriever_step_index, retriever_sub_step_name, retrieval_results)
         return found_retriever
 
-    def find_and_execute_retriever(self):
+    def find_retriever(self):
         found_retriever = None
         for step_index, step in enumerate(self.steps):
             if isinstance(step, BaseRetriever):
@@ -135,7 +138,7 @@ class RunnableSequencePatching:
                             if step_index != 0:
                                 raise NotImplementedError(
                                     "Only Retrievers at the beginning of langchain pipeliens are supported currently!")
-                            return step_index, child_sequence[0], child_sequence[1]
+                            return step_index, child_sequence[0], child_sequence[1], child_sequence_step
                 raise ValueError("Only langchain pipelines with a retrieval step are supported currently!")
         return found_retriever
 

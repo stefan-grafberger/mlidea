@@ -6,6 +6,8 @@ import dataclasses
 import sys
 
 import numpy
+from langchain_core.retrievers import BaseRetriever
+from langchain_core.runnables import RunnableSequence
 from pandas import DataFrame, Series
 from scipy.sparse import csr_matrix
 
@@ -15,7 +17,8 @@ from mlidea.execution import _pipeline_executor
 from mlidea.instrumentation._dag_node import DagNode, CodeReference, BasicCodeLocation, DagNodeDetails, \
     OptionalCodeInfo, OptimizerInfo
 from mlidea.execution._pipeline_executor import singleton
-from mlidea.monkeypatching._mlinspect_ndarray import MlinspectNdarray, MlinspectList, MlinspectDict
+from mlidea.monkeypatching._mlinspect_ndarray import MlinspectNdarray, MlinspectList, MlinspectDict, \
+    MlideaChromaVectorStoreRetrieverPlaceHolder, MlinspectTuple
 
 
 @dataclasses.dataclass(frozen=False)
@@ -175,6 +178,43 @@ def execute_patched_func_indirect_allowed(execute_inspections_func):
     return result
 
 
+def execute_patched_func_indirect_allowed_with_op_id(execute_inspections_func):
+    """
+    Detects whether the function call comes directly from user code and decides whether to execute the original
+    function or the patched variant.
+    """
+    # Performance aspects: https://gist.github.com/JettJones/c236494013f22723c1822126df944b12
+    # CPython implementation detail: This function should be used for internal and specialized purposes only.
+    #  It is not guaranteed to exist in all implementations of Python.
+    #  inspect.getcurrentframe() also only does return `sys._getframe(1) if hasattr(sys, "_getframe") else None`
+    #  We can execute one hasattr check right at the beginning of the mlidea execution
+
+    frame = sys._getframe(2)
+    while frame.f_code.co_filename != singleton.source_code_path:
+        frame = frame.f_back
+
+    caller_filename = frame.f_code.co_filename
+
+    if singleton.track_code_references:
+        call_ast_node = ast.Call(lineno=singleton.lineno_next_call_or_subscript,
+                                 col_offset=singleton.col_offset_next_call_or_subscript,
+                                 end_lineno=singleton.end_lineno_next_call_or_subscript,
+                                 end_col_offset=singleton.end_col_offset_next_call_or_subscript)
+        caller_source_code = ast.get_source_segment(singleton.source_code, node=call_ast_node)
+        caller_lineno = singleton.lineno_next_call_or_subscript
+        op_id = singleton.get_next_op_id()
+        caller_code_reference = CodeReference(singleton.lineno_next_call_or_subscript,
+                                              singleton.col_offset_next_call_or_subscript,
+                                              singleton.end_lineno_next_call_or_subscript,
+                                              singleton.end_col_offset_next_call_or_subscript)
+        result = execute_inspections_func(op_id, caller_filename, caller_lineno, caller_code_reference,
+                                          caller_source_code)
+    else:
+        caller_lineno = sys._getframe(2).f_lineno
+        result = execute_inspections_func(-1, caller_filename, caller_lineno, None, None)
+    return result
+
+
 def get_input_info(df_object, caller_filename, lineno, function_info, optional_code_reference, optional_source_code) \
         -> InputInfo:
     """
@@ -215,6 +255,8 @@ def get_column_names(df_object):
         columns = [df_object.name]
     elif isinstance(df_object, (csr_matrix, numpy.ndarray, list)):
         columns = ['array']
+    elif isinstance(df_object, BaseRetriever):
+        columns = df_object.columns()
     else:
         raise NotImplementedError(f"TODO: Type: '{type(df_object)}' still is not supported!")
     return columns
@@ -230,6 +272,8 @@ def wrap_in_mlinspect_array_if_necessary(df_object):
         df_object = MlinspectList(df_object)
     elif isinstance(df_object, dict):
         df_object = MlinspectDict(df_object)
+    elif isinstance(df_object, tuple):
+        df_object = MlinspectTuple(df_object)
     return df_object
 
 

@@ -426,7 +426,6 @@ class DataFramePatching:
             input_info_b = get_input_info(right_df, caller_filename, lineno, function_info, optional_code_reference,
                                           optional_source_code)
             operator_context = OperatorContext(OperatorType.JOIN, function_info)
-            # No input_infos copy needed because it's only a selection and the rows not being removed don't change
             initial_func = partial(original, input_info_a.annotated_dfobject.result_data,
                                    input_info_b.annotated_dfobject.result_data,
                                    *args[args_start_index:],
