@@ -70,13 +70,10 @@ class RunnableSequencePatching:
             if not inputs:
                 new_result = []
             else:
-                configs, run_managers = self.do_langchain_batch_setup(config, inputs, return_exceptions)
                 # TODO: Now we can look for the retrieval step and create a DAG node for it and precompute the result
-                found_retriever = None
-                found_retriever = self.find_and_execute_retriever(found_retriever, inputs)
-                assert found_retriever
-                new_result = self.execute_langchain_batch_with_preexecuted_retriever(configs, found_retriever, inputs,
-                                                                                     run_managers)
+                found_retriever = self.find_and_execute_retriever(inputs)
+                new_result = self.execute_langchain_batch_with_preexecuted_retriever(found_retriever, config, inputs,
+                                                                                     return_exceptions)
 
             # def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
             #     """ Execute inspections, add DAG node """
@@ -108,7 +105,8 @@ class RunnableSequencePatching:
             new_result = original(self, inputs, config, return_exceptions=return_exceptions, **kwargs)
         return new_result
 
-    def find_and_execute_retriever(self, found_retriever, inputs):
+    def find_and_execute_retriever(self, inputs):
+        found_retriever = None
         for i, step in enumerate(self.steps):
             if isinstance(step, BaseRetriever):
                 raise NotImplementedError("Only VectorStoreRetriever that appear nested in a step are supported "
@@ -143,11 +141,12 @@ class RunnableSequencePatching:
                             else:
                                 retrieval_results = child_sequence_step.batch(retrieval_results)
                         found_retriever = (i, child_sequence[0], retrieval_results)
+        assert found_retriever is not None
         return found_retriever
 
-    def execute_langchain_batch_with_preexecuted_retriever(self, configs, found_retriever, inputs, run_managers):
+    def execute_langchain_batch_with_preexecuted_retriever(self, found_retriever, config, inputs, return_exceptions):
         retriever_step_num, retriever_step_name, retriever_step_result = found_retriever
-        # TODO: Now we can execute the rest of the langchain pipeline while making sure to reuse the computed result
+        configs, run_managers = self.do_langchain_batch_setup(config, inputs, return_exceptions)
         for i, step in enumerate(self.steps):
             if i is not retriever_step_num:
                 inputs = step.batch(
