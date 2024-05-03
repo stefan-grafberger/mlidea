@@ -59,21 +59,15 @@ class RunnableSequencePatching:
     # pylint: disable=too-few-public-methods
     @gorilla.name('batch')
     @gorilla.settings(allow_hit=True)
-    def patched_batch(self, inputs: List[Input],
-        config: Optional[Union[RunnableConfig, List[RunnableConfig]]] = None,
-        *,
-        return_exceptions: bool = False,
-        **kwargs: Optional[Any]):
+    def patched_batch(self, inputs: List[Input], config: Optional[Union[RunnableConfig, List[RunnableConfig]]] = None,
+                      *, return_exceptions: bool = False, **kwargs: Optional[Any]):
         original = gorilla.get_original_attribute(base.RunnableSequence, 'batch')
         if call_info_singleton.runnable_sequence_active is False:
             call_info_singleton.runnable_sequence_active = True
-            if not inputs:
-                new_result = []
-            else:
-                # TODO: Now we can look for the retrieval step and create a DAG node for it and precompute the result
-                found_retriever = self.find_and_execute_retriever(inputs)
-                new_result = self.execute_langchain_batch_with_preexecuted_retriever(found_retriever, config, inputs,
-                                                                                     return_exceptions)
+            # TODO: Now we can look for the retrieval step and create a DAG node for it and precompute the result
+            found_retriever = self.find_and_execute_retriever(inputs)
+            new_result = self.execute_langchain_batch_with_preexecuted_retriever(found_retriever, config, inputs,
+                                                                                 return_exceptions)
 
             # def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
             #     """ Execute inspections, add DAG node """
@@ -133,18 +127,21 @@ class RunnableSequencePatching:
                                     "now!")
                     if is_retriever_and_its_processing:
                         retrieval_results = inputs
-                        for child_sequence_step in child_sequence[1].steps:
-                            if isinstance(child_sequence_step, BaseRetriever):
-                                retrieval_results = execute_embedding_similarity_join(
-                                    child_sequence_step.retrieval_corpus_X, child_sequence_step.retrieval_corpus_y,
-                                    child_sequence_step.embedding, retrieval_results)
-                            else:
-                                retrieval_results = child_sequence_step.batch(retrieval_results)
+                        if inputs:
+                            for child_sequence_step in child_sequence[1].steps:
+                                if isinstance(child_sequence_step, BaseRetriever):
+                                    retrieval_results = execute_embedding_similarity_join(
+                                        child_sequence_step.retrieval_corpus_X, child_sequence_step.retrieval_corpus_y,
+                                        child_sequence_step.embedding, retrieval_results)
+                                else:
+                                    retrieval_results = child_sequence_step.batch(retrieval_results)
                         found_retriever = (i, child_sequence[0], retrieval_results)
         assert found_retriever is not None
         return found_retriever
 
     def execute_langchain_batch_with_preexecuted_retriever(self, found_retriever, config, inputs, return_exceptions):
+        if not inputs:
+            return []
         retriever_step_num, retriever_step_name, retriever_step_result = found_retriever
         configs, run_managers = self.do_langchain_batch_setup(config, inputs, return_exceptions)
         for i, step in enumerate(self.steps):
@@ -232,6 +229,7 @@ class ChromaPatching:
             input_infos.append(input_info_y_train)
 
             operator_context = OperatorContext(OperatorType.CONCATENATION, function_info)
+
             # input_annotated_dfs = [input_info.annotated_dfobject for input_info in input_infos]
             # No input_infos copy needed because it's only a selection and the rows not being removed don't change
             def processing_func(*input_dfs):
@@ -244,7 +242,7 @@ class ChromaPatching:
             optimizer_info, result = capture_optimizer_info(initial_func)
 
             dag_node = DagNode(op_id,
-                               BasicCodeLocation(caller_filename,lineno),
+                               BasicCodeLocation(caller_filename, lineno),
                                operator_context,
                                DagNodeDetails(None, result.columns(), optimizer_info),
                                get_optional_code_info_or_none(optional_code_reference, optional_source_code),
