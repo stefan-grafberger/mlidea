@@ -65,8 +65,9 @@ class RunnableSequencePatching:
         if call_info_singleton.runnable_sequence_active is False:
             call_info_singleton.runnable_sequence_active = True
             # TODO: Now we can look for the retrieval step and create a DAG node for it and precompute the result
-            found_retriever = self.find_and_execute_retriever(inputs)
-            new_result = self.execute_langchain_batch_with_preexecuted_retriever(found_retriever, config, inputs,
+            retriever_with_info = self.find_and_execute_retriever()
+            retriever_result = self.execute_retriever(inputs, retriever_with_info)
+            new_result = self.execute_langchain_batch_with_preexecuted_retriever(retriever_result, config, inputs,
                                                                                  return_exceptions)
 
             # def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
@@ -99,9 +100,24 @@ class RunnableSequencePatching:
             new_result = original(self, inputs, config, return_exceptions=return_exceptions, **kwargs)
         return new_result
 
-    def find_and_execute_retriever(self, inputs):
+    @staticmethod
+    def execute_retriever(inputs, retriever_with_info):
+        retriever_step_index, retriever_sub_step_name, retriever_sub_step = retriever_with_info
+        retrieval_results = inputs
+        if retrieval_results:
+            for child_sequence_step in retriever_sub_step.steps:
+                if isinstance(child_sequence_step, BaseRetriever):
+                    retrieval_results = execute_embedding_similarity_join(
+                        child_sequence_step.retrieval_corpus_X, child_sequence_step.retrieval_corpus_y,
+                        child_sequence_step.embedding, retrieval_results)
+                else:
+                    retrieval_results = child_sequence_step.batch(retrieval_results)
+        found_retriever = (retriever_step_index, retriever_sub_step_name, retrieval_results)
+        return found_retriever
+
+    def find_and_execute_retriever(self):
         found_retriever = None
-        for i, step in enumerate(self.steps):
+        for step_index, step in enumerate(self.steps):
             if isinstance(step, BaseRetriever):
                 raise NotImplementedError("Only VectorStoreRetriever that appear nested in a step are supported "
                                           "currently!")
@@ -114,29 +130,13 @@ class RunnableSequencePatching:
                 child_sequences = [(step_name, step_content) for (step_name, step_content) in step.steps.items()
                                    if isinstance(step_content, RunnableSequence)]
                 for child_sequence in child_sequences:
-                    is_retriever_and_its_processing = False
                     for child_sequence_step in child_sequence[1].steps:
                         if isinstance(child_sequence_step, BaseRetriever):
-                            is_retriever_and_its_processing = True
-                            print("retriever step found")
-                            retriever_step = i
-                            if retriever_step != 0:
-                                print(retriever_step)
+                            if step_index != 0:
                                 raise NotImplementedError(
-                                    "Only Retrievers at the beginning of langchain pipeliens are supported right "
-                                    "now!")
-                    if is_retriever_and_its_processing:
-                        retrieval_results = inputs
-                        if inputs:
-                            for child_sequence_step in child_sequence[1].steps:
-                                if isinstance(child_sequence_step, BaseRetriever):
-                                    retrieval_results = execute_embedding_similarity_join(
-                                        child_sequence_step.retrieval_corpus_X, child_sequence_step.retrieval_corpus_y,
-                                        child_sequence_step.embedding, retrieval_results)
-                                else:
-                                    retrieval_results = child_sequence_step.batch(retrieval_results)
-                        found_retriever = (i, child_sequence[0], retrieval_results)
-        assert found_retriever is not None
+                                    "Only Retrievers at the beginning of langchain pipeliens are supported currently!")
+                            return step_index, child_sequence[0], child_sequence[1]
+                raise ValueError("Only langchain pipelines with a retrieval step are supported currently!")
         return found_retriever
 
     def execute_langchain_batch_with_preexecuted_retriever(self, found_retriever, config, inputs, return_exceptions):
