@@ -10,6 +10,7 @@ from typing import (
 )
 
 import gorilla
+import pandas
 from langchain_community import vectorstores as community_vectorstores
 from langchain_community.embeddings import huggingface
 from langchain_community.vectorstores.chroma import Chroma
@@ -155,13 +156,15 @@ class RunnableSequencePatching:
                         ],
                     )
                 elif i in retriever_dict and isinstance(step, RunnableParallel):
-                    named_steps = dict(step.steps)
+                    result_dict = {}
                     retriever_step_name, retriever_step_result = retriever_dict[i]
-                    # FIXME: The output is currently derived using the global retrieval result for every input,
-                    #  need to fix this, maybe don't use RunnableParallel
-                    named_steps[retriever_step_name] = lambda x: retriever_step_result
-                    new_step = RunnableParallel(named_steps)
-                    inputs = new_step.batch(inputs)
+                    for step_name, step in step.steps.items():
+                        if step_name is not retriever_step_name:
+                            result_dict[step_name] = step.batch(inputs)
+                        else:
+                            result_dict[step_name] = retriever_step_result
+                    result_dict_as_list_of_dicts = pandas.DataFrame(result_dict).to_dict("records")
+                    inputs = result_dict_as_list_of_dicts
                 else:
                     raise NotImplementedError("TODO: Add support for langchain pipelines not following this pattern"
                                               " if necessary")
