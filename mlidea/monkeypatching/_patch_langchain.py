@@ -17,6 +17,7 @@ from langchain_community.vectorstores.chroma import Chroma
 from langchain_core import vectorstores as core_vectorstores
 from langchain_core.language_models import BaseChatModel
 from langchain_core.load.dump import dumpd
+from langchain_core.retrievers import BaseRetriever
 from langchain_core.runnables import base, RunnableParallel, RunnableSequence
 from langchain_core.runnables.config import (
     RunnableConfig,
@@ -108,12 +109,12 @@ class RunnableSequencePatching:
             retriever_step = None
             retriever_dict = {}
             for i, step in enumerate(self.steps):
-                if isinstance(step, VectorStoreRetriever):
+                if isinstance(step, BaseRetriever):
                     raise NotImplementedError("Only VectorStoreRetriever that appear nested in a step are supported "
                                               "currently!")
                 if isinstance(step, RunnableParallel):
                     child_retrievers = [(step_name, step_content) for (step_name, step_content) in step.steps.items()
-                                        if isinstance(step_content, VectorStoreRetriever)]
+                                        if isinstance(step_content, BaseRetriever)]
                     if len(child_retrievers) >= 1:
                         raise NotImplementedError("Retriever steps that appear directly as a runnable child without a "
                                                   "formatting function are not supported right now!")
@@ -122,7 +123,7 @@ class RunnableSequencePatching:
                     for child_sequence in child_sequences:
                         is_retriever_and_its_processing = False
                         for child_sequence_step in child_sequence[1].steps:
-                            if isinstance(child_sequence_step, VectorStoreRetriever):
+                            if isinstance(child_sequence_step, BaseRetriever):
                                 is_retriever_and_its_processing = True
                                 print("retriever step found")
                                 retriever_step = i
@@ -134,7 +135,7 @@ class RunnableSequencePatching:
                         if is_retriever_and_its_processing:
                             retrieval_results = inputs
                             for child_sequence_step in child_sequence[1].steps:
-                                if isinstance(child_sequence_step, VectorStoreRetriever):
+                                if isinstance(child_sequence_step, BaseRetriever):
                                     retrieval_results = execute_embedding_similarity_join(
                                         child_sequence_step.retrieval_corpus_X, child_sequence_step.retrieval_corpus_y,
                                         child_sequence_step.embedding, retrieval_results)

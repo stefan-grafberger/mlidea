@@ -6,6 +6,7 @@ from typing import Any
 import numpy
 from langchain_community.vectorstores.chroma import Chroma
 from langchain_core.embeddings import Embeddings
+from langchain_core.retrievers import BaseRetriever
 from langchain_core.runnables.utils import Input
 from langchain_core.vectorstores import VectorStoreRetriever
 from pydantic import PrivateAttr
@@ -52,7 +53,7 @@ class MlinspectNdarray(numpy.ndarray):
         result._mlinspect_annotation = self._mlinspect_annotation  # pylint: disable=protected-access
         return result
 
-class MlideaChromaVectorStoreRetrieverPlaceHolder(VectorStoreRetriever):
+class MlideaChromaVectorStoreRetrieverPlaceHolder(BaseRetriever):
     retrieval_corpus_X: Any
     retrieval_corpus_y: Any
     embedding: Any
@@ -63,12 +64,15 @@ class MlideaChromaVectorStoreRetrieverPlaceHolder(VectorStoreRetriever):
         # TODO: This is ugly, but we want a placeholder class can be used as part of the declarative langchain
         #  definition without actually executing something expensive. There is for sure a better way to do this,
         #  but this can be cleaned up later
-        super().__init__(**kwargs, vectorstore=Chroma(), tags=None)
+        super().__init__(**kwargs)
         self.retrieval_corpus_X = retrieval_corpus_X
         self.retrieval_corpus_y = retrieval_corpus_y
         self.embedding = embedding
 
     def invoke(self, *args: Any, **kwargs: Any):
+        raise ValueError("This is only a placeholder, the actual similarity join should be executed by the wrapper")
+
+    def _get_relevant_documents(self, *args: Any, **kwargs: Any):
         raise ValueError("This is only a placeholder, the actual similarity join should be executed by the wrapper")
 
     def as_retriever(self):
