@@ -253,7 +253,7 @@ def get_column_names(df_object):
         columns = list(df_object.columns)  # TODO: Update this for numpy arrays etc. later
     elif isinstance(df_object, Series):
         columns = [df_object.name]
-    elif isinstance(df_object, (csr_matrix, numpy.ndarray, list)):
+    elif isinstance(df_object, (csr_matrix, numpy.ndarray, list, MlinspectTuple)):
         columns = ['array']
     elif isinstance(df_object, BaseRetriever):
         columns = df_object.columns()

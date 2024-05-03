@@ -51,7 +51,7 @@ rag_chain = get_langchain_rag_binary_classification(list(boolean_dictionary.valu
 
 y_predicted = wait_llm_call(partial(rag_chain.batch, test['tweet'].to_list()), test)
 y_test_binarized = label_binarize(test['anhedonia'], classes=[True, False])
-accuracy = accuracy_score(y_predicted, y_test_binarized)
+accuracy = accuracy_score(y_test_binarized, y_predicted)
 print(f'Test accuracy is: {accuracy}')
 
 initial_end = time.time()

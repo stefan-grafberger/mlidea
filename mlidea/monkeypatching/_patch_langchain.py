@@ -36,7 +36,7 @@ from mlidea import DagNode, BasicCodeLocation, DagNodeDetails, FunctionInfo, Ope
 from monkeypatching._mlinspect_ndarray import MlideaChromaVectorStoreRetrieverPlaceHolder
 from monkeypatching._monkey_patching_utils import execute_patched_func, get_optional_code_info_or_none, \
     FunctionCallResult, add_dag_node, get_input_info, execute_patched_func_indirect_allowed, \
-    execute_patched_func_indirect_allowed_with_op_id
+    execute_patched_func_indirect_allowed_with_op_id, add_test_data_dag_node
 
 
 class LangchainCallInfo:
@@ -91,14 +91,33 @@ class RunnableSequencePatching:
                 embedding_join_result = function_call_result.function_result
 
                 # TODO: Create second LLM node
-                new_result = self.execute_langchain_batch_with_preexecuted_retriever(embedding_join_result, config,
-                                                                                     inputs, return_exceptions)
-                call_info_singleton.runnable_sequence_active = False
+                # Test data
+                _, test_data_node, test_data_result = add_test_data_dag_node(embedding_join_result,
+                                                                             function_info,
+                                                                             lineno,
+                                                                             optional_code_reference,
+                                                                             optional_source_code,
+                                                                             caller_filename)
 
-                return new_result
+                processing_func_predict = partial(self.execute_langchain_batch_with_preexecuted_retriever,
+                                                  embedding_join_result, config, inputs, return_exceptions)
+                optimizer_info_predict, result_predict = capture_optimizer_info(processing_func_predict)
+                operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info)
+                dag_node_predict = DagNode(singleton.get_next_op_id(),
+                                           BasicCodeLocation(caller_filename, lineno),
+                                           operator_context_predict,
+                                           DagNodeDetails("LLM", [], optimizer_info_predict),
+                                           get_optional_code_info_or_none(optional_code_reference,
+                                                                          optional_source_code),
+                                           processing_func_predict)
+                function_call_result = FunctionCallResult(result_predict)
+                add_dag_node(dag_node_predict, [test_data_node], function_call_result)
+                llm_result = function_call_result.function_result
+
+                call_info_singleton.runnable_sequence_active = False
+                return llm_result
 
             new_result = execute_patched_func_indirect_allowed_with_op_id(execute_inspections)
-
         else:
             new_result = original(self, inputs, config, return_exceptions=return_exceptions, **kwargs)
         return new_result

@@ -2662,6 +2662,7 @@ class MetricsPatching:
             """ Execute inspections, add DAG node """
             function_info = FunctionInfo('sklearn.metrics._classification', 'accuracy_score')
 
+            # TODO: Do we want to add a y_pred node to the DAG at some point?
             input_info_pred = get_input_info(y_pred, caller_filename, lineno, function_info,
                                              optional_code_reference, optional_source_code)
 
