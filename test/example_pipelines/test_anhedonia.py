@@ -43,4 +43,4 @@ def test_instrumented_llm_py_pipeline_runs():
     """
     dag = run_and_assert_all_op_outputs_inspected(ANHEDONIA_LLM_PY, None, ANHEDONIA_LLM_PNG,
                                                   [custom_monkeypatching])
-    assert len(dag) == -1 # TODO: not sure yet what this number should be
+    assert len(dag) == 34

@@ -68,30 +68,30 @@ class RunnableSequencePatching:
             def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
                 """ Execute inspections, add DAG node """
                 call_info_singleton.runnable_sequence_active = True
-                # TODO: Maybe use vectorstore info here and not the LLM info
-                function_info = FunctionInfo('langchain_core.runnables.base', 'batch')
+                # TODO: It is a bit unclear if it is better to use the vectorstore code location info here or the LLM
+                #  info for the first part. For now, going wiht the vectorstore
+                function_info_if_error = FunctionInfo('langchain_core.runnables.base', 'batch')
                 retriever_with_info = self.find_retriever()
-                input_info_a = get_input_info(retriever_with_info[3], caller_filename, lineno, function_info,
+                input_info_a = get_input_info(retriever_with_info[3], caller_filename, lineno, function_info_if_error,
                                               optional_code_reference, optional_source_code)
-                input_info_b = get_input_info(inputs, caller_filename, lineno, function_info,
+                input_info_b = get_input_info(inputs, caller_filename, lineno, function_info_if_error,
                                               optional_code_reference, optional_source_code)
-                operator_context = OperatorContext(OperatorType.JOIN, function_info)
+                operator_context = OperatorContext(OperatorType.JOIN, input_info_a.dag_node.operator_info.function_info)
 
                 processing_func = partial(self.execute_retriever, inputs, retriever_with_info)
                 optimizer_info, result = capture_optimizer_info(processing_func)
                 description = "Embedding similarity join"
                 dag_node = DagNode(op_id,
-                                   BasicCodeLocation(caller_filename, lineno),
+                                   input_info_a.dag_node.code_location,
                                    operator_context,
                                    DagNodeDetails(description, ["array"], optimizer_info),
-                                   get_optional_code_info_or_none(optional_code_reference, optional_source_code),
+                                   input_info_a.dag_node.optional_code_info,
                                    processing_func)
                 function_call_result = FunctionCallResult(result)
                 add_dag_node(dag_node, [input_info_a.dag_node, input_info_b.dag_node], function_call_result)
                 embedding_join_result = function_call_result.function_result
 
-                # TODO: Create second LLM node
-                # Test data
+                function_info = FunctionInfo('langchain_core.runnables.base', 'batch')
                 _, test_data_node, test_data_result = add_test_data_dag_node(embedding_join_result,
                                                                              function_info,
                                                                              lineno,
