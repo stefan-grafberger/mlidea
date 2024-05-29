@@ -1,6 +1,7 @@
 """
 Monkey patching for sklearn
 """
+from __future__ import annotations
 from functools import partial
 from typing import cast
 
@@ -50,13 +51,15 @@ def execute_embedding_similarity_join(retrieval_corpus_X, retrieval_corpus_y, em
 class RunnableSequencePatching:
     """ Patches for sklearn """
 
+    @gorilla.name('batch')
     @gorilla.settings(allow_hit=True)
-    def patched_batch(self, inputs: list[Input], config: (list[RunnableConfig] | RunnableConfig | None) = None,
+    def patched_batch(self, inputs: list[Input], config: [list[RunnableConfig] | RunnableConfig | None] = None,
                       *, return_exceptions: bool = False, **kwargs: any):
         original = gorilla.get_original_attribute(base.RunnableSequence, 'batch')
         if call_info_singleton.runnable_sequence_active is False:
             def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
                 """ Execute inspections, add DAG node """
+                # pylint: disable=too-many-locals
                 call_info_singleton.runnable_sequence_active = True
                 # TODO: It is a bit unclear if it is better to use the vectorstore code location info here or the LLM
                 #  info for the first part. For now, going wiht the vectorstore
@@ -128,6 +131,7 @@ class RunnableSequencePatching:
         return found_retriever
 
     def find_retriever(self):
+        # pylint: disable=no-member,too-many-nested-blocks
         found_retriever = None
         for step_index, step in enumerate(self.steps):
             if isinstance(step, BaseRetriever):
@@ -152,6 +156,7 @@ class RunnableSequencePatching:
         return found_retriever
 
     def execute_langchain_batch_with_preexecuted_retriever(self, found_retriever, config, inputs, return_exceptions):
+        # pylint: disable=no-member
         if not inputs:
             return []
         retriever_step_num, retriever_step_name, retriever_step_result = found_retriever
@@ -187,7 +192,7 @@ class RunnableSequencePatching:
         if return_exceptions is True:
             raise NotImplementedError("Exception propagation not supported currently")
         configs = [
-            config_with_context(c, self.steps)
+            config_with_context(c, self.steps)  # pylint: disable=no-member
             for c in get_config_list(config, len(inputs))
         ]
         callback_managers = [
@@ -207,7 +212,7 @@ class RunnableSequencePatching:
             cm.on_chain_start(
                 dumpd(self),
                 input,
-                name=config.get("run_name") or self.get_name(),
+                name=config.get("run_name") or self.get_name(),  # pylint: disable=no-member
                 run_id=config.pop("run_id", None),
             )
             for cm, input, config in zip(callback_managers, inputs, configs)
@@ -225,7 +230,6 @@ class ChromaPatching:
     @gorilla.settings(allow_hit=True)
     @staticmethod
     def patched_from_texts(texts, metadatas=None, embedding=None, **kwargs):
-        # pylint: disable=no-self-argument
         # We might not want to patch this one directly, only catch the batch call above
         original = gorilla.get_original_attribute(community_vectorstores.Chroma, 'from_texts')
 

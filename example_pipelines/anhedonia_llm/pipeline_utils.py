@@ -2,7 +2,7 @@
 Some useful utils for the project
 """
 from __future__ import annotations
-import getpass
+# import getpass
 import os
 import random
 import time
@@ -12,6 +12,7 @@ import numpy
 import pandas
 from langchain.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
+from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
@@ -73,7 +74,11 @@ def get_langchain_rag_binary_classification(classes, retriever):
         Your JSON response:
         """)
     prompt = ChatPromptTemplate.from_template(FEW_SHOT_CLF_PROMPT_TEMPLATE)
-    llm = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0)
+    # Make sure this pipeline is executable in Github Actions, but also uses a real LLM locally if needed
+    if os.getenv("GITHUB_ACTIONS") != "true":
+        llm = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0)
+    else:
+        llm = FakeListChatModel(responses=[f"{{\"label\": \"{classes[0]}\"}}""", f"{{\"label\": \"{classes[1]}\"}}"""])
 
     def format_docs(docs):
         retrieved_formatted = "\n\n".join(
