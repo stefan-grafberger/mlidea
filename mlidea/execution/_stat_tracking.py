@@ -15,7 +15,7 @@ from scikeras import wrappers
 from scipy.sparse import csr_matrix
 
 from mlidea.instrumentation._dag_node import OptimizerInfo
-from monkeypatching._mlinspect_ndarray import MlideaChromaVectorStoreRetrieverPlaceHolder
+from mlidea.monkeypatching._mlinspect_ndarray import MlideaChromaVectorStoreRetrieverPlaceHolder
 
 
 def capture_optimizer_info(instrumented_function_call: partial, obj_for_inplace_ops: any or None = None,

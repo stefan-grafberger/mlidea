@@ -2,20 +2,15 @@
 Monkey patching for sklearn
 """
 from functools import partial
-from typing import (
-    Any,
-    List,
-    Optional,
-    Union, cast,
-)
+from typing import cast
 
 import gorilla
 import pandas
 from langchain_community import vectorstores as community_vectorstores
 from langchain_community.embeddings import huggingface
 from langchain_community.vectorstores.chroma import Chroma
-from langchain_core import vectorstores as core_vectorstores
-from langchain_core.language_models import BaseChatModel
+from langchain_core.beta.runnables.context import config_with_context
+from langchain_core.callbacks.manager import CallbackManager
 from langchain_core.load.dump import dumpd
 from langchain_core.retrievers import BaseRetriever
 from langchain_core.runnables import base, RunnableParallel, RunnableSequence
@@ -26,17 +21,14 @@ from langchain_core.runnables.config import (
 from langchain_core.runnables.utils import (
     Input, Output,
 )
-from langchain_core.beta.runnables.context import config_with_context
-from langchain_core.callbacks.manager import CallbackManager
-from langchain_core.vectorstores import VectorStoreRetriever
 
-from execution._pipeline_executor import singleton
-from execution._stat_tracking import capture_optimizer_info
 from mlidea import DagNode, BasicCodeLocation, DagNodeDetails, FunctionInfo, OperatorContext, OperatorType
-from monkeypatching._mlinspect_ndarray import MlideaChromaVectorStoreRetrieverPlaceHolder
-from monkeypatching._monkey_patching_utils import execute_patched_func, get_optional_code_info_or_none, \
-    FunctionCallResult, add_dag_node, get_input_info, execute_patched_func_indirect_allowed, \
-    execute_patched_func_indirect_allowed_with_op_id, add_test_data_dag_node
+from mlidea.execution._pipeline_executor import singleton
+from mlidea.execution._stat_tracking import capture_optimizer_info
+from mlidea.monkeypatching._mlinspect_ndarray import MlideaChromaVectorStoreRetrieverPlaceHolder
+from mlidea.monkeypatching._monkey_patching_utils import execute_patched_func, get_optional_code_info_or_none, \
+    FunctionCallResult, add_dag_node, get_input_info, execute_patched_func_indirect_allowed_with_op_id, \
+    add_test_data_dag_node
 
 
 class LangchainCallInfo:
@@ -58,11 +50,9 @@ def execute_embedding_similarity_join(retrieval_corpus_X, retrieval_corpus_y, em
 class RunnableSequencePatching:
     """ Patches for sklearn """
 
-    # pylint: disable=too-few-public-methods
-    @gorilla.name('batch')
     @gorilla.settings(allow_hit=True)
-    def patched_batch(self, inputs: List[Input], config: Optional[Union[RunnableConfig, List[RunnableConfig]]] = None,
-                      *, return_exceptions: bool = False, **kwargs: Optional[Any]):
+    def patched_batch(self, inputs: list[Input], config: (list[RunnableConfig] | RunnableConfig | None) = None,
+                      *, return_exceptions: bool = False, **kwargs: any):
         original = gorilla.get_original_attribute(base.RunnableSequence, 'batch')
         if call_info_singleton.runnable_sequence_active is False:
             def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
@@ -100,7 +90,7 @@ class RunnableSequencePatching:
                                                                              caller_filename)
 
                 processing_func_predict = partial(self.execute_langchain_batch_with_preexecuted_retriever,
-                                                  embedding_join_result, config, inputs, return_exceptions)
+                                                  test_data_result, config, inputs, return_exceptions)
                 optimizer_info_predict, result_predict = capture_optimizer_info(processing_func_predict)
                 operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info)
                 dag_node_predict = DagNode(singleton.get_next_op_id(),
@@ -190,7 +180,7 @@ class RunnableSequencePatching:
             else:
                 raise NotImplementedError("TODO: Add support for langchain pipelines not following this pattern"
                                           " if necessary")
-        new_result = cast(List[Output], inputs)
+        new_result = cast(list[Output], inputs)
         return new_result
 
     def do_langchain_batch_setup(self, config, inputs, return_exceptions):
@@ -233,6 +223,7 @@ class ChromaPatching:
 
     @gorilla.name('from_texts')
     @gorilla.settings(allow_hit=True)
+    @staticmethod
     def patched_from_texts(texts, metadatas=None, embedding=None, **kwargs):
         # pylint: disable=no-self-argument
         # We might not want to patch this one directly, only catch the batch call above
@@ -298,20 +289,20 @@ class HuggingFaceEmbeddingsPatching:
 
     @gorilla.name('embed_documents')
     @gorilla.settings(allow_hit=True)
-    def patched_embed_documents(*args, **kwargs) -> list[list[float]]:
+    def patched_embed_documents(self, *args, **kwargs) -> list[list[float]]:
         # TODO: There are also async version of these functions, we might want to support them at some point
         # Here, it is a bit unclear as of now whether we want to present this as an extra node
         #  or have it as part of the vectorstore node
         original = gorilla.get_original_attribute(huggingface.HuggingFaceEmbeddings, 'embed_documents')
-        new_result = original(*args, **kwargs)
+        new_result = original(self, *args, **kwargs)
         return new_result
 
     @gorilla.name('embed_query')
     @gorilla.settings(allow_hit=True)
-    def patched_embed_query(*args, **kwargs) -> list[float]:
+    def patched_embed_query(self, *args, **kwargs) -> list[float]:
         # TODO: There are also async version of these functions, we might want to support them at some point
         # No batching is used for this one! Need to potentially find some workarounds to increase efficiency
         # We might not want to patch this one directly, only catch the batch call above
         original = gorilla.get_original_attribute(huggingface.HuggingFaceEmbeddings, 'embed_query')
-        new_result = original(*args, **kwargs)
+        new_result = original(self, *args, **kwargs)
         return new_result

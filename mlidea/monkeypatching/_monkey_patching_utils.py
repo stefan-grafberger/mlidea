@@ -7,18 +7,17 @@ import sys
 
 import numpy
 from langchain_core.retrievers import BaseRetriever
-from langchain_core.runnables import RunnableSequence
 from pandas import DataFrame, Series
 from scipy.sparse import csr_matrix
 
-from mlidea.execution._stat_tracking import get_df_shape, get_df_memory
-from mlidea.instrumentation._operator_types import OperatorContext, OperatorType
 from mlidea.execution import _pipeline_executor
+from mlidea.execution._pipeline_executor import singleton
+from mlidea.execution._stat_tracking import get_df_shape, get_df_memory
 from mlidea.instrumentation._dag_node import DagNode, CodeReference, BasicCodeLocation, DagNodeDetails, \
     OptionalCodeInfo, OptimizerInfo
-from mlidea.execution._pipeline_executor import singleton
+from mlidea.instrumentation._operator_types import OperatorContext, OperatorType
 from mlidea.monkeypatching._mlinspect_ndarray import MlinspectNdarray, MlinspectList, MlinspectDict, \
-    MlideaChromaVectorStoreRetrieverPlaceHolder, MlinspectTuple
+    MlinspectTuple
 
 
 @dataclasses.dataclass(frozen=False)

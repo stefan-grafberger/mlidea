@@ -4,11 +4,8 @@ Monkey patching for numpy
 from typing import Any
 
 import numpy
-from langchain_community.vectorstores.chroma import Chroma
 from langchain_core.embeddings import Embeddings
 from langchain_core.retrievers import BaseRetriever
-from langchain_core.runnables.utils import Input
-from langchain_core.vectorstores import VectorStoreRetriever
 from pydantic import PrivateAttr
 
 

@@ -25,8 +25,6 @@ from mlidea.monkeypatching._patch_sklearn import call_info_singleton
 class PandasPatching:
     """ Patches for pandas """
 
-    # pylint: disable=too-few-public-methods
-
     @gorilla.name('read_csv')
     @gorilla.settings(allow_hit=True)
     def patched_read_csv(*args, **kwargs):
@@ -509,7 +507,7 @@ class DataFramePatching:
                                         optional_source_code)
             operator_context = OperatorContext(OperatorType.PROJECTION, function_info)
             description = "dict conversion"
-            processing_func = lambda df: original(df, **func_args)
+            processing_func = lambda df: original(df, **func_args)  # pylint: disable=unnecessary-lambda
             initial_func = partial(original, input_info.annotated_dfobject.result_data, **func_args)
             optimizer_info, result = capture_optimizer_info(initial_func)
 
@@ -841,7 +839,7 @@ class SeriesPatching:
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
                                operator_context,
-                               DagNodeDetails(description, [self.name], optimizer_info),
+                               DagNodeDetails(description, [self.name], optimizer_info),  # pylint: disable=no-member
                                get_optional_code_info_or_none(optional_code_reference, optional_source_code),
                                processing_func)
 
@@ -1177,7 +1175,7 @@ class StringMethodsPatching:
 
     @gorilla.name('contains')
     @gorilla.settings(allow_hit=True)
-    def patched_match(self, *args, **kwargs):
+    def patched_contains(self, *args, **kwargs):
         """ Patch for ('pandas.core.strings.StringMethods', 'contains') """
         original = gorilla.get_original_attribute(pandas.core.strings.StringMethods, 'contains')
 
