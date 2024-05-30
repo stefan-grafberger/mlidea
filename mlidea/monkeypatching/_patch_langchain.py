@@ -71,8 +71,9 @@ class RunnableSequencePatching:
                                               optional_code_reference, optional_source_code)
                 operator_context = OperatorContext(OperatorType.JOIN, input_info_a.dag_node.operator_info.function_info)
 
-                processing_func = partial(self.execute_retriever, inputs, retriever_with_info)
-                optimizer_info, result = capture_optimizer_info(processing_func)
+                processing_func = partial(RunnableSequencePatching.execute_retriever, retriever_with_info)
+                optimizer_info, result = capture_optimizer_info(partial(processing_func, retriever_with_info[3],
+                                                                        inputs))
                 description = "Embedding similarity join"
                 dag_node = DagNode(op_id,
                                    input_info_a.dag_node.code_location,
@@ -92,9 +93,11 @@ class RunnableSequencePatching:
                                                                              optional_source_code,
                                                                              caller_filename)
 
-                processing_func_predict = partial(self.execute_langchain_batch_with_preexecuted_retriever,
-                                                  test_data_result, config, inputs, return_exceptions)
-                optimizer_info_predict, result_predict = capture_optimizer_info(processing_func_predict)
+                processing_func_predict = partial(
+                    RunnableSequencePatching.execute_langchain_batch_with_preexecuted_retriever,
+                    self, config, return_exceptions)
+                optimizer_info_predict, result_predict = capture_optimizer_info(partial(processing_func_predict,
+                                                                                        test_data_result))
                 operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info)
                 dag_node_predict = DagNode(singleton.get_next_op_id(),
                                            BasicCodeLocation(caller_filename, lineno),
@@ -116,18 +119,18 @@ class RunnableSequencePatching:
         return new_result
 
     @staticmethod
-    def execute_retriever(inputs, retriever_with_info):
-        retriever_step_index, retriever_sub_step_name, retriever_sub_step, _ = retriever_with_info
+    def execute_retriever(retriever_steps, retriever_concat_result, inputs):
+        retriever_step_index, retriever_sub_step_name, retriever_sub_step, _ = retriever_steps
         retrieval_results = inputs
         if retrieval_results:
             for child_sequence_step in retriever_sub_step.steps:
                 if isinstance(child_sequence_step, BaseRetriever):
                     retrieval_results = execute_embedding_similarity_join(
-                        child_sequence_step.retrieval_corpus_X, child_sequence_step.retrieval_corpus_y,
-                        child_sequence_step.embedding, retrieval_results)
+                        retriever_concat_result.retrieval_corpus_X, retriever_concat_result.retrieval_corpus_y,
+                        retriever_concat_result.embedding, retrieval_results)
                 else:
                     retrieval_results = child_sequence_step.batch(retrieval_results)
-        found_retriever = (retriever_step_index, retriever_sub_step_name, retrieval_results)
+        found_retriever = (retriever_step_index, retriever_sub_step_name, retrieval_results, inputs)
         return found_retriever
 
     def find_retriever(self):
@@ -150,18 +153,20 @@ class RunnableSequencePatching:
                         if isinstance(child_sequence_step, BaseRetriever):
                             if step_index != 0:
                                 raise NotImplementedError(
-                                    "Only Retrievers at the beginning of langchain pipeliens are supported currently!")
+                                    "Only Retrievers at the beginning of langchain pipelines are supported currently!")
                             return step_index, child_sequence[0], child_sequence[1], child_sequence_step
                 raise ValueError("Only langchain pipelines with a retrieval step are supported currently!")
         return found_retriever
 
-    def execute_langchain_batch_with_preexecuted_retriever(self, found_retriever, config, inputs, return_exceptions):
+    @staticmethod
+    def execute_langchain_batch_with_preexecuted_retriever(runnable_sequence, config, return_exceptions, found_retriever):
         # pylint: disable=no-member
+        retriever_step_num, retriever_step_name, retriever_step_result, inputs = found_retriever
         if not inputs:
             return []
-        retriever_step_num, retriever_step_name, retriever_step_result = found_retriever
-        configs, run_managers = self.do_langchain_batch_setup(config, inputs, return_exceptions)
-        for i, step in enumerate(self.steps):
+        configs, run_managers = RunnableSequencePatching.do_langchain_batch_setup(runnable_sequence,
+                                                                                  config, inputs, return_exceptions)
+        for i, step in enumerate(runnable_sequence.steps):
             if i is not retriever_step_num:
                 inputs = step.batch(
                     inputs,
@@ -188,11 +193,12 @@ class RunnableSequencePatching:
         new_result = cast(list[Output], inputs)
         return new_result
 
-    def do_langchain_batch_setup(self, config, inputs, return_exceptions):
+    @staticmethod
+    def do_langchain_batch_setup(runnable_sequence, config, inputs, return_exceptions):
         if return_exceptions is True:
             raise NotImplementedError("Exception propagation not supported currently")
         configs = [
-            config_with_context(c, self.steps)  # pylint: disable=no-member
+            config_with_context(c, runnable_sequence.steps)  # pylint: disable=no-member
             for c in get_config_list(config, len(inputs))
         ]
         callback_managers = [
@@ -210,9 +216,9 @@ class RunnableSequencePatching:
         # start the root runs, one per input
         run_managers = [
             cm.on_chain_start(
-                dumpd(self),
+                dumpd(runnable_sequence),
                 input,
-                name=config.get("run_name") or self.get_name(),  # pylint: disable=no-member
+                name=config.get("run_name") or runnable_sequence.get_name(),  # pylint: disable=no-member
                 run_id=config.pop("run_id", None),
             )
             for cm, input, config in zip(callback_managers, inputs, configs)
@@ -234,7 +240,7 @@ class ChromaPatching:
         original = gorilla.get_original_attribute(community_vectorstores.Chroma, 'from_texts')
 
         def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
-            function_info = FunctionInfo('sklearn.compose._column_transformer', 'ColumnTransformer')
+            function_info = FunctionInfo('langchain_community.vectorstores.Chroma', 'from_texts')
             input_infos = []
             if metadatas is None:
                 raise NotImplementedError("Vectorstore only supported in LLM+RAG scenarios with labels currently!")

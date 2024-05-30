@@ -98,8 +98,7 @@ def get_langchain_rag_binary_classification(classes, retriever):
         assigned_label = json_object["label"]
         if assigned_label not in classes:
             return random.choice([0, 1])
-        result = label_binarize([assigned_label], classes=classes)
-        return result[0]
+        return classes.index(assigned_label)
 
     rag_chain = (
             {"context": retriever | format_docs, "question": RunnablePassthrough()}

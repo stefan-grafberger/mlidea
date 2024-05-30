@@ -6,6 +6,7 @@ from inspect import cleandoc
 from types import FunctionType
 
 import networkx
+import numpy
 import pandas
 from sklearn.preprocessing import label_binarize
 from testfixtures import compare, Comparison, RangeComparison
@@ -92,7 +93,7 @@ def test_binary_rag_classification():
     expected_dag.add_edge(expected_3, expected_4, arg_index=0)
     expected_5 = DagNode(5, BasicCodeLocation('<string-source>', 15),
                          OperatorContext(OperatorType.CONCATENATION,
-                                         FunctionInfo('sklearn.compose._column_transformer', 'ColumnTransformer')),
+                                         FunctionInfo('langchain_community.vectorstores.Chroma', 'from_texts')),
                          DagNodeDetails(None, ['texts', 'label'],
                                         OptimizerInfo(RangeComparison(0, 10000), (4, 2), RangeComparison(0, 10000))),
                          OptionalCodeInfo(CodeReference(15, 14, 16, 101),
@@ -123,8 +124,8 @@ def test_binary_rag_classification():
                          OptionalCodeInfo(CodeReference(21, 53, 21, 75), "test['text'].to_list()"),
                          Comparison(FunctionType))
     expected_dag.add_edge(expected_7, expected_8, arg_index=0)
-    expected_9 = DagNode(9, BasicCodeLocation('<string-source>', 15), OperatorContext(OperatorType.JOIN, FunctionInfo(
-        'sklearn.compose._column_transformer', 'ColumnTransformer')),
+    expected_9 = DagNode(9, BasicCodeLocation('<string-source>', 15), OperatorContext(OperatorType.JOIN,
+                                                                                      FunctionInfo('langchain_community.vectorstores.Chroma', 'from_texts')),
                          DagNodeDetails('Embedding similarity join', ['array'],
                                         OptimizerInfo(RangeComparison(0, 10000), None, RangeComparison(0, 10000))),
                          OptionalCodeInfo(CodeReference(15, 14, 16, 101),
@@ -187,20 +188,21 @@ def test_binary_rag_classification():
 
     compare(networkx.to_dict_of_dicts(inspector_result.original_dag), networkx.to_dict_of_dicts(expected_dag))
 
-    # fit_node = list(inspector_result.original_dag.nodes)[7]
-    # train_data_node = list(inspector_result.original_dag.nodes)[5]
-    # train_label_node = list(inspector_result.original_dag.nodes)[6]
-    # train_df = pandas.DataFrame({'C': [0, 1, 2, 3], 'D': [0, 1, 2, 3], 'target': ['no', 'no', 'yes', 'yes']})
-    # train_data = train_data_node.processing_func(train_df[['C', 'D']])
-    # train_labels = label_binarize(train_df['target'], classes=['no', 'yes'])
-    # train_labels = train_label_node.processing_func(train_labels)
-    # fitted_estimator = fit_node.processing_func(train_data, train_labels)
-    # assert isinstance(fitted_estimator, XGBClassifier)
-    # assert isinstance(fit_node.make_classifier_func(), XGBClassifier)
-    #
-    # test_df = pandas.DataFrame({'C': [0., 0.6], 'D': [0., 0.6], 'target': ['no', 'yes']})
-    # test_labels = label_binarize(test_df['target'], classes=['no', 'yes'])
-    # test_score = fitted_estimator.score(test_df[['C', 'D']], test_labels)
-    # assert test_score == 0.5
 
-    # FIXME: TODO
+    vectorstore_creation_node = list(inspector_result.original_dag.nodes)[5]
+    vectorstore_join_node = list(inspector_result.original_dag.nodes)[9]
+    test_data_node = list(inspector_result.original_dag.nodes)[10]
+    llm_node = list(inspector_result.original_dag.nodes)[11]
+
+    vectorstore_texts = ["positive", "positive", "negative", "negative"]
+    vectorstore_labels = [{"label": "yes"}, {"label": "yes"}, {"label": "no"}, {"label": "no"}]
+    concat_result = vectorstore_creation_node.processing_func(vectorstore_texts, vectorstore_labels)
+    test_data = ["pos.", "pos."]
+    rag_result = vectorstore_join_node.processing_func(concat_result, test_data)
+    rag_result = test_data_node.processing_func(rag_result)
+    llm_result = llm_node.processing_func(rag_result)
+
+    expected = numpy.array([1, 1]).reshape(-1, 1)
+    assert numpy.allclose(llm_result, expected)
+
+# FIXME: Also test only reexecuting the full existing DAG
