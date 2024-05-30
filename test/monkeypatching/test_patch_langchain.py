@@ -12,7 +12,10 @@ from sklearn.preprocessing import label_binarize
 from testfixtures import compare, Comparison, RangeComparison
 from xgboost import XGBClassifier
 
-from mlidea import OperatorType, OperatorContext, FunctionInfo
+from analysis._data_corruption import DataCorruption, CorruptionType
+from execution._dag_executor import DagExecutor
+from execution._pipeline_executor import singleton
+from mlidea import OperatorType, OperatorContext, FunctionInfo, PipelineAnalyzer
 from mlidea.execution import _pipeline_executor
 from mlidea.instrumentation._dag_node import DagNode, CodeReference, BasicCodeLocation, DagNodeDetails, \
     OptionalCodeInfo, OptimizerInfo
@@ -124,9 +127,9 @@ def test_binary_rag_classification():
                          OptionalCodeInfo(CodeReference(21, 53, 21, 75), "test['text'].to_list()"),
                          Comparison(FunctionType))
     expected_dag.add_edge(expected_7, expected_8, arg_index=0)
-    expected_9 = DagNode(9, BasicCodeLocation('<string-source>', 15), OperatorContext(OperatorType.JOIN,
+    expected_9 = DagNode(9, BasicCodeLocation('<string-source>', 15), OperatorContext(OperatorType.RAG_JOIN,
                                                                                       FunctionInfo('langchain_community.vectorstores.Chroma', 'from_texts')),
-                         DagNodeDetails('Embedding similarity join', ['array'],
+                         DagNodeDetails('Embedding similarity join', ['texts', 'label'],
                                         OptimizerInfo(RangeComparison(0, 10000), None, RangeComparison(0, 10000))),
                          OptionalCodeInfo(CodeReference(15, 14, 16, 101),
                                           "Chroma.from_texts(texts=df['text'].to_list(), "
@@ -205,4 +208,19 @@ def test_binary_rag_classification():
     expected = numpy.array([1, 1]).reshape(-1, 1)
     assert numpy.allclose(llm_result, expected)
 
-# FIXME: Also test only reexecuting the full existing DAG
+    # Also test if the DAG is fully reexecutable
+    DagExecutor(singleton).execute(inspector_result.original_dag)
+
+    # Test if, e.g., robustness analysis works
+    data_corruption = DataCorruption([('text', CorruptionType.BROKEN_CHARACTERS)],
+                                     also_corrupt_train=True)
+
+    analysis_result = PipelineAnalyzer \
+        .on_previously_extracted_pipeline(inspector_result.dag_extraction_info) \
+        .add_what_if_analysis(data_corruption) \
+        .skip_multi_query_optimization(False) \
+        .execute()
+
+    report = analysis_result.analysis_to_result_reports[data_corruption]
+    assert report.shape == (3, 4)
+    print(report)

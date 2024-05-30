@@ -69,7 +69,7 @@ class RunnableSequencePatching:
                                               optional_code_reference, optional_source_code)
                 input_info_b = get_input_info(inputs, caller_filename, lineno, function_info_if_error,
                                               optional_code_reference, optional_source_code)
-                operator_context = OperatorContext(OperatorType.JOIN, input_info_a.dag_node.operator_info.function_info)
+                operator_context = OperatorContext(OperatorType.RAG_JOIN, input_info_a.dag_node.operator_info.function_info)
 
                 processing_func = partial(RunnableSequencePatching.execute_retriever, retriever_with_info)
                 optimizer_info, result = capture_optimizer_info(partial(processing_func, retriever_with_info[3],
@@ -78,7 +78,7 @@ class RunnableSequencePatching:
                 dag_node = DagNode(op_id,
                                    input_info_a.dag_node.code_location,
                                    operator_context,
-                                   DagNodeDetails(description, ["array"], optimizer_info),
+                                   DagNodeDetails(description, input_info_a.dag_node.details.columns, optimizer_info),
                                    input_info_a.dag_node.optional_code_info,
                                    processing_func)
                 function_call_result = FunctionCallResult(result)

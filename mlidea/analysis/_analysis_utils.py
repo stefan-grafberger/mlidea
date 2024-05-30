@@ -211,8 +211,14 @@ def find_train_or_test_pipeline_part_end(dag, train_not_test):
     """We want to start at the end of the pipeline to find the relevant train or test operations"""
     if train_not_test is True:
         search_start_nodes = find_nodes_by_type(dag, OperatorType.ESTIMATOR)
-        if len(search_start_nodes) != 1:
-            raise NotImplementedError("Currently, DataCorruption only supports pipelines with exactly one estimator!")
+        if len(search_start_nodes) == 0:
+            search_start_nodes = find_nodes_by_type(dag, OperatorType.RAG_JOIN)
+            if len(search_start_nodes) != 1:
+                raise NotImplementedError(
+                    "Currently, DataCorruption only supports pipelines with exactly one estimator or RAG!")
+        elif len(search_start_nodes) != 1:
+            raise NotImplementedError("Currently, DataCorruption only supports pipelines with exactly one estimator "
+                                      "or RAG!")
         search_start_node = search_start_nodes[0]
     else:
         search_start_nodes = find_nodes_by_type(dag, OperatorType.PREDICT)
@@ -275,6 +281,9 @@ def find_where_to_apply_corruption_exactly(dag, first_op_requiring_corruption, o
     elif first_op_requiring_corruption.operator_info.operator == OperatorType.PROJECTION:
         assert len(operator_parent_nodes) == 1
         operator_to_apply_corruption_after = operator_parent_nodes[0]
+    elif first_op_requiring_corruption.operator_info.operator == OperatorType.RAG_JOIN:
+        operator_to_apply_corruption_after = operator_parent_nodes[0]
+        # FIXME: The list data type might be a problem, maybe just use the parent of the parent
     else:
         raise ValueError("Either a column was changed by a transformer or project_modify or we can apply"
                          "the corruption right before the estimator operation!")
