@@ -1,27 +1,25 @@
 """
 Tests whether the monkey patching works for all patched sklearn methods
 """
+import os
 from functools import partial
 from inspect import cleandoc
 from types import FunctionType
 
 import networkx
 import numpy
-import pandas
-from sklearn.preprocessing import label_binarize
 from testfixtures import compare, Comparison, RangeComparison
-from xgboost import XGBClassifier
 
-from analysis._data_corruption import DataCorruption, CorruptionType
-from execution._dag_executor import DagExecutor
-from execution._pipeline_executor import singleton
 from mlidea import OperatorType, OperatorContext, FunctionInfo, PipelineAnalyzer
+from mlidea.analysis._data_corruption import DataCorruption, CorruptionType
 from mlidea.execution import _pipeline_executor
+from mlidea.execution._dag_executor import DagExecutor
+from mlidea.execution._pipeline_executor import singleton
 from mlidea.instrumentation._dag_node import DagNode, CodeReference, BasicCodeLocation, DagNodeDetails, \
     OptionalCodeInfo, OptimizerInfo
 
 
-def test_binary_rag_classification():
+def test_binary_rag_classification(tmpdir):
     """
     Tests whether the monkey patching of langchain pipelines works
     """
@@ -215,12 +213,16 @@ def test_binary_rag_classification():
     data_corruption = DataCorruption([('text', CorruptionType.BROKEN_CHARACTERS)],
                                      also_corrupt_train=True)
 
+    # We do not want to add support for the query optimisation for now, since we might remove it anyway, so we disable
+    #  it here
     analysis_result = PipelineAnalyzer \
         .on_previously_extracted_pipeline(inspector_result.dag_extraction_info) \
         .add_what_if_analysis(data_corruption) \
-        .skip_multi_query_optimization(False) \
+        .skip_multi_query_optimization(True) \
         .execute()
 
     report = analysis_result.analysis_to_result_reports[data_corruption]
-    assert report.shape == (3, 4)
+    opt_dag_path = os.path.join(str(tmpdir), "opt-dag")
+    analysis_result.save_what_if_dags_to_path(opt_dag_path)
+    assert report.shape == (4, 4)
     print(report)

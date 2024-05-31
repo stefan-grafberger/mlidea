@@ -216,17 +216,25 @@ def find_train_or_test_pipeline_part_end(dag, train_not_test):
             if len(search_start_nodes) != 1:
                 raise NotImplementedError(
                     "Currently, DataCorruption only supports pipelines with exactly one estimator or RAG!")
+            else:
+                search_start_node = search_start_nodes[0]
+                search_start_node = get_sorted_parent_nodes(dag, search_start_node)[0]
         elif len(search_start_nodes) != 1:
             raise NotImplementedError("Currently, DataCorruption only supports pipelines with exactly one estimator "
                                       "or RAG!")
-        search_start_node = search_start_nodes[0]
+        else:
+            search_start_node = search_start_nodes[0]
     else:
-        search_start_nodes = find_nodes_by_type(dag, OperatorType.PREDICT)
-        if len(search_start_nodes) != 1:
-            raise NotImplementedError("Currently, DataCorruption only supports pipelines with exactly one predict call "
-                                      "for the test set!")
-
-        search_start_node = search_start_nodes[0]
+        search_start_nodes = find_nodes_by_type(dag, OperatorType.RAG_JOIN)
+        if len(search_start_nodes) == 1:
+            search_start_node = search_start_nodes[0]
+            search_start_node = get_sorted_parent_nodes(dag, search_start_node)[-1]
+        else:
+            search_start_nodes = find_nodes_by_type(dag, OperatorType.PREDICT)
+            if len(search_start_nodes) != 1:
+                raise NotImplementedError("Currently, DataCorruption only supports pipelines with exactly one predict "
+                                          "call for the test set or RAG!")
+            search_start_node = search_start_nodes[0]
     return search_start_node
 
 
@@ -282,7 +290,8 @@ def find_where_to_apply_corruption_exactly(dag, first_op_requiring_corruption, o
         assert len(operator_parent_nodes) == 1
         operator_to_apply_corruption_after = operator_parent_nodes[0]
     elif first_op_requiring_corruption.operator_info.operator == OperatorType.RAG_JOIN:
-        operator_to_apply_corruption_after = operator_parent_nodes[0]
+        raise NotImplementedError("Query optimisation for LLM+RAG pipelines is not implemented yet!")
+        # operator_to_apply_corruption_after = operator_parent_nodes[0]
         # FIXME: The list data type might be a problem, maybe just use the parent of the parent
     else:
         raise ValueError("Either a column was changed by a transformer or project_modify or we can apply"
