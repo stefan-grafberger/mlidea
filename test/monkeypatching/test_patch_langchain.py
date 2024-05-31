@@ -10,6 +10,7 @@ import networkx
 import numpy
 from testfixtures import compare, Comparison, RangeComparison
 
+from mlidea.analysis._data_cleaning import DataCleaning, ErrorType
 from mlidea.analysis._permutation_feature_importance import PermutationFeatureImportance
 from mlidea import OperatorType, OperatorContext, FunctionInfo, PipelineAnalyzer
 from mlidea.analysis._data_corruption import DataCorruption, CorruptionType
@@ -213,12 +214,14 @@ def test_binary_rag_classification(tmpdir):
     # Test if, e.g., robustness analysis works
     data_corruption = DataCorruption([('text', CorruptionType.BROKEN_CHARACTERS)],
                                      also_corrupt_train=True)
+    data_cleaning = DataCleaning({'text': ErrorType.CAT_MISSING_VALUES})
 
     # We do not want to add support for the query optimisation for now, since we might remove it anyway, so we disable
     #  it here
     analysis_result = PipelineAnalyzer \
         .on_previously_extracted_pipeline(inspector_result.dag_extraction_info) \
         .add_what_if_analysis(data_corruption) \
+        .add_what_if_analysis(data_cleaning) \
         .add_what_if_analysis(PermutationFeatureImportance()) \
         .skip_multi_query_optimization(False) \
         .execute()
@@ -232,3 +235,10 @@ def test_binary_rag_classification(tmpdir):
     analysis_result.save_what_if_dags_to_path(os.path.join(str(tmpdir), "importance-whatif-dags"))
     analysis_result.save_optimised_what_if_dags_to_path(os.path.join(str(tmpdir), "importance-opt-dag"))
     assert report.shape == (2, 2)
+
+    report = analysis_result.analysis_to_result_reports[data_cleaning]
+    analysis_result.save_what_if_dags_to_path(os.path.join(str(tmpdir), "cleaning-whatif-dags"))
+    analysis_result.save_optimised_what_if_dags_to_path(os.path.join(str(tmpdir), "cleaning-opt-dag"))
+    assert report.shape == (2, 2)
+
+
