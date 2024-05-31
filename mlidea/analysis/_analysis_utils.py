@@ -150,7 +150,7 @@ def find_dag_location_for_first_op_modifying_column(column, dag, train_not_test)
     first_op_requiring_corruption = find_first_op_modifying_a_column(dag, search_start_node, [column], train_not_test)
     operator_parent_nodes = get_sorted_parent_nodes(dag, first_op_requiring_corruption)
     first_op_requiring_corruption, operator_to_apply_corruption_after = \
-        find_where_to_apply_corruption_exactly(dag, first_op_requiring_corruption, operator_parent_nodes)
+        find_where_to_apply_corruption_exactly(dag, first_op_requiring_corruption, operator_parent_nodes, column)
     return operator_to_apply_corruption_after, first_op_requiring_corruption
 
 
@@ -267,7 +267,7 @@ def get_sorted_children_nodes(dag: networkx.DiGraph, first_op_requiring_corrupti
     return sorted_operator_child_nodes
 
 
-def find_where_to_apply_corruption_exactly(dag, first_op_requiring_corruption, operator_parent_nodes):
+def find_where_to_apply_corruption_exactly(dag, first_op_requiring_corruption, operator_parent_nodes, column):
     """
     We know which operator requires the corruption to be present already; now we need to decide between which
     parent node and the current node we need to insert the corruption node.
@@ -289,10 +289,10 @@ def find_where_to_apply_corruption_exactly(dag, first_op_requiring_corruption, o
     elif first_op_requiring_corruption.operator_info.operator == OperatorType.PROJECTION:
         assert len(operator_parent_nodes) == 1
         operator_to_apply_corruption_after = operator_parent_nodes[0]
-    elif first_op_requiring_corruption.operator_info.operator == OperatorType.RAG_JOIN:
-        raise NotImplementedError("Query optimisation for LLM+RAG pipelines is not implemented yet!")
-        # operator_to_apply_corruption_after = operator_parent_nodes[0]
-        # FIXME: The list data type might be a problem, maybe just use the parent of the parent
+    elif first_op_requiring_corruption.operator_info.operator == OperatorType.CONCATENATION:
+        operator_parent_nodes = [parent for parent in operator_parent_nodes if column in parent.details.columns]
+        assert len(operator_parent_nodes) == 1
+        operator_to_apply_corruption_after = operator_parent_nodes[0]
     else:
         raise ValueError("Either a column was changed by a transformer or project_modify or we can apply"
                          "the corruption right before the estimator operation!")

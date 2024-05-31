@@ -551,7 +551,7 @@ class DataFrameGroupByPatching:
             function_info = FunctionInfo('pandas.core.groupby.generic', 'agg')
             if not hasattr(self, '_mlinspect_dag_node'):
                 raise NotImplementedError("TODO: Support agg if groupby happened in external code")
-            input_dag_node = get_dag_node_for_id(self._mlinspect_dag_node)  # pylint: disable=no-member
+            input_dag_node = get_dag_node_for_id(self._mlinspect_dag_node)
 
             operator_context = OperatorContext(OperatorType.GROUP_BY_AGG, function_info)
             groupby_func = self._mlinspect_groupby_func  # pylint: disable=no-member
@@ -797,10 +797,14 @@ class SeriesPatching:
             processing_func = lambda df: original(df, *args, **kwargs)
             initial_func = partial(original, input_info.annotated_dfobject.result_data, **func_args)
             optimizer_info, result = capture_optimizer_info(initial_func)
+            if self.name:
+                columns = [self.name]
+            else:
+                columns = ['array']
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
                                operator_context,
-                               DagNodeDetails(description, ['array'], optimizer_info),
+                               DagNodeDetails(description, columns, optimizer_info),
                                get_optional_code_info_or_none(optional_code_reference, optional_source_code),
                                processing_func)
             function_call_result = FunctionCallResult(result)

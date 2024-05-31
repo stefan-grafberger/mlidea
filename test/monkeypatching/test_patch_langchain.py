@@ -74,7 +74,7 @@ def test_binary_rag_classification(tmpdir):
     expected_dag.add_edge(expected_0, expected_1, arg_index=0)
     expected_2 = DagNode(2, BasicCodeLocation('<string-source>', 15),
                          OperatorContext(OperatorType.PROJECTION, FunctionInfo('pandas.core.series.Series', 'to_list')),
-                         DagNodeDetails('list conversion', ['array'],
+                         DagNodeDetails('list conversion', ['text'],
                                         OptimizerInfo(RangeComparison(0, 10000), (4, 1), RangeComparison(0, 10000))),
                          OptionalCodeInfo(CodeReference(15, 38, 15, 58), "df['text'].to_list()"),
                          Comparison(FunctionType))
@@ -120,7 +120,7 @@ def test_binary_rag_classification(tmpdir):
     expected_dag.add_edge(expected_6, expected_7, arg_index=0)
     expected_8 = DagNode(8, BasicCodeLocation('<string-source>', 21),
                          OperatorContext(OperatorType.PROJECTION, FunctionInfo('pandas.core.series.Series', 'to_list')),
-                         DagNodeDetails('list conversion', ['array'],
+                         DagNodeDetails('list conversion', ['text'],
                                         OptimizerInfo(RangeComparison(0, 10000), (2, 1), RangeComparison(0, 10000))),
                          OptionalCodeInfo(CodeReference(21, 53, 21, 75), "test['text'].to_list()"),
                          Comparison(FunctionType))
@@ -218,11 +218,10 @@ def test_binary_rag_classification(tmpdir):
     analysis_result = PipelineAnalyzer \
         .on_previously_extracted_pipeline(inspector_result.dag_extraction_info) \
         .add_what_if_analysis(data_corruption) \
-        .skip_multi_query_optimization(True) \
+        .skip_multi_query_optimization(False) \
         .execute()
 
     report = analysis_result.analysis_to_result_reports[data_corruption]
-    opt_dag_path = os.path.join(str(tmpdir), "opt-dag")
-    analysis_result.save_what_if_dags_to_path(opt_dag_path)
+    analysis_result.save_what_if_dags_to_path(os.path.join(str(tmpdir), "whatif-dags"))
+    analysis_result.save_optimised_what_if_dags_to_path(os.path.join(str(tmpdir), "opt-dag"))
     assert report.shape == (4, 4)
-    print(report)

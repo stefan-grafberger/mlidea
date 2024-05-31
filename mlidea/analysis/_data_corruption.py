@@ -33,12 +33,16 @@ class CorruptionType(Enum):
     SCALING = "scaling"
 
 
-def corrupt_broken_characters(pandas_df, column):
+def corrupt_broken_characters(df_to_corrupt, column):
     """Corrupt broken characters that may be in a pandas df, but may also be in a different format"""
-    if isinstance(pandas_df, pandas.DataFrame):
+    if isinstance(df_to_corrupt, pandas.DataFrame):
+        result = BrokenCharacters(column=column, fraction=1.).transform(df_to_corrupt)
+    elif isinstance(df_to_corrupt, list):
+        pandas_df = pandas.DataFrame({column: df_to_corrupt})
         result = BrokenCharacters(column=column, fraction=1.).transform(pandas_df)
+        result = result[column]
     else:
-        pandas_df = pandas.DataFrame(pandas_df)
+        pandas_df = pandas.DataFrame(df_to_corrupt)
         result = BrokenCharacters(column=column, fraction=1.).transform(pandas_df)
         result = result[column]
     return result
@@ -161,8 +165,14 @@ class DataCorruption(WhatIfAnalysis):
         """Create the node that applies the specified corruption"""
 
         def corruption_index_selection(pandas_df, corruption_percentage):
-            corrupt_count = int(len(pandas_df) * corruption_percentage)
-            indexes_to_corrupt = numpy.random.permutation(pandas_df.index)[:corrupt_count]
+            if isinstance(pandas_df, (pandas.DataFrame, pandas.Series)):
+                corrupt_count = int(len(pandas_df) * corruption_percentage)
+                indexes_to_corrupt = numpy.random.permutation(pandas_df.index)[:corrupt_count]
+            elif isinstance(pandas_df, list):
+                corrupt_count = int(len(pandas_df) * corruption_percentage)
+                indexes_to_corrupt = numpy.random.permutation(numpy.arange(len(pandas_df)))[:corrupt_count]
+            else:
+                raise NotImplementedError("Unsupported data type to add corruptions for!")
             return indexes_to_corrupt
 
         def corrupt_df(pandas_df, corruption_index_selection_func, corruption_function, column):

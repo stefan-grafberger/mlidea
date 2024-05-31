@@ -1375,7 +1375,7 @@ def test_series_as_list():
                                BasicCodeLocation("<string-source>", 4),
                                OperatorContext(OperatorType.PROJECTION,
                                                FunctionInfo('pandas.core.series.Series', 'to_list')),
-                               DagNodeDetails('list conversion', ['array'],
+                               DagNodeDetails('list conversion', ['A'],
                                               OptimizerInfo(RangeComparison(0, 200), (4, 1), RangeComparison(0, 800))),
                                OptionalCodeInfo(CodeReference(4, 10, 4, 29), 'pd_series.to_list()'),
                                Comparison(FunctionType))
