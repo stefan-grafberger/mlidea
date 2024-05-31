@@ -216,9 +216,8 @@ def find_train_or_test_pipeline_part_end(dag, train_not_test):
             if len(search_start_nodes) != 1:
                 raise NotImplementedError(
                     "Currently, DataCorruption only supports pipelines with exactly one estimator or RAG!")
-            else:
-                search_start_node = search_start_nodes[0]
-                search_start_node = get_sorted_parent_nodes(dag, search_start_node)[0]
+            search_start_node = search_start_nodes[0]
+            search_start_node = get_sorted_parent_nodes(dag, search_start_node)[0]
         elif len(search_start_nodes) != 1:
             raise NotImplementedError("Currently, DataCorruption only supports pipelines with exactly one estimator "
                                       "or RAG!")

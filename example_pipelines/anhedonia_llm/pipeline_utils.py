@@ -18,7 +18,6 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_openai import ChatOpenAI
 from sklearn.exceptions import NotFittedError
-from sklearn.preprocessing import label_binarize
 
 from example_pipelines.anhedonia_llm.gensim_wrapper import W2VTransformer
 from mlidea.utils import get_project_root

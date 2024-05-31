@@ -23,7 +23,7 @@ def test_binary_rag_classification(tmpdir):
     """
     Tests whether the monkey patching of langchain pipelines works
     """
-    # pylint: disable=too-many-locals
+    # pylint: disable=too-many-locals,too-many-statements
     test_code = cleandoc("""
                 from functools import partial
                 import pandas as pd
