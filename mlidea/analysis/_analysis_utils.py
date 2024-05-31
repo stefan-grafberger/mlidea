@@ -289,6 +289,7 @@ def find_where_to_apply_corruption_exactly(dag, first_op_requiring_corruption, o
         assert len(operator_parent_nodes) == 1
         operator_to_apply_corruption_after = operator_parent_nodes[0]
     elif first_op_requiring_corruption.operator_info.operator == OperatorType.CONCATENATION:
+        # FIXME: this should instead use the train data node that we should insert for RAG concat
         operator_parent_nodes = [parent for parent in operator_parent_nodes if column in parent.details.columns]
         assert len(operator_parent_nodes) == 1
         operator_to_apply_corruption_after = operator_parent_nodes[0]
@@ -311,6 +312,7 @@ def get_columns_used_as_feature(dag) -> list[str]:
                 transformer_parent = get_sorted_parent_nodes(dag, transformer)[-1]
                 feature_columns.update(transformer_parent.details.columns)
         else:
+            # FIXME: this should instead use the train data node that we should insert for RAG concat
             rag_concat_ops = find_nodes_by_type(dag, OperatorType.CONCATENATION)
             assert len(rag_concat_ops) == 1
             rag_concat_train_data_parent = get_sorted_parent_nodes(dag, rag_concat_ops[0])[0]

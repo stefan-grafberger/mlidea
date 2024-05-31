@@ -2,6 +2,8 @@
 Monkey patching for sklearn
 """
 from __future__ import annotations
+
+import dataclasses
 from functools import partial
 from typing import cast
 
@@ -23,13 +25,14 @@ from langchain_core.runnables.utils import (
     Input, Output,
 )
 
-from mlidea import DagNode, BasicCodeLocation, DagNodeDetails, FunctionInfo, OperatorContext, OperatorType
+from mlidea import DagNode, BasicCodeLocation, DagNodeDetails, FunctionInfo, OperatorContext, OperatorType, \
+    CodeReference
 from mlidea.execution._pipeline_executor import singleton
 from mlidea.execution._stat_tracking import capture_optimizer_info
 from mlidea.monkeypatching._mlinspect_ndarray import MlideaChromaVectorStoreRetrieverPlaceHolder
 from mlidea.monkeypatching._monkey_patching_utils import execute_patched_func, get_optional_code_info_or_none, \
     FunctionCallResult, add_dag_node, get_input_info, execute_patched_func_indirect_allowed_with_op_id, \
-    add_test_data_dag_node
+    add_test_data_dag_node, add_train_data_node, add_train_label_node
 
 
 class LangchainCallInfo:
@@ -67,37 +70,36 @@ class RunnableSequencePatching:
                 retriever_with_info = self.find_retriever()
                 input_info_a = get_input_info(retriever_with_info[3], caller_filename, lineno, function_info_if_error,
                                               optional_code_reference, optional_source_code)
-                input_info_b = get_input_info(inputs, caller_filename, lineno, function_info_if_error,
-                                              optional_code_reference, optional_source_code)
-                operator_context = OperatorContext(OperatorType.RAG_JOIN, input_info_a.dag_node.operator_info.function_info)
+
+                _, test_data_node, test_data_result = add_test_data_dag_node(
+                    inputs, input_info_a.dag_node.operator_info.function_info, lineno, optional_code_reference,
+                    optional_source_code, caller_filename)
+
+                operator_context = OperatorContext(OperatorType.RAG_JOIN,
+                                                   input_info_a.dag_node.operator_info.function_info)
 
                 processing_func = partial(RunnableSequencePatching.execute_retriever, retriever_with_info)
                 optimizer_info, result = capture_optimizer_info(partial(processing_func, retriever_with_info[3],
-                                                                        inputs))
+                                                                        test_data_result))
                 description = "Embedding similarity join"
-                dag_node = DagNode(op_id,
-                                   input_info_a.dag_node.code_location,
-                                   operator_context,
-                                   DagNodeDetails(description, input_info_a.dag_node.details.columns, optimizer_info),
-                                   input_info_a.dag_node.optional_code_info,
-                                   processing_func)
+                dag_node_rag = DagNode(op_id,
+                                       input_info_a.dag_node.code_location,
+                                       operator_context,
+                                       DagNodeDetails(description, input_info_a.dag_node.details.columns,
+                                                      optimizer_info),
+                                       input_info_a.dag_node.optional_code_info,
+                                       processing_func)
                 function_call_result = FunctionCallResult(result)
-                add_dag_node(dag_node, [input_info_a.dag_node, input_info_b.dag_node], function_call_result)
+                add_dag_node(dag_node_rag, [input_info_a.dag_node, test_data_node], function_call_result)
                 embedding_join_result = function_call_result.function_result
 
                 function_info = FunctionInfo('langchain_core.runnables.base', 'batch')
-                _, test_data_node, test_data_result = add_test_data_dag_node(embedding_join_result,
-                                                                             function_info,
-                                                                             lineno,
-                                                                             optional_code_reference,
-                                                                             optional_source_code,
-                                                                             caller_filename)
 
                 processing_func_predict = partial(
                     RunnableSequencePatching.execute_langchain_batch_with_preexecuted_retriever,
                     self, config, return_exceptions)
                 optimizer_info_predict, result_predict = capture_optimizer_info(partial(processing_func_predict,
-                                                                                        test_data_result))
+                                                                                        embedding_join_result))
                 operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info)
                 dag_node_predict = DagNode(singleton.get_next_op_id(),
                                            BasicCodeLocation(caller_filename, lineno),
@@ -107,7 +109,7 @@ class RunnableSequencePatching:
                                                                           optional_source_code),
                                            processing_func_predict)
                 function_call_result = FunctionCallResult(result_predict)
-                add_dag_node(dag_node_predict, [test_data_node], function_call_result)
+                add_dag_node(dag_node_predict, [dag_node_rag], function_call_result)
                 llm_result = function_call_result.function_result
 
                 call_info_singleton.runnable_sequence_active = False
@@ -159,7 +161,8 @@ class RunnableSequencePatching:
         return found_retriever
 
     @staticmethod
-    def execute_langchain_batch_with_preexecuted_retriever(runnable_sequence, config, return_exceptions, found_retriever):
+    def execute_langchain_batch_with_preexecuted_retriever(runnable_sequence, config, return_exceptions,
+                                                           found_retriever):
         # pylint: disable=no-member
         retriever_step_num, retriever_step_name, retriever_step_result, inputs = found_retriever
         if not inputs:
@@ -226,6 +229,14 @@ class RunnableSequencePatching:
         return configs, run_managers
 
 
+@dataclasses.dataclass
+class CallerInfo:
+    mlinspect_caller_filename: str
+    mlinspect_lineno: int
+    mlinspect_optional_code_reference: CodeReference or None
+    mlinspect_optional_source_code: str or None
+
+
 @gorilla.patches(community_vectorstores.Chroma)
 class ChromaPatching:
     """ Patches for sklearn """
@@ -241,15 +252,17 @@ class ChromaPatching:
 
         def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
             function_info = FunctionInfo('langchain_community.vectorstores.Chroma', 'from_texts')
-            input_infos = []
+            input_dag_nodes = []
             if metadatas is None:
                 raise NotImplementedError("Vectorstore only supported in LLM+RAG scenarios with labels currently!")
-            input_info_X_train = get_input_info(texts, caller_filename, lineno, function_info,
-                                                optional_code_reference, optional_source_code)
-            input_infos.append(input_info_X_train)
-            input_info_y_train = get_input_info(metadatas, caller_filename, lineno, function_info,
-                                                optional_code_reference, optional_source_code)
-            input_infos.append(input_info_y_train)
+
+            caller_info = CallerInfo(caller_filename, lineno, optional_code_reference, optional_source_code)
+            _, train_data_node, train_data_result = add_train_data_node(caller_info, texts, function_info)
+            _, train_labels_node, train_labels_result = add_train_label_node(caller_info, metadatas,
+                                                                             function_info)
+
+            input_dag_nodes.append(train_data_node)
+            input_dag_nodes.append(train_labels_node)
 
             operator_context = OperatorContext(OperatorType.CONCATENATION, function_info)
 
@@ -270,7 +283,6 @@ class ChromaPatching:
                                DagNodeDetails(None, result.columns(), optimizer_info),
                                get_optional_code_info_or_none(optional_code_reference, optional_source_code),
                                processing_func)
-            input_dag_nodes = [input_info.dag_node for input_info in input_infos]
             function_call_result = FunctionCallResult(result)
             add_dag_node(dag_node, input_dag_nodes, function_call_result)
             new_result = function_call_result.function_result
