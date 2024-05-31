@@ -10,6 +10,7 @@ import networkx
 import numpy
 from testfixtures import compare, Comparison, RangeComparison
 
+from mlidea.analysis._operator_impact import OperatorImpact
 from mlidea.analysis._data_cleaning import DataCleaning, ErrorType
 from mlidea.analysis._permutation_feature_importance import PermutationFeatureImportance
 from mlidea import OperatorType, OperatorContext, FunctionInfo, PipelineAnalyzer
@@ -222,6 +223,7 @@ def test_binary_rag_classification(tmpdir):
         .on_previously_extracted_pipeline(inspector_result.dag_extraction_info) \
         .add_what_if_analysis(data_corruption) \
         .add_what_if_analysis(data_cleaning) \
+        .add_what_if_analysis(OperatorImpact(True, True)) \
         .add_what_if_analysis(PermutationFeatureImportance()) \
         .skip_multi_query_optimization(False) \
         .execute()
@@ -236,9 +238,12 @@ def test_binary_rag_classification(tmpdir):
     analysis_result.save_optimised_what_if_dags_to_path(os.path.join(str(tmpdir), "importance-opt-dag"))
     assert report.shape == (2, 2)
 
+    report = analysis_result.analysis_to_result_reports[OperatorImpact(True, True)]
+    analysis_result.save_what_if_dags_to_path(os.path.join(str(tmpdir), "impact-whatif-dags"))
+    analysis_result.save_optimised_what_if_dags_to_path(os.path.join(str(tmpdir), "impact-opt-dag"))
+    assert report.shape == (1, 5)
+
     report = analysis_result.analysis_to_result_reports[data_cleaning]
     analysis_result.save_what_if_dags_to_path(os.path.join(str(tmpdir), "cleaning-whatif-dags"))
     analysis_result.save_optimised_what_if_dags_to_path(os.path.join(str(tmpdir), "cleaning-opt-dag"))
     assert report.shape == (2, 2)
-
-
