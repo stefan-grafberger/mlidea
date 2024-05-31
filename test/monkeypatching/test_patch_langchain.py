@@ -10,6 +10,7 @@ import networkx
 import numpy
 from testfixtures import compare, Comparison, RangeComparison
 
+from mlidea.analysis._permutation_feature_importance import PermutationFeatureImportance
 from mlidea import OperatorType, OperatorContext, FunctionInfo, PipelineAnalyzer
 from mlidea.analysis._data_corruption import DataCorruption, CorruptionType
 from mlidea.execution import _pipeline_executor
@@ -218,10 +219,16 @@ def test_binary_rag_classification(tmpdir):
     analysis_result = PipelineAnalyzer \
         .on_previously_extracted_pipeline(inspector_result.dag_extraction_info) \
         .add_what_if_analysis(data_corruption) \
+        .add_what_if_analysis(PermutationFeatureImportance()) \
         .skip_multi_query_optimization(False) \
         .execute()
 
     report = analysis_result.analysis_to_result_reports[data_corruption]
-    analysis_result.save_what_if_dags_to_path(os.path.join(str(tmpdir), "whatif-dags"))
-    analysis_result.save_optimised_what_if_dags_to_path(os.path.join(str(tmpdir), "opt-dag"))
+    analysis_result.save_what_if_dags_to_path(os.path.join(str(tmpdir), "corrupt-whatif-dags"))
+    analysis_result.save_optimised_what_if_dags_to_path(os.path.join(str(tmpdir), "corrupt-opt-dag"))
     assert report.shape == (4, 4)
+
+    report = analysis_result.analysis_to_result_reports[PermutationFeatureImportance()]
+    analysis_result.save_what_if_dags_to_path(os.path.join(str(tmpdir), "importance-whatif-dags"))
+    analysis_result.save_optimised_what_if_dags_to_path(os.path.join(str(tmpdir), "importance-opt-dag"))
+    assert report.shape == (2, 2)

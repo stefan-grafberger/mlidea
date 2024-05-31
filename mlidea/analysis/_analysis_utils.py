@@ -306,9 +306,15 @@ def get_columns_used_as_feature(dag) -> list[str]:
     else:
         feature_columns = set()
         transformer_ops = find_nodes_by_type(dag, OperatorType.TRANSFORMER)
-        for transformer in transformer_ops:
-            transformer_parent = get_sorted_parent_nodes(dag, transformer)[-1]
-            feature_columns.update(transformer_parent.details.columns)
+        if len(transformer_ops) > 0:
+            for transformer in transformer_ops:
+                transformer_parent = get_sorted_parent_nodes(dag, transformer)[-1]
+                feature_columns.update(transformer_parent.details.columns)
+        else:
+            rag_concat_ops = find_nodes_by_type(dag, OperatorType.CONCATENATION)
+            assert len(rag_concat_ops) == 1
+            rag_concat_train_data_parent = get_sorted_parent_nodes(dag, rag_concat_ops[0])[0]
+            feature_columns.update(rag_concat_train_data_parent.details.columns)
         feature_columns.discard("array")
         feature_columns = list(feature_columns)  # pylint: disable=redefined-variable-type
     return feature_columns
