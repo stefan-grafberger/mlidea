@@ -275,7 +275,7 @@ class ChromaPatching:
                 new_result = MlideaChromaVectorStoreRetrieverPlaceHolder(input_dfs[0], input_dfs[1], embedding)
                 return new_result
 
-            initial_func = partial(processing_func, texts, metadatas, **kwargs)
+            initial_func = partial(processing_func, train_data_result, train_labels_result, **kwargs)
             optimizer_info, result = capture_optimizer_info(initial_func)
 
             dag_node = DagNode(singleton.get_next_op_id(),
