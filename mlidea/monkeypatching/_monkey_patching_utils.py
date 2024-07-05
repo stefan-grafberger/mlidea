@@ -193,6 +193,7 @@ def execute_patched_func_indirect_allowed_with_op_id(execute_inspections_func):
         frame = frame.f_back
 
     caller_filename = frame.f_code.co_filename
+    op_id = singleton.get_next_op_id()
 
     if singleton.track_code_references:
         call_ast_node = ast.Call(lineno=singleton.lineno_next_call_or_subscript,
@@ -201,7 +202,6 @@ def execute_patched_func_indirect_allowed_with_op_id(execute_inspections_func):
                                  end_col_offset=singleton.end_col_offset_next_call_or_subscript)
         caller_source_code = ast.get_source_segment(singleton.source_code, node=call_ast_node)
         caller_lineno = singleton.lineno_next_call_or_subscript
-        op_id = singleton.get_next_op_id()
         caller_code_reference = CodeReference(singleton.lineno_next_call_or_subscript,
                                               singleton.col_offset_next_call_or_subscript,
                                               singleton.end_lineno_next_call_or_subscript,
@@ -210,7 +210,7 @@ def execute_patched_func_indirect_allowed_with_op_id(execute_inspections_func):
                                           caller_source_code)
     else:
         caller_lineno = sys._getframe(2).f_lineno
-        result = execute_inspections_func(-1, caller_filename, caller_lineno, None, None)
+        result = execute_inspections_func(op_id, caller_filename, caller_lineno, None, None)
     return result
 
 

@@ -98,7 +98,7 @@ def test_binary_rag_classification(tmpdir):
                          Comparison(FunctionType))
     expected_dag.add_edge(expected_3, expected_4, arg_index=0)
     # FIMXE: this should be id 5, the order of node ids needs fixing here
-    expected_6 = DagNode(6, BasicCodeLocation('<string-source>', 15),
+    expected_5 = DagNode(5, BasicCodeLocation('<string-source>', 15),
                          OperatorContext(OperatorType.TRAIN_DATA,
                                          FunctionInfo('langchain_community.vectorstores.Chroma', 'from_texts')),
                          DagNodeDetails(None, ['texts'],
@@ -109,8 +109,8 @@ def test_binary_rag_classification(tmpdir):
                                           "                embedding=HuggingFaceEmbeddings(model_name="
                                           "'sentence-transformers/all-MiniLM-L6-v2'))"),
                          Comparison(FunctionType))
-    expected_dag.add_edge(expected_2, expected_6, arg_index=0)
-    expected_7 = DagNode(7, BasicCodeLocation('<string-source>', 15),
+    expected_dag.add_edge(expected_2, expected_5, arg_index=0)
+    expected_6 = DagNode(6, BasicCodeLocation('<string-source>', 15),
                          OperatorContext(OperatorType.TRAIN_LABELS,
                                          FunctionInfo('langchain_community.vectorstores.Chroma', 'from_texts')),
                          DagNodeDetails(None, ['label'],
@@ -121,8 +121,8 @@ def test_binary_rag_classification(tmpdir):
                                           "                embedding=HuggingFaceEmbeddings(model_name="
                                           "'sentence-transformers/all-MiniLM-L6-v2'))"),
                          Comparison(FunctionType))
-    expected_dag.add_edge(expected_4, expected_7, arg_index=0)
-    expected_5 = DagNode(5, BasicCodeLocation('<string-source>', 15),
+    expected_dag.add_edge(expected_4, expected_6, arg_index=0)
+    expected_7 = DagNode(7, BasicCodeLocation('<string-source>', 15),
                          OperatorContext(OperatorType.CONCATENATION,
                                          FunctionInfo('langchain_community.vectorstores.Chroma', 'from_texts')),
                          DagNodeDetails(None, ['texts', 'label'],
@@ -133,8 +133,8 @@ def test_binary_rag_classification(tmpdir):
                                           "                embedding=HuggingFaceEmbeddings(model_name="
                                           "'sentence-transformers/all-MiniLM-L6-v2'))"),
                          Comparison(FunctionType))
-    expected_dag.add_edge(expected_6, expected_5, arg_index=0)
-    expected_dag.add_edge(expected_7, expected_5, arg_index=1)
+    expected_dag.add_edge(expected_5, expected_7, arg_index=0)
+    expected_dag.add_edge(expected_6, expected_7, arg_index=1)
     expected_8 = DagNode(8, BasicCodeLocation('<string-source>', 20),
                          OperatorContext(OperatorType.DATA_SOURCE, FunctionInfo('pandas.core.frame', 'DataFrame')),
                          DagNodeDetails(None, ['text', 'label'],
@@ -156,7 +156,7 @@ def test_binary_rag_classification(tmpdir):
                           OptionalCodeInfo(CodeReference(21, 53, 21, 75), "test['text'].to_list()"),
                           Comparison(FunctionType))
     expected_dag.add_edge(expected_9, expected_10, arg_index=0)
-    expected_12 = DagNode(12, BasicCodeLocation('<string-source>', 21), OperatorContext(OperatorType.TEST_DATA,
+    expected_11 = DagNode(11, BasicCodeLocation('<string-source>', 21), OperatorContext(OperatorType.TEST_DATA,
                                                                                         FunctionInfo(
                                                                                             'langchain_community.vectorstores.Chroma',
                                                                                             'from_texts')),
@@ -165,8 +165,8 @@ def test_binary_rag_classification(tmpdir):
                           OptionalCodeInfo(CodeReference(21, 14, 21, 83),
                                            "wait_llm_call(partial(rag_chain.batch, test['text'].to_list()), test)"),
                           Comparison(FunctionType), make_classifier_func=None)
-    expected_dag.add_edge(expected_10, expected_12, arg_index=0)
-    expected_11 = DagNode(11, BasicCodeLocation('<string-source>', 15), OperatorContext(OperatorType.RAG_JOIN,
+    expected_dag.add_edge(expected_10, expected_11, arg_index=0)
+    expected_12 = DagNode(12, BasicCodeLocation('<string-source>', 15), OperatorContext(OperatorType.RAG_JOIN,
                                                                                         FunctionInfo(
                                                                                             'langchain_community.vectorstores.Chroma',
                                                                                             'from_texts')),
@@ -178,8 +178,8 @@ def test_binary_rag_classification(tmpdir):
                                            "                embedding=HuggingFaceEmbeddings(model_name="
                                            "'sentence-transformers/all-MiniLM-L6-v2'))"),
                           Comparison(partial), make_classifier_func=None)
-    expected_dag.add_edge(expected_5, expected_11, arg_index=0)
-    expected_dag.add_edge(expected_12, expected_11, arg_index=1)
+    expected_dag.add_edge(expected_7, expected_12, arg_index=0)
+    expected_dag.add_edge(expected_11, expected_12, arg_index=1)
     expected_13 = DagNode(13, BasicCodeLocation('<string-source>', 21),
                           OperatorContext(OperatorType.PREDICT, FunctionInfo('langchain_core.runnables.base', 'batch')),
                           DagNodeDetails('LLM', [],
@@ -187,7 +187,7 @@ def test_binary_rag_classification(tmpdir):
                           OptionalCodeInfo(CodeReference(21, 14, 21, 83),
                                            "wait_llm_call(partial(rag_chain.batch, test['text'].to_list()), test)"),
                           Comparison(partial))
-    expected_dag.add_edge(expected_11, expected_13, arg_index=0)
+    expected_dag.add_edge(expected_12, expected_13, arg_index=0)
     expected_14 = DagNode(14, BasicCodeLocation('<string-source>', 22),
                           OperatorContext(OperatorType.PROJECTION, FunctionInfo('pandas.core.frame', '__getitem__')),
                           DagNodeDetails("to ['label']", ['label'],

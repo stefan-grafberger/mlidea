@@ -30,9 +30,10 @@ from mlidea import DagNode, BasicCodeLocation, DagNodeDetails, FunctionInfo, Ope
 from mlidea.execution._pipeline_executor import singleton
 from mlidea.execution._stat_tracking import capture_optimizer_info
 from mlidea.monkeypatching._mlinspect_ndarray import MlideaChromaVectorStoreRetrieverPlaceHolder
-from mlidea.monkeypatching._monkey_patching_utils import execute_patched_func, get_optional_code_info_or_none, \
-    FunctionCallResult, add_dag_node, get_input_info, execute_patched_func_indirect_allowed_with_op_id, \
-    add_test_data_dag_node, add_train_data_node, add_train_label_node
+from mlidea.monkeypatching._monkey_patching_utils import get_optional_code_info_or_none, \
+    FunctionCallResult, add_dag_node, get_input_info, \
+    add_test_data_dag_node, add_train_data_node, add_train_label_node, execute_patched_func_indirect_allowed, \
+    execute_patched_func_no_op_id
 
 
 class LangchainCallInfo:
@@ -60,7 +61,7 @@ class RunnableSequencePatching:
                       *, return_exceptions: bool = False, **kwargs: any):
         original = gorilla.get_original_attribute(base.RunnableSequence, 'batch')
         if call_info_singleton.runnable_sequence_active is False:
-            def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
+            def execute_inspections(_, caller_filename, lineno, optional_code_reference, optional_source_code):
                 """ Execute inspections, add DAG node """
                 # pylint: disable=too-many-locals
                 call_info_singleton.runnable_sequence_active = True
@@ -82,7 +83,7 @@ class RunnableSequencePatching:
                 optimizer_info, result = capture_optimizer_info(partial(processing_func, retriever_with_info[3],
                                                                         test_data_result))
                 description = "Embedding similarity join"
-                dag_node_rag = DagNode(op_id,
+                dag_node_rag = DagNode(singleton.get_next_op_id(),
                                        input_info_a.dag_node.code_location,
                                        operator_context,
                                        DagNodeDetails(description, input_info_a.dag_node.details.columns,
@@ -115,7 +116,7 @@ class RunnableSequencePatching:
                 call_info_singleton.runnable_sequence_active = False
                 return llm_result
 
-            new_result = execute_patched_func_indirect_allowed_with_op_id(execute_inspections)
+            new_result = execute_patched_func_indirect_allowed(execute_inspections)
         else:
             new_result = original(self, inputs, config, return_exceptions=return_exceptions, **kwargs)
         return new_result
@@ -250,7 +251,7 @@ class ChromaPatching:
         # We might not want to patch this one directly, only catch the batch call above
         original = gorilla.get_original_attribute(community_vectorstores.Chroma, 'from_texts')
 
-        def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
+        def execute_inspections(_, caller_filename, lineno, optional_code_reference, optional_source_code):
             function_info = FunctionInfo('langchain_community.vectorstores.Chroma', 'from_texts')
             input_dag_nodes = []
             if metadatas is None:
@@ -277,7 +278,7 @@ class ChromaPatching:
             initial_func = partial(processing_func, texts, metadatas, **kwargs)
             optimizer_info, result = capture_optimizer_info(initial_func)
 
-            dag_node = DagNode(op_id,
+            dag_node = DagNode(singleton.get_next_op_id(),
                                BasicCodeLocation(caller_filename, lineno),
                                operator_context,
                                DagNodeDetails(None, result.columns(), optimizer_info),
@@ -293,8 +294,8 @@ class ChromaPatching:
 
             return new_result
 
-        return execute_patched_func(original, execute_inspections, texts=texts, metadatas=metadatas,
-                                    embedding=embedding, **kwargs)
+        return execute_patched_func_no_op_id(original, execute_inspections, texts=texts, metadatas=metadatas,
+                                             embedding=embedding, **kwargs)
 
 
 @gorilla.patches(huggingface.HuggingFaceEmbeddings)
