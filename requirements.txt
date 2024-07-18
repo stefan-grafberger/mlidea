@@ -29,7 +29,7 @@ chromadb==0.4.2
 textblob==0.17.1
 scikit-llm[gpt4all]==1.0.0
 scikeras==0.12
-huggingface_hub==0.20.3
+huggingface_hub==0.23.0
 langchain==0.1.13
 langchain-community==0.0.29
 langchain-core==0.1.33
