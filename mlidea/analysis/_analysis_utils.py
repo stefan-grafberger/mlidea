@@ -87,9 +87,7 @@ def filter_estimator_transformer_edges(parent, child):
 
 def find_first_op_modifying_a_column(dag, search_start_node: DagNode, column_names: list[str], train_not_test: bool):
     """Find DagNodes in the DAG by OperatorType"""
-    # FIXME: For LLM+RAG pipelines, if the first op modifying a column is the concat for the RAG join,
-    #  then we want to select the train data / train label nodes as result, not the concat
-
+    # pylint: disable=too-many-locals
 
     if train_not_test is False:
         dag_to_consider = networkx.subgraph_view(dag, filter_edge=filter_estimator_transformer_edges)
@@ -157,7 +155,7 @@ def find_first_op_modifying_a_column(dag, search_start_node: DagNode, column_nam
         if train_node_parent.operator_info.function_info == FunctionInfo('pandas.core.series.Series', 'to_list'):
             return train_node_parent
         return train_node
-    elif is_rag_pipeline is True and search_start_node.operator_info.operator == OperatorType.TEST_DATA:
+    if is_rag_pipeline is True and search_start_node.operator_info.operator == OperatorType.TEST_DATA:
         test_node_parent = get_sorted_parent_nodes(dag, search_start_node)[0]
         if test_node_parent.operator_info.function_info == FunctionInfo('pandas.core.series.Series', 'to_list'):
             return test_node_parent
