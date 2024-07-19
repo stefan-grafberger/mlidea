@@ -798,10 +798,7 @@ class SeriesPatching:
             processing_func = lambda df: original(df, *args, **kwargs)
             initial_func = partial(original, input_info.annotated_dfobject.result_data, **func_args)
             optimizer_info, result = capture_optimizer_info(initial_func)
-            if hasattr(self, "name") and self.name:
-                columns = [self.name]
-            else:
-                columns = ['array']
+            columns = input_info.dag_node.details.columns
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
                                operator_context,

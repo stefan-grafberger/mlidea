@@ -74,7 +74,7 @@ class RunnableSequencePatching:
 
                 _, test_data_node, test_data_result = add_test_data_dag_node(
                     inputs, input_info_a.dag_node.operator_info.function_info, lineno, optional_code_reference,
-                    optional_source_code, caller_filename, ["texts"])
+                    optional_source_code, caller_filename)
 
                 operator_context = OperatorContext(OperatorType.RAG_JOIN,
                                                    input_info_a.dag_node.operator_info.function_info)
@@ -258,12 +258,13 @@ class ChromaPatching:
                 raise NotImplementedError("Vectorstore only supported in LLM+RAG scenarios with labels currently!")
 
             caller_info = CallerInfo(caller_filename, lineno, optional_code_reference, optional_source_code)
-            _, train_data_node, train_data_result = add_train_data_node(caller_info, texts, function_info, ["texts"])
+            _, train_data_node, train_data_result = add_train_data_node(caller_info, texts, function_info)
             _, train_labels_node, train_labels_result = add_train_label_node(caller_info, metadatas,
-                                                                             function_info, ["label"])
+                                                                             function_info)
 
             input_dag_nodes.append(train_data_node)
             input_dag_nodes.append(train_labels_node)
+            columns = train_data_node.details.columns + train_labels_node.details.columns
 
             operator_context = OperatorContext(OperatorType.CONCATENATION, function_info)
 
@@ -281,7 +282,7 @@ class ChromaPatching:
             dag_node = DagNode(singleton.get_next_op_id(),
                                BasicCodeLocation(caller_filename, lineno),
                                operator_context,
-                               DagNodeDetails(None, result.columns(), optimizer_info),
+                               DagNodeDetails(None, columns, optimizer_info),
                                get_optional_code_info_or_none(optional_code_reference, optional_source_code),
                                processing_func)
             function_call_result = FunctionCallResult(result)

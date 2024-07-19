@@ -339,15 +339,14 @@ def get_optional_code_info_or_none(optional_code_reference: CodeReference or Non
     return code_info_or_none
 
 
-def add_train_label_node(estimator, train_label_arg, function_info, columns: list[str] or None = None):
+def add_train_label_node(estimator, train_label_arg, function_info):
     """Add a Train Data DAG Node for a estimator.fit call"""
-    if columns is None:
-        columns = ["array"]
     operator_context = OperatorContext(OperatorType.TRAIN_LABELS, function_info)
     input_info_train_labels = get_input_info(train_label_arg, estimator.mlinspect_caller_filename,
                                              estimator.mlinspect_lineno, function_info,
                                              estimator.mlinspect_optional_code_reference,
                                              estimator.mlinspect_optional_source_code)
+    columns = input_info_train_labels.dag_node.details.columns
     train_label_op_id = _pipeline_executor.singleton.get_next_op_id()
     process_func = lambda df_object: df_object
     train_labels_dag_node = DagNode(train_label_op_id,
@@ -364,14 +363,13 @@ def add_train_label_node(estimator, train_label_arg, function_info, columns: lis
     return function_call_result, train_labels_dag_node, train_labels_result
 
 
-def add_train_data_node(estimator, train_data_arg, function_info, columns: list[str] or None = None):
+def add_train_data_node(estimator, train_data_arg, function_info):
     """Add a Train Label DAG Node for a estimator.fit call"""
-    if columns is None:
-        columns = ["array"]
     input_info_train_data = get_input_info(train_data_arg, estimator.mlinspect_caller_filename,
                                            estimator.mlinspect_lineno, function_info,
                                            estimator.mlinspect_optional_code_reference,
                                            estimator.mlinspect_optional_source_code)
+    columns = input_info_train_data.dag_node.details.columns
     train_data_op_id = _pipeline_executor.singleton.get_next_op_id()
     operator_context = OperatorContext(OperatorType.TRAIN_DATA, function_info)
     process_func = lambda df_object: df_object
@@ -390,12 +388,11 @@ def add_train_data_node(estimator, train_data_arg, function_info, columns: list[
 
 
 def add_test_data_dag_node(test_data_arg, function_info, lineno, optional_code_reference, optional_source_code,
-                           caller_filename, columns: list[str] or None = None):
+                           caller_filename):
     """Add a Test Data DAG Node for a estimator.score call"""
-    if columns is None:
-        columns = get_column_names(test_data_arg)
     input_info_test_data = get_input_info(test_data_arg, caller_filename, lineno, function_info,
                                           optional_code_reference, optional_source_code)
+    columns = input_info_test_data.dag_node.details.columns
     operator_context = OperatorContext(OperatorType.TEST_DATA, function_info)
     test_data_op_id = _pipeline_executor.singleton.get_next_op_id()
     process_func = lambda df_object: df_object
@@ -419,12 +416,13 @@ def add_test_label_node(test_label_arg, caller_filename, function_info, lineno, 
     operator_context = OperatorContext(OperatorType.TEST_LABELS, function_info)
     input_info_test_labels = get_input_info(test_label_arg, caller_filename, lineno, function_info,
                                             optional_code_reference, optional_source_code)
+    columns = input_info_test_labels.dag_node.details.columns
     test_label_op_id = _pipeline_executor.singleton.get_next_op_id()
     process_func = lambda df_object: df_object
     test_labels_dag_node = DagNode(test_label_op_id,
                                    BasicCodeLocation(caller_filename, lineno),
                                    operator_context,
-                                   DagNodeDetails(None, get_column_names(test_label_arg),
+                                   DagNodeDetails(None, columns,
                                                   OptimizerInfo(0, get_df_shape(test_label_arg),
                                                                 get_df_memory(test_label_arg))),
                                    get_optional_code_info_or_none(optional_code_reference,

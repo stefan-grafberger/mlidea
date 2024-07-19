@@ -101,7 +101,7 @@ def test_binary_rag_classification(tmpdir):
     expected_5 = DagNode(5, BasicCodeLocation('<string-source>', 15),
                          OperatorContext(OperatorType.TRAIN_DATA,
                                          FunctionInfo('langchain_community.vectorstores.Chroma', 'from_texts')),
-                         DagNodeDetails(None, ['texts'],
+                         DagNodeDetails(None, ['text'],
                                         OptimizerInfo(RangeComparison(0, 10000), (4, 1), RangeComparison(0, 10000))),
                          OptionalCodeInfo(CodeReference(15, 14, 16, 101),
                                           "Chroma.from_texts(texts=df['text'].to_list(), metadatas=df[['label']]."
@@ -125,7 +125,7 @@ def test_binary_rag_classification(tmpdir):
     expected_7 = DagNode(7, BasicCodeLocation('<string-source>', 15),
                          OperatorContext(OperatorType.CONCATENATION,
                                          FunctionInfo('langchain_community.vectorstores.Chroma', 'from_texts')),
-                         DagNodeDetails(None, ['texts', 'label'],
+                         DagNodeDetails(None, ['text', 'label'],
                                         OptimizerInfo(RangeComparison(0, 10000), (4, 2), RangeComparison(0, 10000))),
                          OptionalCodeInfo(CodeReference(15, 14, 16, 101),
                                           "Chroma.from_texts(texts=df['text'].to_list(), metadatas=df[['label']]."
@@ -160,7 +160,7 @@ def test_binary_rag_classification(tmpdir):
                                                                                         FunctionInfo(
                                                                                             'langchain_community.vectorstores.Chroma',
                                                                                             'from_texts')),
-                          DagNodeDetails(None, ['texts'],
+                          DagNodeDetails(None, ['text'],
                                          OptimizerInfo(RangeComparison(0, 10000), (2, 1), RangeComparison(0, 10000))),
                           OptionalCodeInfo(CodeReference(21, 14, 21, 83),
                                            "wait_llm_call(partial(rag_chain.batch, test['text'].to_list()), test)"),
@@ -170,7 +170,7 @@ def test_binary_rag_classification(tmpdir):
                                                                                         FunctionInfo(
                                                                                             'langchain_community.vectorstores.Chroma',
                                                                                             'from_texts')),
-                          DagNodeDetails('Embedding similarity join', ['texts', 'label'],
+                          DagNodeDetails('Embedding similarity join', ['text', 'label'],
                                          OptimizerInfo(RangeComparison(0, 10000), None, RangeComparison(0, 10000))),
                           OptionalCodeInfo(CodeReference(15, 14, 16, 101),
                                            "Chroma.from_texts(texts=df['text'].to_list(), "
@@ -243,7 +243,7 @@ def test_binary_rag_classification(tmpdir):
     # Test if, e.g., robustness analysis works
     data_corruption = DataCorruption([('text', CorruptionType.BROKEN_CHARACTERS)],
                                      also_corrupt_train=True)
-    data_cleaning = DataCleaning({'text': ErrorType.CAT_MISSING_VALUES})
+    # data_cleaning = DataCleaning({'texts': ErrorType.CAT_MISSING_VALUES})
 
     # We do not want to add support for the query optimisation for now, since we might remove it anyway, so we disable
     #  it here
@@ -258,15 +258,16 @@ def test_binary_rag_classification(tmpdir):
 
     analysis_result = PipelineAnalyzer \
         .on_previously_extracted_pipeline(inspector_result.dag_extraction_info) \
-        .skip_multi_query_optimization(False) \
+        .skip_multi_query_optimization(True) \
+        .add_what_if_analysis(data_corruption) \
         .execute()
 
     analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "with-opt-orig"))
 
-    # report = analysis_result.analysis_to_result_reports[data_corruption]
-    # analysis_result.save_what_if_dags_to_path(os.path.join(str(tmpdir), "corrupt-whatif-dags"))
+    report = analysis_result.analysis_to_result_reports[data_corruption]
+    analysis_result.save_what_if_dags_to_path(os.path.join(str(tmpdir), "corrupt-whatif-dags"))
     # analysis_result.save_optimised_what_if_dags_to_path(os.path.join(str(tmpdir), "corrupt-opt-dag"))
-    # assert report.shape == (4, 4)
+    assert report.shape == (4, 4)
     #
     # report = analysis_result.analysis_to_result_reports[PermutationFeatureImportance()]
     # analysis_result.save_what_if_dags_to_path(os.path.join(str(tmpdir), "importance-whatif-dags"))

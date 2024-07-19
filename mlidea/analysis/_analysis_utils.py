@@ -289,10 +289,17 @@ def find_where_to_apply_corruption_exactly(dag, first_op_requiring_corruption, o
         assert len(operator_parent_nodes) == 1
         operator_to_apply_corruption_after = operator_parent_nodes[0]
     elif first_op_requiring_corruption.operator_info.operator == OperatorType.CONCATENATION:
+        # LLM+RAG scenario, we have a concat to prepare the RAG input, which removes column information
         # FIXME: this should instead use the train data node that we should insert for RAG concat
         operator_parent_nodes = [parent for parent in operator_parent_nodes if column in parent.details.columns]
         assert len(operator_parent_nodes) == 1
         operator_to_apply_corruption_after = operator_parent_nodes[0]
+        assert operator_to_apply_corruption_after.operator_info.operator == OperatorType.TRAIN_DATA
+        # Now navigate one more step up to get the input node to the almost free train data node
+        operator_to_apply_corruption_after = get_sorted_parent_nodes(dag, operator_to_apply_corruption_after)[0]
+    elif first_op_requiring_corruption.operator_info.operator == OperatorType.TEST_DATA:
+        # LLM+RAG scenario, the test data is the last operator before the RAG join
+        operator_to_apply_corruption_after = operator_parent_nodes[-1]
     else:
         raise ValueError("Either a column was changed by a transformer or project_modify or we can apply"
                          "the corruption right before the estimator operation!")
