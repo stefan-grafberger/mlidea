@@ -237,30 +237,24 @@ def test_binary_rag_classification(tmpdir):
     expected = numpy.array([1, 1]).reshape(-1, 1)
     assert numpy.allclose(llm_result, expected, atol=1)
 
-    # Also test if the DAG is fully reexecutable
+    # Also test if the DAG is fully re-executable
     DagExecutor(singleton).execute(inspector_result.original_dag)
 
-    # Test if, e.g., robustness analysis works
+    # Test if the what-if analyses work for this simple LLM+RAG pipeline
     data_corruption = DataCorruption([('text', CorruptionType.BROKEN_CHARACTERS)],
                                      also_corrupt_train=True)
     data_cleaning = DataCleaning({'text': ErrorType.CAT_MISSING_VALUES})
 
     # We do not want to add support for the query optimisation for now, since we might remove it anyway, so we disable
     #  it here
-    # analysis_result = PipelineAnalyzer \
-    #     .on_previously_extracted_pipeline(inspector_result.dag_extraction_info) \
-    #     .add_what_if_analysis(data_corruption) \
-    #     .add_what_if_analysis(data_cleaning) \
-    #     .add_what_if_analysis(OperatorImpact(True, True)) \
-    #     .add_what_if_analysis(PermutationFeatureImportance()) \
-    #     .skip_multi_query_optimization(False) \
-    #     .execute()
 
     analysis_result = PipelineAnalyzer \
         .on_previously_extracted_pipeline(inspector_result.dag_extraction_info) \
-        .skip_multi_query_optimization(True) \
+        .skip_multi_query_optimization(False) \
         .add_what_if_analysis(data_cleaning) \
         .add_what_if_analysis(data_corruption) \
+        .add_what_if_analysis(PermutationFeatureImportance()) \
+        .add_what_if_analysis(OperatorImpact(True, True)) \
         .execute()
 
     analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "with-opt-orig"))
@@ -270,15 +264,15 @@ def test_binary_rag_classification(tmpdir):
     # analysis_result.save_optimised_what_if_dags_to_path(os.path.join(str(tmpdir), "corrupt-opt-dag"))
     assert report.shape == (4, 4)
     #
-    # report = analysis_result.analysis_to_result_reports[PermutationFeatureImportance()]
-    # analysis_result.save_what_if_dags_to_path(os.path.join(str(tmpdir), "importance-whatif-dags"))
+    report = analysis_result.analysis_to_result_reports[PermutationFeatureImportance()]
+    analysis_result.save_what_if_dags_to_path(os.path.join(str(tmpdir), "importance-whatif-dags"))
     # analysis_result.save_optimised_what_if_dags_to_path(os.path.join(str(tmpdir), "importance-opt-dag"))
-    # assert report.shape == (2, 2)
+    assert report.shape == (2, 2)
     #
-    # report = analysis_result.analysis_to_result_reports[OperatorImpact(True, True)]
-    # analysis_result.save_what_if_dags_to_path(os.path.join(str(tmpdir), "impact-whatif-dags"))
+    report = analysis_result.analysis_to_result_reports[OperatorImpact(True, True)]
+    analysis_result.save_what_if_dags_to_path(os.path.join(str(tmpdir), "impact-whatif-dags"))
     # analysis_result.save_optimised_what_if_dags_to_path(os.path.join(str(tmpdir), "impact-opt-dag"))
-    # assert report.shape == (1, 5)
+    assert report.shape == (1, 5)
     #
     report = analysis_result.analysis_to_result_reports[data_cleaning]
     analysis_result.save_what_if_dags_to_path(os.path.join(str(tmpdir), "cleaning-whatif-dags"))
