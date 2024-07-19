@@ -97,7 +97,6 @@ def test_binary_rag_classification(tmpdir):
                          OptionalCodeInfo(CodeReference(15, 70, 15, 102), "df[['label']].to_dict('records')"),
                          Comparison(FunctionType))
     expected_dag.add_edge(expected_3, expected_4, arg_index=0)
-    # FIMXE: this should be id 5, the order of node ids needs fixing here
     expected_5 = DagNode(5, BasicCodeLocation('<string-source>', 15),
                          OperatorContext(OperatorType.TRAIN_DATA,
                                          FunctionInfo('langchain_community.vectorstores.Chroma', 'from_texts')),
@@ -245,36 +244,27 @@ def test_binary_rag_classification(tmpdir):
                                      also_corrupt_train=True)
     data_cleaning = DataCleaning({'text': ErrorType.CAT_MISSING_VALUES})
 
-    # We do not want to add support for the query optimisation for now, since we might remove it anyway, so we disable
-    #  it here
-
     analysis_result = PipelineAnalyzer \
         .on_previously_extracted_pipeline(inspector_result.dag_extraction_info) \
-        .skip_multi_query_optimization(False) \
         .add_what_if_analysis(data_cleaning) \
         .add_what_if_analysis(data_corruption) \
         .add_what_if_analysis(PermutationFeatureImportance()) \
         .add_what_if_analysis(OperatorImpact(True, True)) \
         .execute()
 
-    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "with-opt-orig"))
-
     report = analysis_result.analysis_to_result_reports[data_corruption]
-    analysis_result.save_what_if_dags_to_path(os.path.join(str(tmpdir), "corrupt-whatif-dags"))
-    # analysis_result.save_optimised_what_if_dags_to_path(os.path.join(str(tmpdir), "corrupt-opt-dag"))
     assert report.shape == (4, 4)
-    #
+
     report = analysis_result.analysis_to_result_reports[PermutationFeatureImportance()]
-    analysis_result.save_what_if_dags_to_path(os.path.join(str(tmpdir), "importance-whatif-dags"))
-    # analysis_result.save_optimised_what_if_dags_to_path(os.path.join(str(tmpdir), "importance-opt-dag"))
     assert report.shape == (2, 2)
-    #
+
     report = analysis_result.analysis_to_result_reports[OperatorImpact(True, True)]
-    analysis_result.save_what_if_dags_to_path(os.path.join(str(tmpdir), "impact-whatif-dags"))
-    # analysis_result.save_optimised_what_if_dags_to_path(os.path.join(str(tmpdir), "impact-opt-dag"))
     assert report.shape == (1, 5)
-    #
+
     report = analysis_result.analysis_to_result_reports[data_cleaning]
-    analysis_result.save_what_if_dags_to_path(os.path.join(str(tmpdir), "cleaning-whatif-dags"))
-    # analysis_result.save_optimised_what_if_dags_to_path(os.path.join(str(tmpdir), "cleaning-opt-dag"))
     assert report.shape == (4, 4)
+
+    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-dag"))
+    analysis_result.save_what_if_dags_to_path(os.path.join(str(tmpdir), "whatif-dags"))
+    analysis_result.save_optimised_what_if_dags_to_path(os.path.join(str(tmpdir), "opt-dag"))
+
