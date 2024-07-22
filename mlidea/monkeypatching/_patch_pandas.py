@@ -38,7 +38,7 @@ class PandasPatching:
             function_info = FunctionInfo('pandas.io.parsers', 'read_csv')
 
             operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info)
-            processing_func = wrap_data_source_func(partial(original, *args, **kwargs))
+            processing_func = wrap_data_source_func(partial(original, *args, **kwargs), op_id=op_id)
             optimizer_info, result = capture_optimizer_info(processing_func)
 
             description = f"{args[0].split(os.path.sep)[-1]}"
@@ -67,7 +67,7 @@ class PandasPatching:
             function_info = FunctionInfo('pandas.io.parsers', 'read_parquet')
 
             operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info)
-            processing_func = wrap_data_source_func(partial(original, *args, **kwargs))
+            processing_func = wrap_data_source_func(partial(original, *args, **kwargs), op_id=op_id)
             optimizer_info, result = capture_optimizer_info(processing_func)
 
             description = f"{args[0].split(os.path.sep)[-1]}"
@@ -102,11 +102,11 @@ class DataFramePatching:
             initial_func = partial(original, self, *args, **kwargs)
             def initial_func_prov():
                 initial_func()
-                generate_and_add_provenance_data_source(self)
+                generate_and_add_provenance_data_source(self, op_id=op_id)
             optimizer_info, _ = capture_optimizer_info(initial_func_prov, self)
             result = self
 
-            process_func = wrap_data_source_func(partial(pandas.DataFrame, *args, **kwargs))
+            process_func = wrap_data_source_func(partial(pandas.DataFrame, *args, **kwargs), op_id=op_id)
             columns = list(self.columns)  # pylint: disable=no-member
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
@@ -130,7 +130,7 @@ class DataFramePatching:
             """ Execute inspections, add DAG node """
             function_info = FunctionInfo('pandas.core.frame.DataFrame', 'from_records')
             operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info)
-            process_func = wrap_data_source_func(partial(original, cls, *args, **kwargs))
+            process_func = wrap_data_source_func(partial(original, cls, *args, **kwargs), op_id=op_id)
             optimizer_info, result = capture_optimizer_info(process_func)
 
             columns = list(result.columns)
@@ -562,9 +562,11 @@ class DataFrameGroupByPatching:
 
             def process_func(pandas_df):
                 groupby_df = groupby_func(pandas_df)
-                return original(groupby_df, *args, **kwargs)
+                result = original(groupby_df, *args, **kwargs)
+                generate_and_add_provenance_data_source(result, op_id=op_id)
+                return result
 
-            initial_func = partial(original, self, *args, **kwargs)
+            initial_func = wrap_data_source_func(partial(original, self, *args, **kwargs), op_id=op_id)
             optimizer_info, result = capture_optimizer_info(initial_func)
 
             if len(args) > 0:
@@ -670,11 +672,11 @@ class SeriesPatching:
             initial_func = partial(original, self, *args, **kwargs)
             def initial_func_prov():
                 initial_func()
-                generate_and_add_provenance_data_source(self)
+                generate_and_add_provenance_data_source(self, op_id=op_id)
             optimizer_info, _ = capture_optimizer_info(initial_func_prov, self)
             result = self
 
-            process_func = wrap_data_source_func(partial(pandas.Series, *args, **kwargs))
+            process_func = wrap_data_source_func(partial(pandas.Series, *args, **kwargs), op_id=op_id)
 
             if self.name:  # pylint: disable=no-member
                 columns = list(self.name)  # pylint: disable=no-member

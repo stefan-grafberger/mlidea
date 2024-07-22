@@ -752,6 +752,10 @@ def test_groupby_agg():
         
         df_expected = pd.DataFrame({'group': ['A', 'B', 'C'], 'mean_value': [1., 3., 3.]})
         pd.testing.assert_frame_equal(df_groupby_agg.reset_index(drop=False), df_expected.reset_index(drop=True))
+        
+        assert "1_0" in df_groupby_agg._mlinspect_provenance
+        import numpy
+        assert numpy.allclose(df_groupby_agg._mlinspect_provenance["1_0"], numpy.array(range(3)))
         """)
     inspector_result = _pipeline_executor.singleton.run(python_code=test_code, track_code_references=True)
     inspector_result.original_dag.remove_node(list(inspector_result.original_dag.nodes)[2])
@@ -785,6 +789,9 @@ def test_groupby_agg():
     df_groupby_agg = extracted_node_groupby_agg.processing_func(pandas_df)
     df_expected = pandas.DataFrame({'group': ['A', 'B'], 'mean_value': [4., 3.]})
     pandas.testing.assert_frame_equal(df_groupby_agg.reset_index(drop=False), df_expected.reset_index(drop=True))
+
+    assert "1_0" in df_groupby_agg._mlinspect_provenance
+    assert numpy.allclose(df_groupby_agg._mlinspect_provenance["1_0"], numpy.array(range(2)))
 
 
 def test_to_dict_default():
@@ -885,9 +892,11 @@ def test_series__init__():
     """
     test_code = cleandoc("""
         import pandas as pd
-
+        import numpy
         pd_series = pd.Series([0, 2, 4, None], name='A')
         assert len(pd_series) == 4
+        assert "0_0" in pd_series._mlinspect_provenance
+        assert numpy.allclose(pd_series._mlinspect_provenance["0_0"], numpy.array(range(4)))
         """)
     inspector_result = _pipeline_executor.singleton.run(python_code=test_code, track_code_references=True)
     extracted_node: DagNode = list(inspector_result.original_dag.nodes)[0]
