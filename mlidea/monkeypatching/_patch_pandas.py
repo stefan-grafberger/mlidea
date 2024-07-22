@@ -19,6 +19,7 @@ from mlidea.monkeypatching._monkey_patching_utils import execute_patched_func, g
     get_dag_node_for_id, execute_patched_func_no_op_id, get_optional_code_info_or_none, FunctionCallResult, \
     execute_patched_internal_func_with_depth, get_dag_node_copy_with_optimizer_info
 from mlidea.monkeypatching._patch_sklearn import call_info_singleton
+from mlidea.monkeypatching._provenance_propagation import wrap_data_source_func, generate_and_add_provenance_data_source
 
 
 @gorilla.patches(pandas)
@@ -37,7 +38,7 @@ class PandasPatching:
             function_info = FunctionInfo('pandas.io.parsers', 'read_csv')
 
             operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info)
-            processing_func = partial(original, *args, **kwargs)
+            processing_func = partial(wrap_data_source_func(original), *args, **kwargs)
             optimizer_info, result = capture_optimizer_info(processing_func)
 
             description = f"{args[0].split(os.path.sep)[-1]}"
@@ -99,10 +100,13 @@ class DataFramePatching:
             function_info = FunctionInfo('pandas.core.frame', 'DataFrame')
             operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info)
             initial_func = partial(original, self, *args, **kwargs)
-            optimizer_info, _ = capture_optimizer_info(initial_func, self)
+            def initial_func_prov():
+                initial_func()
+                generate_and_add_provenance_data_source(self)
+            optimizer_info, _ = capture_optimizer_info(initial_func_prov, self)
             result = self
 
-            process_func = partial(pandas.DataFrame, *args, **kwargs)
+            process_func = wrap_data_source_func(partial(pandas.DataFrame, *args, **kwargs))
             columns = list(self.columns)  # pylint: disable=no-member
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),

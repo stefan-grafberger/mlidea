@@ -24,10 +24,11 @@ def test_read_csv():
         import os
         import pandas as pd
         from mlidea.utils import get_project_root
-        
+        import numpy
         train_file = os.path.join(str(get_project_root()), "example_pipelines", "adult_complex", "adult_train.csv")
         raw_data = pd.read_csv(train_file, na_values='?', index_col=0)
         assert len(raw_data) == 22792
+        assert numpy.allclose(raw_data._mlinspect_provenance["0_0"], numpy.array(range(22792)))
         """)
 
     inspector_result = _pipeline_executor.singleton.run(python_code=test_code, track_code_references=True)
@@ -48,7 +49,10 @@ def test_read_csv():
                             Comparison(partial))
     compare(extracted_node, expected_node)
 
-    assert len(extracted_node.processing_func()) == 22792
+    df_result = extracted_node.processing_func()
+    assert len(df_result) == 22792
+    assert "0_0" in df_result._mlinspect_provenance
+    assert numpy.allclose(df_result._mlinspect_provenance["0_0"], numpy.array(range(3)))
 
 
 def test_read_parquet():
@@ -121,9 +125,11 @@ def test_frame__init__():
     """
     test_code = cleandoc("""
         import pandas as pd
-
+        import numpy
         df = pd.DataFrame([0, 1, 2], columns=['A'])
         assert len(df) == 3
+        assert "0_0" in df._mlinspect_provenance
+        assert numpy.allclose(df._mlinspect_provenance["0_0"], numpy.array(range(3)))
         """)
 
     inspector_result = _pipeline_executor.singleton.run(python_code=test_code, track_code_references=True)
@@ -141,6 +147,9 @@ def test_frame__init__():
     df_created_with_extracted_func = extracted_node.processing_func()
     df_expected = pandas.DataFrame([0, 1, 2], columns=['A'])
     pandas.testing.assert_frame_equal(df_created_with_extracted_func, df_expected)
+
+    assert "0_0" in df_created_with_extracted_func._mlinspect_provenance
+    assert numpy.allclose(df_created_with_extracted_func._mlinspect_provenance["0_0"], numpy.array(range(3)))
 
 
 def test_frame_dropna():
