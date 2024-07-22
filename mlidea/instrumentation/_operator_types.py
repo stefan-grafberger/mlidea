@@ -53,6 +53,7 @@ class OperatorType(Enum):
     TEST_DATA = "Test Data"
     TEST_LABELS = "Test Labels"
     JOIN = "Join"
+    RAG_JOIN = "RAG Join"
     GROUP_BY_AGG = "Groupby and Aggregate"
     TRAIN_TEST_SPLIT = "Train Test Split"
     SUBSCRIPT = "Subscript"

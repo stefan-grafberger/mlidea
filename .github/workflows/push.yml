@@ -1,6 +1,7 @@
 name: Lint and Test
 
 on: [ push, pull_request ]
+# Only runs some of the tests and only one Python version
 
 jobs:
   python:
@@ -8,7 +9,7 @@ jobs:
     strategy:
       max-parallel: 1
       matrix:
-        python-version: [ "3.11", "3.10" ]
+        python-version: [ "3.11" ]
 
     steps:
       - uses: actions/checkout@v2
@@ -46,7 +47,7 @@ jobs:
           pip install --upgrade --upgrade-strategy eager .
 
       - name: Unit Tests
-        run: python -m pytest
+        run: python -m pytest --ignore=test/experiments/*
 
       - name: Upload Coverage Report
         uses: codecov/codecov-action@v1

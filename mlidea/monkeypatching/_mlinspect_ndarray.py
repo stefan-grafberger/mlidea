@@ -1,11 +1,28 @@
 """
 Monkey patching for numpy
 """
+from typing import Any
+
 import numpy
+from langchain_core.embeddings import Embeddings
+from langchain_core.retrievers import BaseRetriever
+from pydantic import PrivateAttr
 
 
 class MlinspectList(list):
     """A list wrapper that can store mlinspect annotations"""
+    _mlinspect_dag_node = None
+    _mlinspect_annotation = None
+
+
+class MlinspectDict(dict):
+    """A dict wrapper that can store mlinspect annotations"""
+    _mlinspect_dag_node = None
+    _mlinspect_annotation = None
+
+
+class MlinspectTuple(tuple):
+    """A tuple wrapper that can store mlinspect annotations"""
     _mlinspect_dag_node = None
     _mlinspect_annotation = None
 
@@ -39,3 +56,31 @@ class MlinspectNdarray(numpy.ndarray):
         result._mlinspect_dag_node = self._mlinspect_dag_node  # pylint: disable=protected-access
         result._mlinspect_annotation = self._mlinspect_annotation  # pylint: disable=protected-access
         return result
+
+class MlideaChromaVectorStoreRetrieverPlaceHolder(BaseRetriever):
+    retrieval_corpus_X: Any
+    retrieval_corpus_y: Any
+    embedding: Any
+    _mlinspect_dag_node: Any = PrivateAttr(None)  # Why this is necessary: https://stackoverflow.com/a/75712642
+    precomputed_result: Any
+    def __init__(self, retrieval_corpus_X: list[str], retrieval_corpus_y: list[dict[str, any]], embedding: Embeddings,
+                 **kwargs: any):
+        # TODO: This is ugly, but we want a placeholder class can be used as part of the declarative langchain
+        #  definition without actually executing something expensive. There is for sure a better way to do this,
+        #  but this can be cleaned up later
+        super().__init__(**kwargs)
+        self.retrieval_corpus_X = retrieval_corpus_X
+        self.retrieval_corpus_y = retrieval_corpus_y
+        self.embedding = embedding
+
+    def invoke(self, *args: Any, **kwargs: Any):
+        raise ValueError("This is only a placeholder, the actual similarity join should be executed by the wrapper")
+
+    def _get_relevant_documents(self, *args: Any, **kwargs: Any):
+        raise ValueError("This is only a placeholder, the actual similarity join should be executed by the wrapper")
+
+    def as_retriever(self):
+        return self
+
+    def columns(self):
+        return ["texts", *list(self.retrieval_corpus_y[0].keys())]

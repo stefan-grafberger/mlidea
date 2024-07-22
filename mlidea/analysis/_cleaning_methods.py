@@ -140,7 +140,13 @@ class MissingValueCleaner:
             if cat is True:
                 input_df = input_df.astype(str)
             transformer = SimpleImputer(strategy=strategy)
-            input_df = transformer.fit_transform(input_df)
+            if isinstance(input_df, pandas.Series):
+                series_name = input_df.name
+                input_df = input_df.to_frame(series_name)
+                input_df = transformer.fit_transform(input_df)
+                input_df = pandas.Series(input_df[:, 0], name=series_name)
+            else:
+                input_df = transformer.fit_transform(input_df)
             transformed_data = wrap_in_mlinspect_array_if_necessary(input_df)
             transformed_data._mlinspect_annotation = transformer  # pylint: disable=protected-access
         return transformed_data
@@ -156,7 +162,13 @@ class MissingValueCleaner:
         else:
             if cat is True:
                 input_df = input_df.astype(str)
-            input_df = transformer.transform(input_df)
+            if isinstance(input_df, pandas.Series):
+                series_name = input_df.name
+                input_df = input_df.to_frame(series_name)
+                input_df = transformer.transform(input_df)
+                input_df = pandas.Series(input_df[:, 0], name=series_name)
+            else:
+                input_df = transformer.transform(input_df)
         return input_df
 
 

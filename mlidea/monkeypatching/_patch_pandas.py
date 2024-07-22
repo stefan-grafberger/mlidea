@@ -25,8 +25,6 @@ from mlidea.monkeypatching._patch_sklearn import call_info_singleton
 class PandasPatching:
     """ Patches for pandas """
 
-    # pylint: disable=too-few-public-methods
-
     @gorilla.name('read_csv')
     @gorilla.settings(allow_hit=True)
     def patched_read_csv(*args, **kwargs):
@@ -37,6 +35,35 @@ class PandasPatching:
         def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
             """ Execute inspections, add DAG node """
             function_info = FunctionInfo('pandas.io.parsers', 'read_csv')
+
+            operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info)
+            processing_func = partial(original, *args, **kwargs)
+            optimizer_info, result = capture_optimizer_info(processing_func)
+
+            description = f"{args[0].split(os.path.sep)[-1]}"
+            dag_node = DagNode(op_id,
+                               BasicCodeLocation(caller_filename, lineno),
+                               operator_context,
+                               DagNodeDetails(description, list(result.columns), optimizer_info),
+                               get_optional_code_info_or_none(optional_code_reference, optional_source_code),
+                               processing_func)
+            function_call_result = FunctionCallResult(result)
+            add_dag_node(dag_node, [], function_call_result)
+            new_result = function_call_result.function_result
+            return new_result
+
+        return execute_patched_func(original, execute_inspections, *args, **kwargs)
+
+    @gorilla.name('read_parquet')
+    @gorilla.settings(allow_hit=True)
+    def patched_read_parquet(*args, **kwargs):
+        """ Patch for ('pandas.io.parsers', 'read_parquet') """
+        # pylint: disable=no-self-argument
+        original = gorilla.get_original_attribute(pandas, 'read_parquet')
+
+        def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
+            """ Execute inspections, add DAG node """
+            function_info = FunctionInfo('pandas.io.parsers', 'read_parquet')
 
             operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info)
             processing_func = partial(original, *args, **kwargs)
@@ -397,7 +424,6 @@ class DataFramePatching:
             input_info_b = get_input_info(right_df, caller_filename, lineno, function_info, optional_code_reference,
                                           optional_source_code)
             operator_context = OperatorContext(OperatorType.JOIN, function_info)
-            # No input_infos copy needed because it's only a selection and the rows not being removed don't change
             initial_func = partial(original, input_info_a.annotated_dfobject.result_data,
                                    input_info_b.annotated_dfobject.result_data,
                                    *args[args_start_index:],
@@ -466,6 +492,45 @@ class DataFramePatching:
             return result
 
         return execute_patched_func_no_op_id(original, execute_inspections, self, *args, **kwargs)
+
+    @gorilla.name('to_dict')
+    @gorilla.settings(allow_hit=True)
+    def patched_to_dict(self, orient='dict', into=dict, **kwargs):
+        """ Patch for ('pandas.core.frame', 'to_dict') """
+        original = gorilla.get_original_attribute(pandas.DataFrame, 'to_dict')
+        func_args = {'orient': orient, 'into': into, **kwargs}
+
+        def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
+            """ Execute inspections, add DAG node """
+            function_info = FunctionInfo('pandas.core.frame', 'to_dict')
+            input_info = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
+                                        optional_source_code)
+            operator_context = OperatorContext(OperatorType.PROJECTION, function_info)
+            description = "dict conversion"
+            processing_func = lambda df: original(df, **func_args)  # pylint: disable=unnecessary-lambda
+            initial_func = partial(original, input_info.annotated_dfobject.result_data, **func_args)
+            optimizer_info, result = capture_optimizer_info(initial_func)
+
+            if isinstance(result, dict) and isinstance(list(result.values())[0], dict):
+                columns = list(result.keys())
+            elif isinstance(result, list) and isinstance(result[0], dict):
+                columns = list(result[0].keys())
+            else:
+                raise NotImplementedError("TODO: Support all to_dict output formats if ever needed")
+
+            dag_node = DagNode(op_id,
+                               BasicCodeLocation(caller_filename, lineno),
+                               operator_context,
+                               DagNodeDetails(description, columns, optimizer_info),
+                               get_optional_code_info_or_none(optional_code_reference, optional_source_code),
+                               processing_func)
+            function_call_result = FunctionCallResult(result)
+            add_dag_node(dag_node, [input_info.dag_node], function_call_result)
+            new_result = function_call_result.function_result
+
+            return new_result
+
+        return execute_patched_func(original, execute_inspections, self, **func_args)
 
 
 @gorilla.patches(pandas.core.groupby.generic.DataFrameGroupBy)
@@ -715,6 +780,79 @@ class SeriesPatching:
 
         return execute_patched_func(original, execute_inspections, self, **func_args)
 
+    @gorilla.name('to_list')
+    @gorilla.settings(allow_hit=True)
+    def patched_to_list(self, *args, **kwargs):
+        """ Patch for ('pandas.core.series', 'to_numpy') """
+        original = gorilla.get_original_attribute(pandas.Series, 'to_list')
+        func_args = kwargs
+
+        def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
+            """ Execute inspections, add DAG node """
+            # pylint: disable=no-member
+            function_info = FunctionInfo('pandas.core.series.Series', 'to_list')
+            input_info = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
+                                        optional_source_code)
+            operator_context = OperatorContext(OperatorType.PROJECTION, function_info)
+            description = "list conversion"
+            processing_func = lambda df: original(df, *args, **kwargs)
+            initial_func = partial(original, input_info.annotated_dfobject.result_data, **func_args)
+            optimizer_info, result = capture_optimizer_info(initial_func)
+            columns = input_info.dag_node.details.columns
+            dag_node = DagNode(op_id,
+                               BasicCodeLocation(caller_filename, lineno),
+                               operator_context,
+                               DagNodeDetails(description, columns, optimizer_info),
+                               get_optional_code_info_or_none(optional_code_reference, optional_source_code),
+                               processing_func)
+            function_call_result = FunctionCallResult(result)
+            add_dag_node(dag_node, [input_info.dag_node], function_call_result)
+            new_result = function_call_result.function_result
+
+            return new_result
+
+        return execute_patched_func(original, execute_inspections, self, **func_args)
+
+    @gorilla.name('replace')
+    @gorilla.settings(allow_hit=True)
+    def patched_replace(self, *args, **kwargs):
+        """ Patch for ('pandas.core.frame', 'replace') """
+        original = gorilla.get_original_attribute(pandas.Series, 'replace')
+
+        def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
+            """ Execute inspections, add DAG node """
+            function_info = FunctionInfo('pandas.core.series', 'replace')
+
+            input_info = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
+                                        optional_source_code)
+            operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, function_info)
+            # No input_infos copy needed because it's only a selection and the rows not being removed don't change
+            initial_func = partial(original, input_info.annotated_dfobject.result_data, *args, **kwargs)
+            optimizer_info, result = capture_optimizer_info(initial_func, self)
+            if isinstance(args[0], dict):
+                replacement_items = list(args[0].items())[1:]
+                to_replace, replacement = list(args[0].items())[0]
+                description = f"Replace '{to_replace}'->'{replacement}'"
+                for to_replace, replacement in replacement_items:
+                    description += f", '{to_replace}'->'{replacement}'"
+            else:
+                description = f"Replace '{args[0]}' with '{args[1]}'"
+            processing_func = lambda df: original(df, *args, **kwargs)
+            dag_node = DagNode(op_id,
+                               BasicCodeLocation(caller_filename, lineno),
+                               operator_context,
+                               DagNodeDetails(description, [self.name], optimizer_info),  # pylint: disable=no-member
+                               get_optional_code_info_or_none(optional_code_reference, optional_source_code),
+                               processing_func)
+
+            function_call_result = FunctionCallResult(result)
+            add_dag_node(dag_node, [input_info.dag_node], function_call_result)
+            new_result = function_call_result.function_result
+
+            return new_result
+
+        return execute_patched_func(original, execute_inspections, self, *args, **kwargs)
+
     @gorilla.name('isin')
     @gorilla.settings(allow_hit=True)
     def patched_isin(self, *args, **kwargs):
@@ -728,6 +866,37 @@ class SeriesPatching:
                                         optional_source_code)
             operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info)
             description = f"isin: {args[0]}"
+            columns = [self.name]  # pylint: disable=no-member
+            processing_func = lambda df: original(df, *args, **kwargs)
+            initial_func = partial(original, input_info.annotated_dfobject.result_data, *args, **kwargs)
+            optimizer_info, result = capture_optimizer_info(initial_func)
+            dag_node = DagNode(op_id,
+                               BasicCodeLocation(caller_filename, lineno),
+                               operator_context,
+                               DagNodeDetails(description, columns, optimizer_info),
+                               get_optional_code_info_or_none(optional_code_reference, optional_source_code),
+                               processing_func)
+            function_call_result = FunctionCallResult(result)
+            add_dag_node(dag_node, [input_info.dag_node], function_call_result)
+            new_result = function_call_result.function_result
+
+            return new_result
+
+        return execute_patched_func(original, execute_inspections, self, *args, **kwargs)
+
+    @gorilla.name('__invert__')
+    @gorilla.settings(allow_hit=True)
+    def patched___invert__(self, *args, **kwargs):
+        """ Patch for ('pandas.core.series', '__invert__') """
+        original = gorilla.get_original_attribute(pandas.Series, '__invert__')
+
+        def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
+            """ Execute inspections, add DAG node """
+            function_info = FunctionInfo('pandas.core.series', '__invert__')
+            input_info = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
+                                        optional_source_code)
+            operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info)
+            description = "~"
             columns = [self.name]  # pylint: disable=no-member
             processing_func = lambda df: original(df, *args, **kwargs)
             initial_func = partial(original, input_info.annotated_dfobject.result_data, *args, **kwargs)
@@ -988,6 +1157,41 @@ class StringMethodsPatching:
                                         optional_source_code)
             operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info)
             description = f"match r'{args[0]}'"
+            columns = [self._data.name]  # pylint: disable=no-member
+            processing_func = lambda df: original(df.str, *args, **kwargs)
+            initial_func = partial(original, self, *args, **kwargs)
+            optimizer_info, result = capture_optimizer_info(initial_func)
+            dag_node = DagNode(op_id,
+                               BasicCodeLocation(caller_filename, lineno),
+                               operator_context,
+                               DagNodeDetails(description, columns, optimizer_info),
+                               get_optional_code_info_or_none(optional_code_reference, optional_source_code),
+                               processing_func)
+            function_call_result = FunctionCallResult(result)
+            add_dag_node(dag_node, [input_info.dag_node], function_call_result)
+            new_result = function_call_result.function_result
+
+            return new_result
+
+        return execute_patched_func(original, execute_inspections, self, *args, **kwargs)
+
+    @gorilla.name('contains')
+    @gorilla.settings(allow_hit=True)
+    def patched_contains(self, *args, **kwargs):
+        """ Patch for ('pandas.core.strings.StringMethods', 'contains') """
+        original = gorilla.get_original_attribute(pandas.core.strings.StringMethods, 'contains')
+
+        def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
+            """ Execute inspections, add DAG node """
+            function_info = FunctionInfo('pandas.core.strings.StringMethods', 'contains')
+            input_info = get_input_info(self._data,  # pylint: disable=no-member
+                                        caller_filename, lineno, function_info, optional_code_reference,
+                                        optional_source_code)
+            operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info)
+            description = "contains "
+            if 'regex' in kwargs and kwargs['regex'] is True:
+                description += "r"
+            description += f"'{args[0]}'"
             columns = [self._data.name]  # pylint: disable=no-member
             processing_func = lambda df: original(df.str, *args, **kwargs)
             initial_func = partial(original, self, *args, **kwargs)

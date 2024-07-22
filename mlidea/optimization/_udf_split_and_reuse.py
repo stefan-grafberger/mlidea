@@ -223,7 +223,11 @@ class UdfSplitAndReuse(QueryOptimizationRule):
             else:
                 was_series = False
             return_df = pandas_df.copy()
-            return_df.loc[indexes_to_corrupt, column] = completely_corrupted_df.loc[indexes_to_corrupt, column]
+            if isinstance(return_df, list) and isinstance(completely_corrupted_df, pandas.Series):
+                for index in indexes_to_corrupt:
+                    return_df[index] = completely_corrupted_df.iloc[index]
+            else:
+                return_df.loc[indexes_to_corrupt, column] = completely_corrupted_df.loc[indexes_to_corrupt, column]
             if was_series is True:
                 return_df = return_df[column]
             return return_df

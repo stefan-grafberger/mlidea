@@ -5,7 +5,7 @@ import logging
 
 import networkx
 
-from mlidea.instrumentation._operator_types import OperatorType
+from mlidea.instrumentation._operator_types import OperatorType, FunctionInfo
 from mlidea.instrumentation._dag_node import DagNode
 
 logger = logging.getLogger(__name__)
@@ -87,11 +87,14 @@ def filter_estimator_transformer_edges(parent, child):
 
 def find_first_op_modifying_a_column(dag, search_start_node: DagNode, column_names: list[str], train_not_test: bool):
     """Find DagNodes in the DAG by OperatorType"""
+    # pylint: disable=too-many-locals
+
     if train_not_test is False:
         dag_to_consider = networkx.subgraph_view(dag, filter_edge=filter_estimator_transformer_edges)
     else:
         dag_to_consider = dag
     nodes_to_search = list(networkx.ancestors(dag_to_consider, search_start_node))
+
     # TODO: Cleanup
     project_modify_matches = [node for node in nodes_to_search
                               if (node.operator_info.operator == OperatorType.PROJECTION_MODIFY
@@ -140,6 +143,24 @@ def find_first_op_modifying_a_column(dag, search_start_node: DagNode, column_nam
         sorted_transformer_matches = sorted(transformer_matches, key=lambda dag_node: dag_node.node_id)
         return sorted_transformer_matches[0]
 
+    rag_join_matches = [node for node in list(dag_to_consider.nodes)
+                        if node.operator_info.operator == OperatorType.RAG_JOIN]
+    is_rag_pipeline = len(rag_join_matches) == 1
+    if is_rag_pipeline is True and search_start_node.operator_info.operator == OperatorType.CONCATENATION:
+        train_node = get_sorted_parent_nodes(dag, search_start_node)[0]
+        assert train_node.operator_info.operator == OperatorType.TRAIN_DATA
+        # this is because we do not want to implement udf operations on lists as well, but maybe this would
+        #  be cleaner in the future?
+        train_node_parent = get_sorted_parent_nodes(dag, train_node)[0]
+        if train_node_parent.operator_info.function_info == FunctionInfo('pandas.core.series.Series', 'to_list'):
+            return train_node_parent
+        return train_node
+    if is_rag_pipeline is True and search_start_node.operator_info.operator == OperatorType.TEST_DATA:
+        test_node_parent = get_sorted_parent_nodes(dag, search_start_node)[0]
+        if test_node_parent.operator_info.function_info == FunctionInfo('pandas.core.series.Series', 'to_list'):
+            return test_node_parent
+        return search_start_node
+
     # If no node changes the column, we can apply the corruption directly before the estimator
     return search_start_node
 
@@ -150,7 +171,7 @@ def find_dag_location_for_first_op_modifying_column(column, dag, train_not_test)
     first_op_requiring_corruption = find_first_op_modifying_a_column(dag, search_start_node, [column], train_not_test)
     operator_parent_nodes = get_sorted_parent_nodes(dag, first_op_requiring_corruption)
     first_op_requiring_corruption, operator_to_apply_corruption_after = \
-        find_where_to_apply_corruption_exactly(dag, first_op_requiring_corruption, operator_parent_nodes)
+        find_where_to_apply_corruption_exactly(dag, first_op_requiring_corruption, operator_parent_nodes, column)
     return operator_to_apply_corruption_after, first_op_requiring_corruption
 
 
@@ -211,16 +232,29 @@ def find_train_or_test_pipeline_part_end(dag, train_not_test):
     """We want to start at the end of the pipeline to find the relevant train or test operations"""
     if train_not_test is True:
         search_start_nodes = find_nodes_by_type(dag, OperatorType.ESTIMATOR)
-        if len(search_start_nodes) != 1:
-            raise NotImplementedError("Currently, DataCorruption only supports pipelines with exactly one estimator!")
-        search_start_node = search_start_nodes[0]
+        if len(search_start_nodes) == 0:
+            search_start_nodes = find_nodes_by_type(dag, OperatorType.RAG_JOIN)
+            if len(search_start_nodes) != 1:
+                raise NotImplementedError(
+                    "Currently, DataCorruption only supports pipelines with exactly one estimator or RAG!")
+            search_start_node = search_start_nodes[0]
+            search_start_node = get_sorted_parent_nodes(dag, search_start_node)[0]
+        elif len(search_start_nodes) != 1:
+            raise NotImplementedError("Currently, DataCorruption only supports pipelines with exactly one estimator "
+                                      "or RAG!")
+        else:
+            search_start_node = search_start_nodes[0]
     else:
-        search_start_nodes = find_nodes_by_type(dag, OperatorType.PREDICT)
-        if len(search_start_nodes) != 1:
-            raise NotImplementedError("Currently, DataCorruption only supports pipelines with exactly one predict call "
-                                      "for the test set!")
-
-        search_start_node = search_start_nodes[0]
+        search_start_nodes = find_nodes_by_type(dag, OperatorType.RAG_JOIN)
+        if len(search_start_nodes) == 1:
+            search_start_node = search_start_nodes[0]
+            search_start_node = get_sorted_parent_nodes(dag, search_start_node)[-1]
+        else:
+            search_start_nodes = find_nodes_by_type(dag, OperatorType.PREDICT)
+            if len(search_start_nodes) != 1:
+                raise NotImplementedError("Currently, DataCorruption only supports pipelines with exactly one predict "
+                                          "call for the test set or RAG!")
+            search_start_node = search_start_nodes[0]
     return search_start_node
 
 
@@ -253,7 +287,7 @@ def get_sorted_children_nodes(dag: networkx.DiGraph, first_op_requiring_corrupti
     return sorted_operator_child_nodes
 
 
-def find_where_to_apply_corruption_exactly(dag, first_op_requiring_corruption, operator_parent_nodes):
+def find_where_to_apply_corruption_exactly(dag, first_op_requiring_corruption, operator_parent_nodes, column):
     """
     We know which operator requires the corruption to be present already; now we need to decide between which
     parent node and the current node we need to insert the corruption node.
@@ -275,6 +309,24 @@ def find_where_to_apply_corruption_exactly(dag, first_op_requiring_corruption, o
     elif first_op_requiring_corruption.operator_info.operator == OperatorType.PROJECTION:
         assert len(operator_parent_nodes) == 1
         operator_to_apply_corruption_after = operator_parent_nodes[0]
+    elif first_op_requiring_corruption.operator_info.operator == OperatorType.CONCATENATION:
+        # LLM+RAG scenario, we have a concat to prepare the RAG input, which removes column information
+        # FIXME: this should instead use the train data node that we should insert for RAG concat
+        operator_parent_nodes = [parent for parent in operator_parent_nodes if column in parent.details.columns]
+        assert len(operator_parent_nodes) == 1
+        operator_to_apply_corruption_after = operator_parent_nodes[0]
+        assert operator_to_apply_corruption_after.operator_info.operator == OperatorType.TRAIN_DATA
+        # Now navigate one more step up to get the input node to the almost free train data node
+        operator_to_apply_corruption_after = get_sorted_parent_nodes(dag, operator_to_apply_corruption_after)[0]
+    elif first_op_requiring_corruption.operator_info.operator == OperatorType.TRAIN_DATA:
+        # LLM+RAG scenario, the train data is the last operator before the concat for the RAG join
+        operator_to_apply_corruption_after = operator_parent_nodes[-1]
+        if operator_to_apply_corruption_after.operator_info.function_info == FunctionInfo('pandas.core.series.Series',
+                                                                                          'to_list'):
+            operator_to_apply_corruption_after = get_sorted_parent_nodes(dag, operator_to_apply_corruption_after)[0]
+    elif first_op_requiring_corruption.operator_info.operator == OperatorType.TEST_DATA:
+        # LLM+RAG scenario, the test data is the last operator before the RAG join
+        operator_to_apply_corruption_after = operator_parent_nodes[-1]
     else:
         raise ValueError("Either a column was changed by a transformer or project_modify or we can apply"
                          "the corruption right before the estimator operation!")
@@ -289,9 +341,16 @@ def get_columns_used_as_feature(dag) -> list[str]:
     else:
         feature_columns = set()
         transformer_ops = find_nodes_by_type(dag, OperatorType.TRANSFORMER)
-        for transformer in transformer_ops:
-            transformer_parent = get_sorted_parent_nodes(dag, transformer)[-1]
-            feature_columns.update(transformer_parent.details.columns)
+        if len(transformer_ops) > 0:
+            for transformer in transformer_ops:
+                transformer_parent = get_sorted_parent_nodes(dag, transformer)[-1]
+                feature_columns.update(transformer_parent.details.columns)
+        else:
+            # FIXME: this should instead use the train data node that we should insert for RAG concat
+            rag_concat_ops = find_nodes_by_type(dag, OperatorType.CONCATENATION)
+            assert len(rag_concat_ops) == 1
+            rag_concat_train_data_parent = get_sorted_parent_nodes(dag, rag_concat_ops[0])[0]
+            feature_columns.update(rag_concat_train_data_parent.details.columns)
         feature_columns.discard("array")
         feature_columns = list(feature_columns)  # pylint: disable=redefined-variable-type
     return feature_columns
