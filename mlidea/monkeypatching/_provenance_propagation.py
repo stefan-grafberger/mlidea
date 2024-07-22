@@ -4,6 +4,7 @@ import numpy
 
 from mlidea.execution._pipeline_executor import singleton
 from mlidea.execution._stat_tracking import get_df_shape
+from monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
 
 
 def generate_and_add_provenance_data_source(df_obj):
@@ -17,6 +18,7 @@ def generate_and_add_provenance_data_source(df_obj):
 def wrap_data_source_func(source_func):
     def edit_data_source_result(source_func):
         df_obj = source_func()
+        df_obj = wrap_in_mlinspect_array_if_necessary(df_obj)
         generate_and_add_provenance_data_source(df_obj)
         return df_obj
 

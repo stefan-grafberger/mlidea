@@ -265,7 +265,7 @@ def wrap_in_mlinspect_array_if_necessary(df_object):
     """
     Makes sure annotations can be stored in a df_object. For example, numpy arrays need a wrapper for this.
     """
-    if isinstance(df_object, numpy.ndarray):
+    if isinstance(df_object, numpy.ndarray) and not isinstance(df_object, MlinspectNdarray):
         df_object = MlinspectNdarray(df_object)
     elif isinstance(df_object, list):
         df_object = MlinspectList(df_object)

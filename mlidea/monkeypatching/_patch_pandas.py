@@ -38,7 +38,7 @@ class PandasPatching:
             function_info = FunctionInfo('pandas.io.parsers', 'read_csv')
 
             operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info)
-            processing_func = partial(wrap_data_source_func(original), *args, **kwargs)
+            processing_func = wrap_data_source_func(partial(original, *args, **kwargs))
             optimizer_info, result = capture_optimizer_info(processing_func)
 
             description = f"{args[0].split(os.path.sep)[-1]}"
@@ -67,7 +67,7 @@ class PandasPatching:
             function_info = FunctionInfo('pandas.io.parsers', 'read_parquet')
 
             operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info)
-            processing_func = partial(original, *args, **kwargs)
+            processing_func = wrap_data_source_func(partial(original, *args, **kwargs))
             optimizer_info, result = capture_optimizer_info(processing_func)
 
             description = f"{args[0].split(os.path.sep)[-1]}"
@@ -130,10 +130,9 @@ class DataFramePatching:
             """ Execute inspections, add DAG node """
             function_info = FunctionInfo('pandas.core.frame.DataFrame', 'from_records')
             operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info)
-            initial_func = partial(original, cls, *args, **kwargs)
-            optimizer_info, result = capture_optimizer_info(initial_func)
+            process_func = wrap_data_source_func(partial(original, cls, *args, **kwargs))
+            optimizer_info, result = capture_optimizer_info(process_func)
 
-            process_func = partial(original, cls, *args, **kwargs)
             columns = list(result.columns)
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
@@ -669,10 +668,13 @@ class SeriesPatching:
 
             operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info)
             initial_func = partial(original, self, *args, **kwargs)
-            optimizer_info, _ = capture_optimizer_info(initial_func, self)
+            def initial_func_prov():
+                initial_func()
+                generate_and_add_provenance_data_source(self)
+            optimizer_info, _ = capture_optimizer_info(initial_func_prov, self)
             result = self
 
-            process_func = partial(pandas.Series, *args, **kwargs)
+            process_func = wrap_data_source_func(partial(pandas.Series, *args, **kwargs))
 
             if self.name:  # pylint: disable=no-member
                 columns = list(self.name)  # pylint: disable=no-member

@@ -52,7 +52,7 @@ def test_read_csv():
     df_result = extracted_node.processing_func()
     assert len(df_result) == 22792
     assert "0_0" in df_result._mlinspect_provenance
-    assert numpy.allclose(df_result._mlinspect_provenance["0_0"], numpy.array(range(3)))
+    assert numpy.allclose(df_result._mlinspect_provenance["0_0"], numpy.array(range(22792)))
 
 
 def test_read_parquet():
@@ -63,10 +63,11 @@ def test_read_parquet():
         import os
         import pandas as pd
         from mlidea.utils import get_project_root
-
+        import numpy
         train_file = os.path.join(str(get_project_root()), "example_pipelines", "anhedonia_ml", "data", "users.pqt")
         raw_data = pd.read_parquet(train_file)
         assert len(raw_data) == 900
+        assert numpy.allclose(raw_data._mlinspect_provenance["0_0"], numpy.array(range(900)))
         """)
 
     inspector_result = _pipeline_executor.singleton.run(python_code=test_code, track_code_references=True)
@@ -85,7 +86,10 @@ def test_read_parquet():
                             Comparison(partial))
     compare(extracted_node, expected_node)
 
-    assert len(extracted_node.processing_func()) == 900
+    df_result = extracted_node.processing_func()
+    assert len(df_result) == 900
+    assert "0_0" in df_result._mlinspect_provenance
+    assert numpy.allclose(df_result._mlinspect_provenance["0_0"], numpy.array(range(900)))
 
 
 def test_from_records():
@@ -98,6 +102,8 @@ def test_from_records():
         data = [(3, 'a'), (2, 'b'), (1, 'c'), (0, 'd')]
         data = pd.DataFrame.from_records(data, columns=['col_1', 'col_2'])
         assert len(data) == 4
+        import numpy
+        assert numpy.allclose(data._mlinspect_provenance["0_0"], numpy.array(range(4)))
         """)
 
     inspector_result = _pipeline_executor.singleton.run(python_code=test_code, track_code_references=True)
@@ -116,7 +122,10 @@ def test_from_records():
                             Comparison(partial))
     compare(extracted_node, expected_node)
 
-    assert len(extracted_node.processing_func()) == 4
+    df_result = extracted_node.processing_func()
+    assert len(df_result) == 4
+    assert "0_0" in df_result._mlinspect_provenance
+    assert numpy.allclose(df_result._mlinspect_provenance["0_0"], numpy.array(range(4)))
 
 
 def test_frame__init__():
@@ -129,6 +138,7 @@ def test_frame__init__():
         df = pd.DataFrame([0, 1, 2], columns=['A'])
         assert len(df) == 3
         assert "0_0" in df._mlinspect_provenance
+        import numpy
         assert numpy.allclose(df._mlinspect_provenance["0_0"], numpy.array(range(3)))
         """)
 
@@ -894,6 +904,11 @@ def test_series__init__():
     extracted_func_result = extracted_node.processing_func()
     expected = pandas.Series([0, 2, 4, None], name='A')
     pandas.testing.assert_series_equal(extracted_func_result, expected)
+
+    df_result = extracted_node.processing_func()
+    assert len(df_result) == 4
+    assert "0_0" in df_result._mlinspect_provenance
+    assert numpy.allclose(df_result._mlinspect_provenance["0_0"], numpy.array(range(4)))
 
 
 def test_series_isin():
