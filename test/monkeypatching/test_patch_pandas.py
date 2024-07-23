@@ -248,10 +248,11 @@ def test_frame__getitem__series():
     """
     test_code = cleandoc("""
             import pandas as pd
-
+            import numpy
             df = pd.DataFrame([0, 2, 4, 8, None], columns=['A'])
             a = df['A']
             pd.testing.assert_series_equal(a, pd.Series([0, 2, 4, 8, None], name='A'))
+            assert numpy.allclose(a._mlinspect_provenance["0_0"], numpy.array(range(5)))
             """)
     inspector_result = _pipeline_executor.singleton.run(python_code=test_code, track_code_references=True)
     inspector_result.original_dag.remove_node(list(inspector_result.original_dag.nodes)[2])
@@ -273,14 +274,18 @@ def test_frame__getitem__series():
                                DagNodeDetails("to ['A']", ['A'], OptimizerInfo(RangeComparison(0, 100), (5, 1),
                                                                                RangeComparison(0, 400))),
                                OptionalCodeInfo(CodeReference(4, 4, 4, 11), "df['A']"),
-                               Comparison(FunctionType))
+                               Comparison(partial))
     expected_dag.add_edge(expected_data_source, expected_project, arg_index=0)
     compare(networkx.to_dict_of_dicts(inspector_result.original_dag), networkx.to_dict_of_dicts(expected_dag))
 
     extracted_getitem = list(inspector_result.original_dag.nodes)[1]
     pandas_df = pandas.DataFrame({'A': [0, 2, 5], 'B': [1, 3, 5]})
+    pandas_df._mlinspect_provenance = {"0_0": numpy.array([0, 1, 4])}
     projected_df = extracted_getitem.processing_func(pandas_df)
     pandas.testing.assert_series_equal(projected_df, pandas.Series([0, 2, 5], name='A'))
+
+    assert "0_0" in projected_df._mlinspect_provenance
+    assert numpy.allclose(projected_df._mlinspect_provenance["0_0"], numpy.array([0, 1, 4]))
 
 
 def test_frame__getitem__frame():

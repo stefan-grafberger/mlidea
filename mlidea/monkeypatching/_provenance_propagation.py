@@ -31,3 +31,16 @@ def set_output_provenance(df_obj, new_provenance):
         df_obj._mlinspect_provenance = {}
     df_obj._mlinspect_provenance = new_provenance
     return df_obj
+
+
+def wrap_projection_func(source_func):
+    def propagate_provenance(source_func, *inputs):
+        provenance = inputs[0]._mlinspect_provenance
+        df_obj = source_func(*inputs)
+        df_obj = wrap_in_mlinspect_array_if_necessary(df_obj)
+        if not hasattr(df_obj, "_mlinspect_provenance") or df_obj._mlinspect_provenance is None:
+            df_obj._mlinspect_provenance = {}
+        df_obj._mlinspect_provenance = provenance
+        return df_obj
+
+    return partial(propagate_provenance, source_func)
