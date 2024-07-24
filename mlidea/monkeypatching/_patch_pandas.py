@@ -20,7 +20,7 @@ from mlidea.monkeypatching._monkey_patching_utils import execute_patched_func, g
     execute_patched_internal_func_with_depth, get_dag_node_copy_with_optimizer_info
 from mlidea.monkeypatching._patch_sklearn import call_info_singleton
 from mlidea.monkeypatching._provenance_propagation import wrap_data_source_func, \
-    generate_and_add_provenance_data_source, wrap_projection_func
+    generate_and_add_provenance_data_source, wrap_projection_func, wrap_filter_func
 
 
 @gorilla.patches(pandas)
@@ -161,9 +161,12 @@ class DataFramePatching:
             input_info = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
                                         optional_source_code)
             operator_context = OperatorContext(OperatorType.SELECTION, function_info)
+            # For the provenance tracking we briefly add provenance columns which should be ignored for the dropna eval
+            if 'subset' not in kwargs:
+                kwargs['subset'] = list(self.columns)  # pylint: disable=no-member
             # No input_infos copy needed because it's only a selection and the rows not being removed don't change
-            processing_func = lambda df: original(df, *args[1:], **kwargs)
-            initial_func = partial(original, input_info.annotated_dfobject.result_data, *args[1:], **kwargs)
+            processing_func = wrap_filter_func(lambda df: original(df, *args[1:], **kwargs))
+            initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
             if result is None:
                 raise NotImplementedError("TODO: Support inplace dropna")
