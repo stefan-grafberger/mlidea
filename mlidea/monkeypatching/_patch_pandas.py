@@ -20,7 +20,7 @@ from mlidea.monkeypatching._monkey_patching_utils import execute_patched_func, g
     execute_patched_internal_func_with_depth, get_dag_node_copy_with_optimizer_info
 from mlidea.monkeypatching._patch_sklearn import call_info_singleton
 from mlidea.monkeypatching._provenance_propagation import wrap_data_source_func, \
-    generate_and_add_provenance_data_source, wrap_projection_func, wrap_filter_func
+    generate_and_add_provenance_data_source, wrap_projection_func, wrap_filter_func, wrap_join_func
 
 
 @gorilla.patches(pandas)
@@ -431,13 +431,13 @@ class DataFramePatching:
             input_info_b = get_input_info(right_df, caller_filename, lineno, function_info, optional_code_reference,
                                           optional_source_code)
             operator_context = OperatorContext(OperatorType.JOIN, function_info)
-            initial_func = partial(original, input_info_a.annotated_dfobject.result_data,
-                                   input_info_b.annotated_dfobject.result_data,
-                                   *args[args_start_index:],
-                                   **kwargs)
+            processing_func = wrap_join_func(lambda df_a, df_b: original(df_a, df_b, *args[args_start_index:],
+                                                                         **kwargs))
+            initial_func = partial(processing_func, input_info_a.annotated_dfobject.result_data,
+                                   input_info_b.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
             description = self.get_merge_description(**kwargs)
-            processing_func = lambda df_a, df_b: original(df_a, df_b, *args[args_start_index:], **kwargs)
+
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
                                operator_context,

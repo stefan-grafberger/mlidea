@@ -66,3 +66,43 @@ def wrap_filter_func(source_func):
         return df_obj
 
     return partial(propagate_provenance, source_func)
+
+def wrap_join_func(source_func):
+    def propagate_provenance(source_func, *inputs):
+        provenance_a = inputs[0]._mlinspect_provenance
+        provenance_b = inputs[1]._mlinspect_provenance
+
+        prov_names_a = set(provenance_a.keys())
+        prov_names_b = set(provenance_b.keys())
+        column_clashes = prov_names_a.intersection(prov_names_b)
+        all_prov_columns = prov_names_a.union(prov_names_b)
+        for column_clash in column_clashes:
+            data_source, duplicate_index = column_clash.rsplit('_', 1)
+            num_occurrences_in_data_columns = len([column for column in prov_names_a
+                                                   if column.startswith(data_source)])
+            new_duplicate_index = int(duplicate_index) + num_occurrences_in_data_columns
+            new_col_name = f"{data_source}_{new_duplicate_index}"
+            provenance_b[new_col_name] = provenance_b.pop(column_clash)
+            all_prov_columns.add(new_col_name)
+
+        for prov_key, prov_value in provenance_a.items():
+            assert isinstance(inputs[0], pandas.DataFrame)
+            inputs[0][prov_key] = prov_value
+        for prov_key, prov_value in provenance_b.items():
+            assert isinstance(inputs[1], pandas.DataFrame)
+            inputs[1][prov_key] = prov_value
+
+        df_obj = source_func(*inputs)
+        df_obj = wrap_in_mlinspect_array_if_necessary(df_obj)
+        if not hasattr(df_obj, "_mlinspect_provenance") or df_obj._mlinspect_provenance is None:
+            df_obj._mlinspect_provenance = {}
+
+        new_provenance = {}
+        for prov_key in all_prov_columns:
+            assert isinstance(df_obj, pandas.DataFrame)
+            new_provenance[prov_key] = df_obj[prov_key].to_numpy()
+            df_obj.drop([prov_key],  axis=1, inplace=True)
+        df_obj._mlinspect_provenance = new_provenance
+        return df_obj
+
+    return partial(propagate_provenance, source_func)

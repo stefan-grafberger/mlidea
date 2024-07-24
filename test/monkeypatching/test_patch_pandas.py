@@ -168,12 +168,11 @@ def test_frame_dropna():
     """
     test_code = cleandoc("""
         import pandas as pd
-        
+        import numpy
         df = pd.DataFrame([0, 2, 4, 5, None], columns=['A'])
         assert len(df) == 5
         df = df.dropna()
         assert len(df) == 4
-        import numpy
         assert numpy.allclose(df._mlinspect_provenance["0_0"], numpy.array(range(4)))
         """)
     inspector_result = _pipeline_executor.singleton.run(python_code=test_code, track_code_references=True)
@@ -541,12 +540,14 @@ def test_frame_merge_on():
     """
     test_code = cleandoc("""
         import pandas as pd
-
+        import numpy
         df_a = pd.DataFrame({'A': [0, 2, 4, 8, 5], 'B': [1, 2, 4, 5, 7]})
         df_b = pd.DataFrame({'B': [1, 2, 3, 4, 5], 'C': [1, 5, 4, 11, None]})
         df_merged = df_a.merge(df_b, on='B')
         df_expected = pd.DataFrame({'A': [0, 2, 4, 8], 'B': [1, 2, 4, 5], 'C': [1, 5, 11, None]})
         pd.testing.assert_frame_equal(df_merged.reset_index(drop=True), df_expected.reset_index(drop=True))
+        assert numpy.allclose(df_merged._mlinspect_provenance["0_0"], numpy.array([0, 1, 2, 3]))
+        assert numpy.allclose(df_merged._mlinspect_provenance["1_0"], numpy.array([0, 1, 3, 4]))
         """)
     inspector_result = _pipeline_executor.singleton.run(python_code=test_code, track_code_references=True)
     inspector_result.original_dag.remove_node(list(inspector_result.original_dag.nodes)[3])
@@ -574,18 +575,24 @@ def test_frame_merge_on():
                             DagNodeDetails("on 'B'", ['A', 'B', 'C'], OptimizerInfo(RangeComparison(0, 200), (4, 3),
                                                                                     RangeComparison(0, 800))),
                             OptionalCodeInfo(CodeReference(5, 12, 5, 36), "df_a.merge(df_b, on='B')"),
-                            Comparison(FunctionType))
+                            Comparison(partial))
     expected_dag.add_edge(expected_a, expected_join, arg_index=0)
     expected_dag.add_edge(expected_b, expected_join, arg_index=1)
     compare(networkx.to_dict_of_dicts(inspector_result.original_dag), networkx.to_dict_of_dicts(expected_dag))
 
     extracted_merge = list(inspector_result.original_dag.nodes)[2]
     df_a = pandas.DataFrame({'col_a': [0, 20, 4, 8, 5], 'B': [1, 2, 4, 5, 7]})
+    df_a._mlinspect_provenance = {"3_0": numpy.array(range(5))}
     df_b = pandas.DataFrame({'B': [10, 2, 30, 4, 5], 'col_c': [10, 5, 4, 11, None]})
+    df_b._mlinspect_provenance = {"3_0": numpy.array(range(5))}
     df_merged = extracted_merge.processing_func(df_a, df_b)
     df_expected = pandas.DataFrame({'col_a': [20, 4, 8], 'B': [2, 4, 5], 'col_c': [5, 11, None]})
     pandas.testing.assert_frame_equal(df_merged.reset_index(drop=True), df_expected.reset_index(drop=True))
 
+    assert "3_0" in df_merged._mlinspect_provenance
+    assert numpy.allclose(df_merged._mlinspect_provenance["3_0"], numpy.array([1, 2, 3]))
+    assert "3_1" in df_merged._mlinspect_provenance
+    assert numpy.allclose(df_merged._mlinspect_provenance["3_1"], numpy.array([1, 3, 4]))
 
 def test_frame_merge_left_right_on():
     """
