@@ -3,7 +3,6 @@ from functools import partial
 import numpy
 import pandas
 
-from mlidea.execution._pipeline_executor import singleton
 from mlidea.execution._stat_tracking import get_df_shape
 from monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
 
@@ -106,3 +105,28 @@ def wrap_join_func(source_func):
         return df_obj
 
     return partial(propagate_provenance, source_func)
+
+def wrap_train_test_split_func(source_func):
+    def propagate_provenance(source_func, *inputs):
+        provenance = inputs[0]._mlinspect_provenance
+        for prov_key, prov_value in provenance.items():
+            assert isinstance(inputs[0], pandas.DataFrame)
+            inputs[0][prov_key] = prov_value
+        df_objs = source_func(*inputs)
+        assert isinstance(df_objs, list)
+        for split_result in df_objs:
+            split_result = wrap_in_mlinspect_array_if_necessary(split_result)
+            if not hasattr(split_result, "_mlinspect_provenance") or split_result._mlinspect_provenance is None:
+                split_result._mlinspect_provenance = {}
+
+            new_provenance = {}
+            for prov_key in provenance.keys():
+                assert isinstance(split_result, pandas.DataFrame)
+                new_provenance[prov_key] = split_result[prov_key].to_numpy()
+                split_result.drop([prov_key],  axis=1, inplace=True)
+            split_result._mlinspect_provenance = new_provenance
+        return df_objs
+
+    return partial(propagate_provenance, source_func)
+
+# FIXME: train test split and LLM RAG

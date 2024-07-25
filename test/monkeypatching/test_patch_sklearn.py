@@ -79,7 +79,7 @@ def test_train_test_split():
     test_code = cleandoc("""
                 import pandas as pd
                 from sklearn.model_selection import train_test_split
-
+                import numpy
                 pandas_df = pd.DataFrame({'A': [1, 2, 10, 5]})
                 train_data, test_data = train_test_split(pandas_df, random_state=0)
                 
@@ -88,6 +88,8 @@ def test_train_test_split():
                 
                 pd.testing.assert_frame_equal(train_data.reset_index(drop=True), expected_train.reset_index(drop=True))
                 pd.testing.assert_frame_equal(test_data.reset_index(drop=True), expected_test.reset_index(drop=True))
+                assert numpy.allclose(train_data._mlinspect_provenance["0_0"], numpy.array([3, 1, 0]))
+                assert numpy.allclose(test_data._mlinspect_provenance["0_0"], numpy.array([2]))
                 """)
 
     inspector_result = _pipeline_executor.singleton.run(python_code=test_code, track_code_references=True)
@@ -137,6 +139,7 @@ def test_train_test_split():
     train_node = list(inspector_result.original_dag.nodes)[2]
     test_node = list(inspector_result.original_dag.nodes)[3]
     pandas_df = pandas.DataFrame({'A': ['a', 'c', 'e', 'f']})
+    pandas_df._mlinspect_provenance = {"3_0": numpy.array(range(4))}
     split_result = split_node.processing_func(pandas_df)
     assert isinstance(split_result, TrainTestSplitResult)
     train_data = train_node.processing_func(split_result)
@@ -147,6 +150,11 @@ def test_train_test_split():
 
     pandas.testing.assert_frame_equal(train_data.reset_index(drop=True), expected_train_df.reset_index(drop=True))
     pandas.testing.assert_frame_equal(test_data.reset_index(drop=True), expected_test_df.reset_index(drop=True))
+
+    assert "3_0" in train_data._mlinspect_provenance
+    assert numpy.allclose(train_data._mlinspect_provenance["3_0"], numpy.array([3, 1, 0]))
+    assert "3_0" in test_data._mlinspect_provenance
+    assert numpy.allclose(test_data._mlinspect_provenance["3_0"], numpy.array([2]))
 
 
 def test_standard_scaler():

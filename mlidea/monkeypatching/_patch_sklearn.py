@@ -34,6 +34,7 @@ from mlidea.monkeypatching._monkey_patching_utils import execute_patched_func, a
     get_optional_code_info_or_none, get_dag_node_for_id, add_train_data_node, \
     add_train_label_node, add_test_label_node, add_test_data_dag_node, FunctionCallResult, \
     wrap_in_mlinspect_array_if_necessary
+from monkeypatching._provenance_propagation import wrap_train_test_split_func
 
 
 @gorilla.patches(preprocessing)
@@ -107,11 +108,12 @@ class SklearnModelSelectionPatching:
                                         optional_source_code)
 
             operator_context = OperatorContext(OperatorType.TRAIN_TEST_SPLIT, function_info)
-            initial_func = partial(original, input_info.annotated_dfobject.result_data, *args[1:], **kwargs)
+            curried_original_func = wrap_train_test_split_func(lambda df: original(df, *args[1:], **kwargs))
+            initial_func = partial(curried_original_func, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
 
             def train_test_split_and_wrapping(df_object):
-                split_result = original(df_object, *args[1:], **kwargs)
+                split_result = curried_original_func(df_object)
                 return TrainTestSplitResult(*split_result)
 
             def train_test_split_train(split_result):
