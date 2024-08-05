@@ -515,7 +515,7 @@ class DataFramePatching:
             operator_context = OperatorContext(OperatorType.PROJECTION, function_info)
             description = "dict conversion"
             processing_func = lambda df: original(df, **func_args)  # pylint: disable=unnecessary-lambda
-            initial_func = partial(original, input_info.annotated_dfobject.result_data, **func_args)
+            initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
 
             if isinstance(result, dict) and isinstance(list(result.values())[0], dict):
@@ -807,8 +807,8 @@ class SeriesPatching:
                                         optional_source_code)
             operator_context = OperatorContext(OperatorType.PROJECTION, function_info)
             description = "list conversion"
-            processing_func = lambda df: original(df, *args, **kwargs)
-            initial_func = partial(original, input_info.annotated_dfobject.result_data, **func_args)
+            processing_func = wrap_projection_func(lambda df: original(df, *args, **kwargs))
+            initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
             columns = input_info.dag_node.details.columns
             dag_node = DagNode(op_id,
@@ -820,7 +820,6 @@ class SeriesPatching:
             function_call_result = FunctionCallResult(result)
             add_dag_node(dag_node, [input_info.dag_node], function_call_result)
             new_result = function_call_result.function_result
-
             return new_result
 
         return execute_patched_func(original, execute_inspections, self, **func_args)

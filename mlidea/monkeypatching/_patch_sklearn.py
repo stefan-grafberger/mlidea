@@ -34,7 +34,7 @@ from mlidea.monkeypatching._monkey_patching_utils import execute_patched_func, a
     get_optional_code_info_or_none, get_dag_node_for_id, add_train_data_node, \
     add_train_label_node, add_test_label_node, add_test_data_dag_node, FunctionCallResult, \
     wrap_in_mlinspect_array_if_necessary
-from monkeypatching._provenance_propagation import wrap_train_test_split_func
+from monkeypatching._provenance_propagation import wrap_train_test_split_func, wrap_projection_func
 
 
 @gorilla.patches(preprocessing)
@@ -57,9 +57,10 @@ class SklearnPreprocessingPatching:
                                         optional_source_code)
 
             operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, function_info)
-            initial_func = partial(original, input_info.annotated_dfobject.result_data, *args[1:], **kwargs)
+            processing_func = wrap_projection_func(lambda df: original(df, *args[1:], **kwargs))
+            initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
-            processing_func = lambda df: original(df, *args[1:], **kwargs)
+
 
             classes = kwargs['classes']
             description = f"label_binarize, classes: {classes}"

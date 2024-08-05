@@ -8,6 +8,7 @@ from functools import partial
 from typing import cast
 
 import gorilla
+import numpy
 import pandas
 from langchain_community import vectorstores as community_vectorstores
 from langchain_community.embeddings import huggingface
@@ -29,11 +30,11 @@ from mlidea import DagNode, BasicCodeLocation, DagNodeDetails, FunctionInfo, Ope
     CodeReference
 from mlidea.execution._pipeline_executor import singleton
 from mlidea.execution._stat_tracking import capture_optimizer_info
-from mlidea.monkeypatching._mlinspect_ndarray import MlideaChromaVectorStoreRetrieverPlaceHolder
+from mlidea.monkeypatching._mlinspect_ndarray import MlideaChromaVectorStoreRetrieverPlaceHolder, MlinspectList
 from mlidea.monkeypatching._monkey_patching_utils import get_optional_code_info_or_none, \
     FunctionCallResult, add_dag_node, get_input_info, \
     add_test_data_dag_node, add_train_data_node, add_train_label_node, execute_patched_func_indirect_allowed, \
-    execute_patched_func_no_op_id
+    execute_patched_func_no_op_id, wrap_in_mlinspect_array_if_necessary
 
 
 class LangchainCallInfo:
@@ -46,9 +47,45 @@ call_info_singleton = LangchainCallInfo()
 
 
 def execute_embedding_similarity_join(retrieval_corpus_X, retrieval_corpus_y, embedding, inputs: list[Input]):
-    filled_vectorstore = Chroma.from_texts(texts=retrieval_corpus_X, metadatas=retrieval_corpus_y,
-                                           embedding=embedding).as_retriever()
-    return filled_vectorstore.batch(inputs)
+    if singleton.prov_enabled is False:
+        filled_vectorstore = Chroma.from_texts(texts=retrieval_corpus_X, metadatas=retrieval_corpus_y,
+                                               embedding=embedding).as_retriever()
+    else:
+        # TODO: Make this more general, what if it isn't a dict with only one entry
+        assert (hasattr(retrieval_corpus_X, "_mlinspect_provenance") and
+                retrieval_corpus_X._mlinspect_provenance is not None and
+                len(retrieval_corpus_X._mlinspect_provenance.items()) == 1)
+
+        prov_key, prov_value = list(retrieval_corpus_X._mlinspect_provenance.items())[0]
+        all_prov_value_str = list(map(str, prov_value))
+        # TODO: Improve performance here
+        metadatas_with_prov = []
+        for row_metadatas, row_prov_str in zip(retrieval_corpus_y, all_prov_value_str):
+            new_dict_for_row = row_metadatas | {prov_key: row_prov_str}
+            metadatas_with_prov.append(new_dict_for_row)
+        # retrieval_index = numpy.zeros((len(retrieval_corpus_X), 4), dtype=int)
+        filled_vectorstore = Chroma.from_texts(texts=retrieval_corpus_X, metadatas=metadatas_with_prov,
+                                               embedding=embedding,
+                                               # TODO: Not sure if ids is really necessary in addition to metadatas prov
+                                               ids=all_prov_value_str).as_retriever()
+    results = filled_vectorstore.batch(inputs)
+    results = wrap_in_mlinspect_array_if_necessary(results)
+    if singleton.prov_enabled is True:
+        prov_ids = [[] for _ in results[0]]
+        for result in results:
+            for doc_index, doc in enumerate(result):
+                prov_ids[doc_index].append(int(doc.metadata[prov_key]))
+        data_source, index_to_deduplicate = prov_key.rsplit('_', 1)
+        index_to_deduplicate = int(index_to_deduplicate)
+        prov_id_names = []
+        for index, _ in enumerate(results[0]):
+            prov_id_names.append(f"{data_source}_{index_to_deduplicate}")
+            index_to_deduplicate += 1
+        results._mlinspect_provenance = {}
+        for prov_id_name, prov_id_value in zip(prov_id_names, prov_ids):
+            results._mlinspect_provenance[prov_id_name] = numpy.array(prov_id_value)
+        results._mlinspect_provenance = (results._mlinspect_provenance | inputs._mlinspect_provenance)
+    return results
 
 
 @gorilla.patches(base.RunnableSequence)
@@ -125,15 +162,17 @@ class RunnableSequencePatching:
     def execute_retriever(retriever_steps, retriever_concat_result, inputs):
         retriever_step_index, retriever_sub_step_name, retriever_sub_step, _ = retriever_steps
         retrieval_results = inputs
+        rag_provenance = None
         if retrieval_results:
             for child_sequence_step in retriever_sub_step.steps:
                 if isinstance(child_sequence_step, BaseRetriever):
                     retrieval_results = execute_embedding_similarity_join(
                         retriever_concat_result.retrieval_corpus_X, retriever_concat_result.retrieval_corpus_y,
                         retriever_concat_result.embedding, retrieval_results)
+                    rag_provenance = retrieval_results._mlinspect_provenance
                 else:
                     retrieval_results = child_sequence_step.batch(retrieval_results)
-        found_retriever = (retriever_step_index, retriever_sub_step_name, retrieval_results, inputs)
+        found_retriever = (retriever_step_index, retriever_sub_step_name, retrieval_results, inputs, rag_provenance)
         return found_retriever
 
     def find_retriever(self):
@@ -165,7 +204,7 @@ class RunnableSequencePatching:
     def execute_langchain_batch_with_preexecuted_retriever(runnable_sequence, config, return_exceptions,
                                                            found_retriever):
         # pylint: disable=no-member
-        retriever_step_num, retriever_step_name, retriever_step_result, inputs = found_retriever
+        retriever_step_num, retriever_step_name, retriever_step_result, inputs, provenance = found_retriever
         if not inputs:
             return []
         configs, run_managers = RunnableSequencePatching.do_langchain_batch_setup(runnable_sequence,
@@ -195,6 +234,8 @@ class RunnableSequencePatching:
                 raise NotImplementedError("TODO: Add support for langchain pipelines not following this pattern"
                                           " if necessary")
         new_result = cast(list[Output], inputs)
+        new_result = MlinspectList(new_result)
+        new_result._mlinspect_provenance = provenance
         return new_result
 
     @staticmethod

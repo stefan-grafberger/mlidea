@@ -66,6 +66,7 @@ class PipelineExecutor:
     operators_to_runtime_during_analysis = []
     use_dfs_exec_strategy = False
     disable_monkey_patching = False
+    prov_enabled = True
 
     def run(self, *,
             notebook_path: str or None = None,
@@ -264,6 +265,7 @@ class PipelineExecutor:
         self.operators_to_runtime_during_analysis = []
         self.use_dfs_exec_strategy = False
         self.disable_monkey_patching = False
+        self.prov_enabled = True
 
     @staticmethod
     def instrument_pipeline(parsed_ast, track_code_references):

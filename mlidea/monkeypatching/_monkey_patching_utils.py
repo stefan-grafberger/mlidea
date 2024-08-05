@@ -24,7 +24,7 @@ from mlidea.monkeypatching._mlinspect_ndarray import MlinspectNdarray, Mlinspect
 class FunctionCallResult:
     """ The annotated dataframe and the annotations for the current DAG node """
     function_result: any or None
-    other: any = None  # TODO: input/output cardinality,
+    other: any = None  # TODO: input/output cardinality
 
 
 @dataclasses.dataclass(frozen=True)
@@ -265,6 +265,10 @@ def wrap_in_mlinspect_array_if_necessary(df_object):
     """
     Makes sure annotations can be stored in a df_object. For example, numpy arrays need a wrapper for this.
     """
+    prov = None
+    if hasattr(df_object, "_mlinspect_provenance"):
+        # Not really sure yet why this is necessary, we should clean this up in the future
+        prov = df_object._mlinspect_provenance
     if isinstance(df_object, numpy.ndarray) and not isinstance(df_object, MlinspectNdarray):
         df_object = MlinspectNdarray(df_object)
     elif isinstance(df_object, list):
@@ -273,6 +277,8 @@ def wrap_in_mlinspect_array_if_necessary(df_object):
         df_object = MlinspectDict(df_object)
     elif isinstance(df_object, tuple):
         df_object = MlinspectTuple(df_object)
+    if prov is not None:
+        df_object._mlinspect_provenance = prov
     return df_object
 
 
