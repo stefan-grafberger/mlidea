@@ -253,8 +253,8 @@ def test_binary_rag_classification(tmpdir):
 
     analysis_result = PipelineAnalyzer \
         .on_previously_extracted_pipeline(inspector_result.dag_extraction_info) \
-        .add_what_if_analysis(data_cleaning) \
         .add_what_if_analysis(data_corruption) \
+        .add_what_if_analysis(data_cleaning) \
         .add_what_if_analysis(PermutationFeatureImportance()) \
         .add_what_if_analysis(OperatorImpact(True, True)) \
         .execute()

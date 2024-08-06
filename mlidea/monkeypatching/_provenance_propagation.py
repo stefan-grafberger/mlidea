@@ -4,7 +4,7 @@ import numpy
 import pandas
 
 from mlidea.execution._stat_tracking import get_df_shape
-from monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
+from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
 
 def generate_and_add_provenance_data_source(df_obj, op_id):
     df_len = get_df_shape(df_obj)[0]
@@ -46,20 +46,30 @@ def wrap_projection_func(source_func):
 
 def wrap_filter_func(source_func):
     def propagate_provenance(source_func, *inputs):
-        provenance = inputs[0]._mlinspect_provenance
+        input = inputs[0]
+        provenance = input._mlinspect_provenance
+        if isinstance(input, pandas.Series):
+            input = pandas.DataFrame(input)
+            was_series = True
+        else:
+            was_series = False
         for prov_key, prov_value in provenance.items():
-            assert isinstance(inputs[0], pandas.DataFrame)
-            inputs[0][prov_key] = prov_value
-        df_obj = source_func(*inputs)
-        df_obj = wrap_in_mlinspect_array_if_necessary(df_obj)
+            assert isinstance(input, pandas.DataFrame)
+            input[prov_key] = prov_value
+        df_obj = source_func(input)
+
         if not hasattr(df_obj, "_mlinspect_provenance") or df_obj._mlinspect_provenance is None:
             df_obj._mlinspect_provenance = {}
-
         new_provenance = {}
         for prov_key in provenance.keys():
             assert isinstance(df_obj, pandas.DataFrame)
             new_provenance[prov_key] = df_obj[prov_key].to_numpy()
-            df_obj.drop([prov_key],  axis=1, inplace=True)
+            df_obj.drop([prov_key], axis=1, inplace=True)
+
+        if was_series is True:
+            df_obj = df_obj.iloc[:, 0]
+        df_obj = wrap_in_mlinspect_array_if_necessary(df_obj)
+
         df_obj._mlinspect_provenance = new_provenance
         return df_obj
 
