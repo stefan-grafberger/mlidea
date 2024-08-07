@@ -352,12 +352,15 @@ class DataFramePatching:
                 def processing_func(pandas_df, new_val):
                     original(pandas_df, args[0], new_val, *args[2:], **kwargs)
                     return pandas_df
+                processing_func_prov = wrap_projection_func(processing_func)
+                initial_func = partial(processing_func_prov, self, args[1])
             else:
                 def processing_func(pandas_df):
                     original(pandas_df, *args, **kwargs)
                     return pandas_df
+                processing_func_prov = wrap_projection_func(processing_func)
+                initial_func = partial(processing_func_prov, self)
             if isinstance(args[0], str):
-                initial_func = partial(original, self, *args, **kwargs)
                 optimizer_info, result = capture_optimizer_info(initial_func, self)
                 columns = list(self.columns)  # pylint: disable=no-member
                 description = f"modifies {[args[0]]}"
@@ -368,12 +371,13 @@ class DataFramePatching:
                                operator_context,
                                DagNodeDetails(description, columns, optimizer_info),
                                get_optional_code_info_or_none(optional_code_reference, optional_source_code),
-                               processing_func)
+                               processing_func_prov)
 
             function_call_result = FunctionCallResult(result)
             add_dag_node(dag_node, dag_node_parents, function_call_result)
             new_result = function_call_result.function_result
             assert hasattr(self, "_mlinspect_dag_node")
+            assert hasattr(self, "_mlinspect_provenance")
             self._mlinspect_dag_node = op_id
             return new_result
 

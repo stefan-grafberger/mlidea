@@ -455,7 +455,7 @@ def test_frame__setitem__():
                                               OptimizerInfo(RangeComparison(0, 200), (6, 1),
                                                             RangeComparison(0, 4000))),
                                OptionalCodeInfo(CodeReference(7, 19, 7, 35), "pandas_df['baz']"),
-                               Comparison(FunctionType))
+                               Comparison(partial))
     expected_dag.add_edge(expected_data_source, expected_project, arg_index=0)
     expected_subscript = DagNode(2,
                                  BasicCodeLocation('<string-source>', 7),
@@ -475,7 +475,7 @@ def test_frame__setitem__():
                                                                    RangeComparison(0, 4000))),
                                       OptionalCodeInfo(CodeReference(7, 0, 7, 39),
                                                        "pandas_df['baz'] = pandas_df['baz'] + 1"),
-                                      Comparison(FunctionType))
+                                      Comparison(partial))
     expected_dag.add_edge(expected_data_source, expected_project_modify, arg_index=0)
     expected_dag.add_edge(expected_subscript, expected_project_modify, arg_index=1)
 
@@ -486,6 +486,7 @@ def test_frame__setitem__():
                                   'bar': ['A', 'B', 'C', 'A', 'B', 'C'],
                                   'baz': [1, 2, 3, 4, 5, 6],
                                   'zoo': ['x', 'y', 'z', 'q', 'w', 't']})
+    pandas_df._mlinspect_provenance = {"3_0": numpy.array([0, 1, 4, 8, 10])}
     new_values = pandas_df['baz'] * 2
     extracted_setitem.processing_func(pandas_df, new_values)
     df_expected = pandas.DataFrame({'foo': ['one', 'two', 'two', 'two', 'two', 'two'],
@@ -493,6 +494,8 @@ def test_frame__setitem__():
                                     'baz': [2, 4, 6, 8, 10, 12],
                                     'zoo': ['x', 'y', 'z', 'q', 'w', 't']})
     pandas.testing.assert_frame_equal(pandas_df, df_expected)
+    assert "3_0" in pandas_df._mlinspect_provenance
+    assert numpy.allclose(pandas_df._mlinspect_provenance["3_0"], numpy.array([0, 1, 4, 8, 10]))
 
 
 def test_frame_replace():
