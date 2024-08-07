@@ -532,15 +532,18 @@ def test_frame_replace():
                                              OptimizerInfo(RangeComparison(0, 100), (5, 1),
                                                            RangeComparison(0, 500))),
                               OptionalCodeInfo(CodeReference(4, 13, 4, 40), "df.replace('Medium', 'Low')"),
-                              Comparison(FunctionType))
+                              Comparison(partial))
     expected_dag.add_edge(expected_data_source, expected_modify, arg_index=0)
     compare(networkx.to_dict_of_dicts(inspector_result.original_dag), networkx.to_dict_of_dicts(expected_dag))
 
     extracted_replace = list(inspector_result.original_dag.nodes)[1]
     pandas_df = pandas.DataFrame(['Medium', 'High', 'Medium', 'Low', None], columns=['C'])
+    pandas_df._mlinspect_provenance = {"3_0": numpy.array([0, 1, 4, 8, 10])}
     df_replace = extracted_replace.processing_func(pandas_df)
     df_expected = pandas.DataFrame(['Low', 'High', 'Low', 'Low', None], columns=['C'])
     pandas.testing.assert_frame_equal(df_replace.reset_index(drop=True), df_expected.reset_index(drop=True))
+    assert "3_0" in df_replace._mlinspect_provenance
+    assert numpy.allclose(df_replace._mlinspect_provenance["3_0"], numpy.array([0, 1, 4, 8, 10]))
 
 
 def test_frame_merge_on():

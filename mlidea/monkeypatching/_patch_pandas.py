@@ -397,12 +397,12 @@ class DataFramePatching:
                                         optional_source_code)
             operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, function_info)
             # No input_infos copy needed because it's only a selection and the rows not being removed don't change
-            initial_func = partial(original, input_info.annotated_dfobject.result_data, *args, **kwargs)
+            processing_func = wrap_projection_func(lambda df: original(df, *args, **kwargs))
+            initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func, self)
             if isinstance(args[0], dict):
                 raise NotImplementedError("TODO: Add support for replace with dicts")
             description = f"Replace '{args[0]}' with '{args[1]}'"
-            processing_func = lambda df: original(df, *args, **kwargs)
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
                                operator_context,
