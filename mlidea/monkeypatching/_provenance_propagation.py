@@ -56,7 +56,7 @@ def wrap_filter_func(source_func):
         for prov_key, prov_value in provenance.items():
             assert isinstance(input, pandas.DataFrame)
             input[prov_key] = prov_value
-        df_obj = source_func(input)
+        df_obj = source_func(input, *inputs[1:])
 
         if not hasattr(df_obj, "_mlinspect_provenance") or df_obj._mlinspect_provenance is None:
             df_obj._mlinspect_provenance = {}

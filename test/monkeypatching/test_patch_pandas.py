@@ -329,15 +329,18 @@ def test_frame__getitem__frame():
                                               OptimizerInfo(RangeComparison(0, 100), (6, 2),
                                                             RangeComparison(0, 500))),
                                OptionalCodeInfo(CodeReference(5, 16, 5, 30), "df[['A', 'C']]"),
-                               Comparison(FunctionType))
+                               Comparison(partial))
     expected_dag.add_edge(expected_data_source, expected_project, arg_index=0)
     compare(networkx.to_dict_of_dicts(inspector_result.original_dag), networkx.to_dict_of_dicts(expected_dag))
 
     extracted_getitem = list(inspector_result.original_dag.nodes)[1]
     pandas_df = pandas.DataFrame({'A': [0, 2, 5, 7, 1], 'B': [0, 2, 5, 1, 1], 'C': [1, 3, 5, None, None]})
+    pandas_df._mlinspect_provenance = {"3_0": numpy.array([0, 1, 4, 8, 10])}
     projected_df = extracted_getitem.processing_func(pandas_df)
     df_expected = pandas.DataFrame({'A': [0, 2, 5, 7, 1], 'C': [1, 3, 5, None, None]})
     pandas.testing.assert_frame_equal(projected_df, df_expected)
+    assert "3_0" in projected_df._mlinspect_provenance
+    assert numpy.allclose(projected_df._mlinspect_provenance["3_0"], numpy.array([0, 1, 4, 8, 10]))
 
 
 def test_frame__getitem__selection():
@@ -372,7 +375,7 @@ def test_frame__getitem__selection():
                                   DagNodeDetails("to ['A']", ['A'], OptimizerInfo(RangeComparison(0, 100), (5, 1),
                                                                                   RangeComparison(0, 500))),
                                   OptionalCodeInfo(CodeReference(4, 18, 4, 25), "df['A']"),
-                                  Comparison(FunctionType))
+                                  Comparison(partial))
     expected_dag.add_edge(expected_data_source, expected_projection, arg_index=0)
     expected_subscript = DagNode(2,
                                  BasicCodeLocation('<string-source>', 4),
@@ -391,7 +394,7 @@ def test_frame__getitem__selection():
                                                 OptimizerInfo(RangeComparison(0, 100), (3, 2),
                                                               RangeComparison(0, 500))),
                                  OptionalCodeInfo(CodeReference(4, 15, 4, 30), "df[df['A'] > 3]"),
-                                 Comparison(FunctionType))
+                                 Comparison(partial))
     expected_dag.add_edge(expected_data_source, expected_selection, arg_index=0)
     expected_dag.add_edge(expected_subscript, expected_selection, arg_index=1)
 
@@ -399,10 +402,13 @@ def test_frame__getitem__selection():
 
     extracted_getitem = list(inspector_result.original_dag.nodes)[3]
     pandas_df = pandas.DataFrame({'col_a': [0, 2, 4, 8, 5], 'col_b': [1, 5, 4, 11, None]})
+    pandas_df._mlinspect_provenance = {"3_0": numpy.array([0, 1, 4, 8, 10])}
     df_selection = pandas_df['col_b'] > 1
     filtered_df = extracted_getitem.processing_func(pandas_df, df_selection)
     df_expected = pandas.DataFrame({'col_a': [2, 4, 8], 'col_b': [5, 4, 11.]})
     pandas.testing.assert_frame_equal(filtered_df.reset_index(drop=True), df_expected.reset_index(drop=True))
+    assert "3_0" in filtered_df._mlinspect_provenance
+    assert numpy.allclose(filtered_df._mlinspect_provenance["3_0"], numpy.array([1, 4, 8]))
 
 
 def test_frame__setitem__():

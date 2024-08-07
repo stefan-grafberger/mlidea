@@ -275,6 +275,7 @@ class DataFramePatching:
                                    DagNodeDetails(f"to {columns}", columns),
                                    get_optional_code_info_or_none(optional_code_reference, optional_source_code),
                                    processing_func)
+                initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             elif isinstance(args[0], list) and isinstance(args[0][0], str):  # Projection to DF
                 columns = args[0]
                 operator_context = OperatorContext(OperatorType.PROJECTION, function_info)
@@ -285,6 +286,7 @@ class DataFramePatching:
                                    DagNodeDetails(f"to {columns}", columns),
                                    get_optional_code_info_or_none(optional_code_reference, optional_source_code),
                                    processing_func)
+                initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             elif isinstance(args[0], pandas.Series):  # Selection
                 operator_context = OperatorContext(OperatorType.SELECTION, function_info)
                 columns = list(self.columns)  # pylint: disable=no-member
@@ -305,16 +307,18 @@ class DataFramePatching:
                     description = f"Select by Series: {description_code}"
                 else:
                     description = "Select by Series"
-                processing_func = wrap_projection_func(lambda df, filter_series: original(df, filter_series, *args[1:], **kwargs))
+
+                processing_func = wrap_filter_func(lambda df, filter_series: original(df, filter_series, *args[1:], **kwargs))
                 dag_node = DagNode(op_id,
                                    BasicCodeLocation(caller_filename, lineno),
                                    operator_context,
                                    DagNodeDetails(description, columns),
                                    get_optional_code_info_or_none(optional_code_reference, optional_source_code),
                                    processing_func)
+                initial_func = partial(processing_func, input_info.annotated_dfobject.result_data, args[0])
             else:
                 raise NotImplementedError()
-            initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
+
             optimizer_info, result = capture_optimizer_info(initial_func)
             function_call_result = FunctionCallResult(result)
             dag_node = get_dag_node_copy_with_optimizer_info(dag_node, optimizer_info)
