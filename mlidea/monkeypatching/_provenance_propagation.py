@@ -44,6 +44,18 @@ def wrap_projection_func(source_func):
 
     return partial(propagate_provenance, source_func)
 
+def wrap_predict_func(source_func):
+    def propagate_provenance(source_func, *inputs):
+        provenance = inputs[1]._mlinspect_provenance
+        df_obj = source_func(*inputs)
+        df_obj = wrap_in_mlinspect_array_if_necessary(df_obj)
+        if not hasattr(df_obj, "_mlinspect_provenance") or df_obj._mlinspect_provenance is None:
+            df_obj._mlinspect_provenance = {}
+        df_obj._mlinspect_provenance = provenance
+        return df_obj
+
+    return partial(propagate_provenance, source_func)
+
 def wrap_filter_func(source_func):
     def propagate_provenance(source_func, *inputs):
         input = inputs[0]

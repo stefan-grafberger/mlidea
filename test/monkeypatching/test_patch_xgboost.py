@@ -4,6 +4,9 @@ Tests whether the monkey patching works for all patched sklearn methods
 from functools import partial
 from inspect import cleandoc
 from types import FunctionType
+
+import numpy
+
 from test.monkeypatching.test_patch_sklearn import filter_dag_for_nodes_with_ids
 
 import networkx
@@ -68,7 +71,7 @@ def test_xgbclassifier():
                                                       OptimizerInfo(RangeComparison(0, 200), (4, 2),
                                                                     RangeComparison(0, 800))),
                                        OptionalCodeInfo(CodeReference(8, 39, 8, 53), "df[['A', 'B']]"),
-                                       Comparison(FunctionType))
+                                       Comparison(partial))
     expected_standard_scaler = DagNode(2,
                                        BasicCodeLocation("<string-source>", 8),
                                        OperatorContext(OperatorType.TRANSFORMER,
@@ -88,7 +91,7 @@ def test_xgbclassifier():
                                                        OptimizerInfo(RangeComparison(0, 200), (4, 1),
                                                                      RangeComparison(0, 800))),
                                         OptionalCodeInfo(CodeReference(9, 24, 9, 36), "df['target']"),
-                                        Comparison(FunctionType))
+                                        Comparison(partial))
     expected_dag.add_edge(expected_data_source, expected_label_projection, arg_index=0)
     expected_label_encode = DagNode(4,
                                     BasicCodeLocation("<string-source>", 9),
@@ -99,7 +102,7 @@ def test_xgbclassifier():
                                                                  RangeComparison(0, 800))),
                                     OptionalCodeInfo(CodeReference(9, 9, 9, 60),
                                                      "label_binarize(df['target'], classes=['no', 'yes'])"),
-                                    Comparison(FunctionType))
+                                    Comparison(partial))
     expected_dag.add_edge(expected_label_projection, expected_label_encode, arg_index=0)
     expected_train_data = DagNode(5,
                                   BasicCodeLocation("<string-source>", 11),
@@ -191,7 +194,7 @@ def test_xgbclassifier_score():
                                                       OptimizerInfo(RangeComparison(0, 200), (2, 2),
                                                                     RangeComparison(0, 800))),
                                        OptionalCodeInfo(CodeReference(16, 23, 16, 42), "test_df[['A', 'B']]"),
-                                       Comparison(FunctionType))
+                                       Comparison(partial))
     expected_test_data = DagNode(12,
                                  BasicCodeLocation("<string-source>", 16),
                                  OperatorContext(OperatorType.TEST_DATA,
@@ -211,7 +214,7 @@ def test_xgbclassifier_score():
                                                                  RangeComparison(0, 800))),
                                     OptionalCodeInfo(CodeReference(15, 14, 15, 70),
                                                      "label_binarize(test_df['target'], classes=['no', 'yes'])"),
-                                    Comparison(FunctionType))
+                                    Comparison(partial))
     expected_test_labels = DagNode(13,
                                    BasicCodeLocation("<string-source>", 16),
                                    OperatorContext(OperatorType.TEST_LABELS,
@@ -240,7 +243,7 @@ def test_xgbclassifier_score():
                                                                                   RangeComparison(0, 800))),
                                OptionalCodeInfo(CodeReference(16, 13, 16, 56),
                                                 "clf.score(test_df[['A', 'B']], test_labels)"),
-                               Comparison(FunctionType))
+                               Comparison(partial))
     expected_dag.add_edge(expected_classifier, expected_predict, arg_index=0)
     expected_dag.add_edge(expected_test_data, expected_predict, arg_index=1)
 
@@ -270,12 +273,15 @@ def test_xgbclassifier_score():
     assert isinstance(fit_node.make_classifier_func(), XGBClassifier)
 
     test_df = pandas.DataFrame({'C': [0., 0.6], 'D': [0., 0.6], 'target': ['no', 'yes']})
-    test_data = test_data_node.processing_func(test_df[['C', 'D']])
+    test_data = test_df[['C', 'D']]
+    test_data._mlinspect_provenance = {"3_0": numpy.array(range(2))}
+    test_data = test_data_node.processing_func(test_data)
     test_labels = label_binarize(test_df['target'], classes=['no', 'yes'])
     test_labels = test_label_node.processing_func(test_labels)
     test_predictions = predict_node.processing_func(fitted_estimator, test_data)
     test_score = score_node.processing_func(test_predictions, test_labels)
     assert test_score == 0.5
+    assert numpy.allclose(test_predictions._mlinspect_provenance["3_0"], numpy.array([0, 1]))
 
 
 def test_xgbclassifier_predict():
@@ -313,7 +319,7 @@ def test_xgbclassifier_predict():
                                                       OptimizerInfo(RangeComparison(0, 200), (2, 2),
                                                                     RangeComparison(0, 800))),
                                        OptionalCodeInfo(CodeReference(15, 26, 15, 45), "test_df[['A', 'B']]"),
-                                       Comparison(FunctionType))
+                                       Comparison(partial))
     expected_test_data = DagNode(10,
                                  BasicCodeLocation("<string-source>", 15),
                                  OperatorContext(OperatorType.TEST_DATA,
@@ -343,7 +349,7 @@ def test_xgbclassifier_predict():
                                                                                   RangeComparison(0, 800))),
                                OptionalCodeInfo(CodeReference(15, 14, 15, 46),
                                                 "clf.predict(test_df[['A', 'B']])"),
-                               Comparison(FunctionType))
+                               Comparison(partial))
     expected_dag.add_edge(expected_classifier, expected_predict, arg_index=0)
     expected_dag.add_edge(expected_test_data, expected_predict, arg_index=1)
 
@@ -359,6 +365,9 @@ def test_xgbclassifier_predict():
     assert isinstance(fit_node.make_classifier_func(), XGBClassifier)
 
     test_df = pandas.DataFrame({'C': [0., 0.6], 'D': [0., 0.6], 'target': ['no', 'yes']})
-    test_data = test_data_node.processing_func(test_df[['C', 'D']])
+    test_data = test_df[['C', 'D']]
+    test_data._mlinspect_provenance = {"3_0": numpy.array(range(2))}
+    test_data = test_data_node.processing_func(test_data)
     test_predict = predict_node.processing_func(fitted_estimator, test_data)
     assert len(test_predict) == 2
+    assert numpy.allclose(test_predict._mlinspect_provenance["3_0"], numpy.array([0, 1]))
