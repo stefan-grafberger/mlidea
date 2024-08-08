@@ -274,4 +274,3 @@ def test_binary_rag_classification(tmpdir):
     analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-dag"))
     analysis_result.save_what_if_dags_to_path(os.path.join(str(tmpdir), "whatif-dags"))
     analysis_result.save_optimised_what_if_dags_to_path(os.path.join(str(tmpdir), "opt-dag"))
-

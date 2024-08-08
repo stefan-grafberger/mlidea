@@ -53,15 +53,26 @@ def execute_embedding_similarity_join(retrieval_corpus_X, retrieval_corpus_y, em
     else:
         # TODO: Make this more general, what if it isn't a dict with only one entry
         assert (hasattr(retrieval_corpus_X, "_mlinspect_provenance") and
-                retrieval_corpus_X._mlinspect_provenance is not None and
-                len(retrieval_corpus_X._mlinspect_provenance.items()) == 1)
+                retrieval_corpus_X._mlinspect_provenance is not None)
+                # and len(retrieval_corpus_X._mlinspect_provenance.items()) == 1)
 
-        prov_key, prov_value = list(retrieval_corpus_X._mlinspect_provenance.items())[0]
-        all_prov_value_str = list(map(str, prov_value))
+        prov_str_dict = {}
+        for prov_key, prov_value in list(retrieval_corpus_X._mlinspect_provenance.items()):
+            prov_value_str_list = list(map(str, prov_value))
+            prov_str_dict[prov_key] = prov_value_str_list
+
+        all_prov_value_str = []
+        for row_prov_id in range(len(list(prov_str_dict.items())[0][1])):
+            new_prov_value_str = ""
+            for prov_key, prov_value in list(prov_str_dict.items()):
+                new_prov_value_str += f"{prov_key}: {prov_value[row_prov_id]};"
+            all_prov_value_str.append(new_prov_value_str)
         # TODO: Improve performance here
         metadatas_with_prov = []
-        for row_metadatas, row_prov_str in zip(retrieval_corpus_y, all_prov_value_str):
-            new_dict_for_row = row_metadatas | {prov_key: row_prov_str}
+        for row_metadatas, row_prov_id in zip(retrieval_corpus_y, range(len(list(prov_str_dict.items())[0][1]))):
+            new_dict_for_row = row_metadatas
+            for prov_key, prov_value in list(prov_str_dict.items()):
+                new_dict_for_row = new_dict_for_row | {prov_key: prov_value[row_prov_id]}
             metadatas_with_prov.append(new_dict_for_row)
         # retrieval_index = numpy.zeros((len(retrieval_corpus_X), 4), dtype=int)
         filled_vectorstore = Chroma.from_texts(texts=retrieval_corpus_X, metadatas=metadatas_with_prov,
@@ -70,21 +81,25 @@ def execute_embedding_similarity_join(retrieval_corpus_X, retrieval_corpus_y, em
                                                ids=all_prov_value_str).as_retriever()
     results = filled_vectorstore.batch(inputs)
     results = wrap_in_mlinspect_array_if_necessary(results)
-    if singleton.prov_enabled is True:
-        prov_ids = [[] for _ in results[0]]
-        for result in results:
-            for doc_index, doc in enumerate(result):
-                prov_ids[doc_index].append(int(doc.metadata[prov_key]))
-        data_source, index_to_deduplicate = prov_key.rsplit('_', 1)
-        index_to_deduplicate = int(index_to_deduplicate)
-        prov_id_names = []
-        for index, _ in enumerate(results[0]):
-            prov_id_names.append(f"{data_source}_{index_to_deduplicate}")
-            index_to_deduplicate += 1
-        results._mlinspect_provenance = {}
-        for prov_id_name, prov_id_value in zip(prov_id_names, prov_ids):
-            results._mlinspect_provenance[prov_id_name] = numpy.array(prov_id_value)
-        results._mlinspect_provenance = (results._mlinspect_provenance | inputs._mlinspect_provenance)
+    results._mlinspect_provenance = {}
+    for prov_key in list(prov_str_dict.keys()):
+        if singleton.prov_enabled is True:
+            prov_ids = [[] for _ in results[0]]
+            for result in results:
+                for doc_index, doc in enumerate(result):
+                    prov_ids[doc_index].append(int(doc.metadata[prov_key]))
+            data_source, index_to_deduplicate = prov_key.rsplit('_', 1)
+            index_to_deduplicate = int(index_to_deduplicate)
+            prov_id_names = []
+            for index, _ in enumerate(results[0]):
+                prov_id_names.append(f"{data_source}_{index_to_deduplicate}")
+                index_to_deduplicate += 1
+
+            for prov_id_name, prov_id_value in zip(prov_id_names, prov_ids):
+                results._mlinspect_provenance[prov_id_name] = numpy.array(prov_id_value)
+            results._mlinspect_provenance = (results._mlinspect_provenance | inputs._mlinspect_provenance)
+    # Without this there are some re-execution issues
+    Chroma(collection_name=Chroma._LANGCHAIN_DEFAULT_COLLECTION_NAME).delete_collection()
     return results
 
 
