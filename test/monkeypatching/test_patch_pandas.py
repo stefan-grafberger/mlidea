@@ -712,19 +712,26 @@ def test_frame_merge_index():
                                                          RangeComparison(0, 800))),
                             OptionalCodeInfo(CodeReference(5, 12, 5, 82),
                                              "df_a.merge(right=df_b, left_index=True, right_index=True, how='outer')"),
-                            Comparison(FunctionType))
+                            Comparison(partial))
     expected_dag.add_edge(expected_a, expected_join, arg_index=0)
     expected_dag.add_edge(expected_b, expected_join, arg_index=1)
     compare(networkx.to_dict_of_dicts(inspector_result.original_dag), networkx.to_dict_of_dicts(expected_dag))
 
     extracted_merge = list(inspector_result.original_dag.nodes)[2]
     df_a = pandas.DataFrame({'col_a': [10, 2, 4, 8, 5], 'col_b': [1, 2, 4, 5, 7]})
+    df_a._mlinspect_provenance = {"2_0": numpy.array(range(5))}
     df_b = pandas.DataFrame({'col_c': [1, 2, 3, 4], 'col_d': [1, 5, 4, 11]})
+    df_b._mlinspect_provenance = {"3_0": numpy.array(range(4))}
     df_merged = extracted_merge.processing_func(df_a, df_b)
     df_expected = pandas.DataFrame(
         {'col_a': [10, 2, 4, 8, 5], 'col_b': [1, 2, 4, 5, 7], 'col_c': [1., 2., 3., 4., None],
          'col_d': [1., 5., 4., 11., None]})
     pandas.testing.assert_frame_equal(df_merged.reset_index(drop=True), df_expected.reset_index(drop=True))
+
+    assert "2_0" in df_merged._mlinspect_provenance
+    assert numpy.allclose(df_merged._mlinspect_provenance["2_0"], numpy.array([0, 1, 2, 3, 4]))
+    assert "3_0" in df_merged._mlinspect_provenance
+    assert numpy.allclose(df_merged._mlinspect_provenance["3_0"], numpy.array([0, 1, 2, 3, numpy.nan]), equal_nan=True)
 
 
 def test_frame_merge_sorted():
