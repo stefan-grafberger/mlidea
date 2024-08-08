@@ -1270,8 +1270,11 @@ class SklearnHasingVectorizerPatching:
             transformed_data._mlinspect_annotation = transformer  # pylint: disable=protected-access
             return transformed_data
 
+        processing_func = wrap_projection_func(processing_func)
+
         operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
-        initial_func = partial(original, self, input_info.annotated_dfobject.result_data, *args[1:], **kwargs)
+        orig_func_prov = wrap_projection_func(lambda df: original( self, df, *args[1:], ** kwargs))
+        initial_func = partial(orig_func_prov, input_info.annotated_dfobject.result_data)
         optimizer_info, result = capture_optimizer_info(initial_func, estimator_transformer_state=self)
         dag_node_id = singleton.get_next_op_id()
         self.mlinspect_transformer_node_id = dag_node_id
@@ -1303,8 +1306,11 @@ class SklearnHasingVectorizerPatching:
                 transformed_data = transformer.transform(input_df, *args[1:], **kwargs)
                 return transformed_data
 
+            processing_func = wrap_predict_func(processing_func)
+
             operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
-            initial_func = partial(original, self, input_info.annotated_dfobject.result_data, *args[1:], **kwargs)
+            orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
+            initial_func = partial(orig_func_prov, self, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
             dag_node = DagNode(singleton.get_next_op_id(),
                                BasicCodeLocation(self.mlinspect_caller_filename, self.mlinspect_lineno),
@@ -1372,8 +1378,11 @@ class SklearnKBinsDiscretizerPatching:
             transformed_data._mlinspect_annotation = transformer  # pylint: disable=protected-access
             return transformed_data
 
+        processing_func = wrap_projection_func(processing_func)
+
         operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
-        initial_func = partial(original, self, input_info.annotated_dfobject.result_data, *args[1:], **kwargs)
+        orig_func_prov = wrap_projection_func(lambda df: original( self, df, *args[1:], ** kwargs))
+        initial_func = partial(orig_func_prov, input_info.annotated_dfobject.result_data)
         optimizer_info, result = capture_optimizer_info(initial_func, estimator_transformer_state=self)
         dag_node_id = singleton.get_next_op_id()
         self.mlinspect_transformer_node_id = dag_node_id
@@ -1406,8 +1415,11 @@ class SklearnKBinsDiscretizerPatching:
                 transformed_data = transformer.transform(input_df, *args[1:], **kwargs)
                 return transformed_data
 
+            processing_func = wrap_predict_func(processing_func)
+
             operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
-            initial_func = partial(original, self, input_info.annotated_dfobject.result_data, *args[1:], **kwargs)
+            orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
+            initial_func = partial(orig_func_prov, self, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
             dag_node = DagNode(singleton.get_next_op_id(),
                                BasicCodeLocation(self.mlinspect_caller_filename, self.mlinspect_lineno),
@@ -1478,8 +1490,11 @@ class SklearnOneHotEncoderPatching:
             transformed_data._mlinspect_annotation = transformer  # pylint: disable=protected-access
             return transformed_data
 
+        processing_func = wrap_projection_func(processing_func)
+
         operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
-        initial_func = partial(original, self, input_info.annotated_dfobject.result_data, *args[1:], **kwargs)
+        orig_func_prov = wrap_projection_func(lambda df: original( self, df, *args[1:], ** kwargs))
+        initial_func = partial(orig_func_prov, input_info.annotated_dfobject.result_data)
         optimizer_info, result = capture_optimizer_info(initial_func, estimator_transformer_state=self)
         dag_node_id = singleton.get_next_op_id()
         self.mlinspect_transformer_node_id = dag_node_id
@@ -1511,8 +1526,11 @@ class SklearnOneHotEncoderPatching:
                 transformed_data = transformer.transform(input_df, *args[1:], **kwargs)
                 return transformed_data
 
+            processing_func = wrap_predict_func(processing_func)
+
             operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
-            initial_func = partial(original, self, input_info.annotated_dfobject.result_data, *args[1:], **kwargs)
+            orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
+            initial_func = partial(orig_func_prov, self, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
             dag_node = DagNode(singleton.get_next_op_id(),
                                BasicCodeLocation(self.mlinspect_caller_filename, self.mlinspect_lineno),
@@ -1584,8 +1602,11 @@ class SklearnSimpleImputerPatching:
             transformed_data._mlinspect_annotation = transformer  # pylint: disable=protected-access
             return transformed_data
 
+        processing_func = wrap_projection_func(processing_func)
+
         operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
-        initial_func = partial(original, self, input_info.annotated_dfobject.result_data, *args[1:], **kwargs)
+        orig_func_prov = wrap_projection_func(lambda df: original( self, df, *args[1:], ** kwargs))
+        initial_func = partial(orig_func_prov, input_info.annotated_dfobject.result_data)
         optimizer_info, result = capture_optimizer_info(initial_func, estimator_transformer_state=self)
         if isinstance(input_info.annotated_dfobject.result_data, pandas.DataFrame):
             columns = list(input_info.annotated_dfobject.result_data.columns)
@@ -1622,8 +1643,11 @@ class SklearnSimpleImputerPatching:
                 transformed_data = transformer.transform(input_df, *args[1:], **kwargs)
                 return transformed_data
 
+            processing_func = wrap_predict_func(processing_func)
+
             operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
-            initial_func = partial(original, self, input_info.annotated_dfobject.result_data, *args[1:], **kwargs)
+            orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
+            initial_func = partial(orig_func_prov, self, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
             if isinstance(input_info.annotated_dfobject.result_data, pandas.DataFrame):
                 columns = list(input_info.annotated_dfobject.result_data.columns)
@@ -1700,10 +1724,13 @@ class SklearnFunctionTransformerPatching:
                 transformed_data._mlinspect_annotation = transformer  # pylint: disable=protected-access
                 return transformed_data
 
+            processing_func = wrap_projection_func(processing_func)
+
             operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
             # This is to prevent udf monkey patching while a FunctionTransformer is active
             singleton.disable_monkey_patching = True
-            initial_func = partial(original, self, input_info.annotated_dfobject.result_data, *args[1:], **kwargs)
+            orig_func_prov = wrap_projection_func(lambda df: original( self, df, *args[1:], ** kwargs))
+            initial_func = partial(orig_func_prov, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func, estimator_transformer_state=self)
             # Enable monkey patching again
             singleton.disable_monkey_patching = False
@@ -1745,10 +1772,13 @@ class SklearnFunctionTransformerPatching:
                 transformed_data = transformer.transform(input_df_copy, *args[1:], **kwargs)
                 return transformed_data
 
+            processing_func = wrap_predict_func(processing_func)
+
             operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
             # This is to prevent udf monkey patching while a FunctionTransformer is active
             singleton.disable_monkey_patching = True
-            initial_func = partial(original, self, input_info.annotated_dfobject.result_data, *args[1:], **kwargs)
+            orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
+            initial_func = partial(orig_func_prov, self, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
             # Enable monkey patching again
             singleton.disable_monkey_patching = False
