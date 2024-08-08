@@ -237,14 +237,17 @@ def test_frame_sample():
                               DagNodeDetails('sample', ['A'], OptimizerInfo(RangeComparison(0, 1000), (2, 1),
                                                                             RangeComparison(0, 400))),
                               OptionalCodeInfo(CodeReference(5, 5, 5, 41), 'df.sample(frac=0.5, random_state=42)'),
-                              Comparison(FunctionType))
+                              Comparison(partial))
     expected_dag.add_edge(expected_data_source, expected_select, arg_index=0)
     compare(networkx.to_dict_of_dicts(inspector_result.original_dag), networkx.to_dict_of_dicts(expected_dag))
 
     extracted_dropna = list(inspector_result.original_dag.nodes)[1]
     pandas_df = pandas.DataFrame([0, 1, None, None, 4, None, 5, 8], columns=['B'])
+    pandas_df._mlinspect_provenance = {"3_0": numpy.array(range(8))}
     filtered_df = extracted_dropna.processing_func(pandas_df)
     assert len(filtered_df) == 4
+    assert "3_0" in filtered_df._mlinspect_provenance
+    assert numpy.allclose(filtered_df._mlinspect_provenance["3_0"], numpy.array([1, 5, 0, 7]))
 
 
 def test_frame__getitem__series():

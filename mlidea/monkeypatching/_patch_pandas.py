@@ -232,8 +232,8 @@ class DataFramePatching:
             # TODO: For now, we only consider the cases where value are dropped, not upsampling.
             operator_context = OperatorContext(OperatorType.SELECTION, function_info)
             # No input_infos copy needed because it's only a selection and the rows not being removed don't change
-            processing_func = lambda df: original(df, *args[1:], **kwargs)
-            initial_func = partial(original, input_info.annotated_dfobject.result_data, *args[1:], **kwargs)
+            processing_func = wrap_filter_func(lambda df: original(df, *args[1:], **kwargs))
+            initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
             if result is None:
                 raise NotImplementedError("TODO: Support inplace dropna")
