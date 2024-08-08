@@ -61,15 +61,17 @@ def test_label_binarize():
                                                              RangeComparison(0, 800))),
                                 OptionalCodeInfo(CodeReference(6, 12, 6, 60),
                                                  "label_binarize(pd_series, classes=['no', 'yes'])"),
-                                Comparison(FunctionType))
+                                Comparison(partial))
     expected_dag.add_edge(expected_data_source, expected_binarize, arg_index=0)
     compare(networkx.to_dict_of_dicts(inspector_result.original_dag), networkx.to_dict_of_dicts(expected_dag))
 
     label_binarize_node = list(inspector_result.original_dag.nodes)[1]
     pd_series = pandas.Series(['no', 'yes', 'no', 'yes'], name='A')
+    pd_series._mlinspect_provenance = {"3_0": numpy.array([0, 1, 4, 8])}
     binarize_result = label_binarize_node.processing_func(pd_series)
     expected = numpy.array([[0], [1], [0], [1]])
     assert numpy.array_equal(binarize_result, expected)
+    assert numpy.allclose(binarize_result._mlinspect_provenance["3_0"], numpy.array([0, 1, 4, 8]))
 
 
 def test_train_test_split():
