@@ -522,7 +522,7 @@ class DataFramePatching:
                                         optional_source_code)
             operator_context = OperatorContext(OperatorType.PROJECTION, function_info)
             description = "dict conversion"
-            processing_func = lambda df: original(df, **func_args)  # pylint: disable=unnecessary-lambda
+            processing_func = wrap_projection_func(lambda df: original(df, **func_args))  # pylint: disable=unnecessary-lambda
             initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
 

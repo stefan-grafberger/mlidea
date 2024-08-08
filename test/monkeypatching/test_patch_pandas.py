@@ -51,7 +51,6 @@ def test_read_csv():
 
     df_result = extracted_node.processing_func()
     assert len(df_result) == 22792
-    assert "0_0" in df_result._mlinspect_provenance
     assert numpy.allclose(df_result._mlinspect_provenance["0_0"], numpy.array(range(22792)))
 
 
@@ -88,7 +87,6 @@ def test_read_parquet():
 
     df_result = extracted_node.processing_func()
     assert len(df_result) == 900
-    assert "0_0" in df_result._mlinspect_provenance
     assert numpy.allclose(df_result._mlinspect_provenance["0_0"], numpy.array(range(900)))
 
 
@@ -124,7 +122,6 @@ def test_from_records():
 
     df_result = extracted_node.processing_func()
     assert len(df_result) == 4
-    assert "0_0" in df_result._mlinspect_provenance
     assert numpy.allclose(df_result._mlinspect_provenance["0_0"], numpy.array(range(4)))
 
 
@@ -137,7 +134,6 @@ def test_frame__init__():
         import numpy
         df = pd.DataFrame([0, 1, 2], columns=['A'])
         assert len(df) == 3
-        assert "0_0" in df._mlinspect_provenance
         import numpy
         assert numpy.allclose(df._mlinspect_provenance["0_0"], numpy.array(range(3)))
         """)
@@ -158,7 +154,6 @@ def test_frame__init__():
     df_expected = pandas.DataFrame([0, 1, 2], columns=['A'])
     pandas.testing.assert_frame_equal(df_created_with_extracted_func, df_expected)
 
-    assert "0_0" in df_created_with_extracted_func._mlinspect_provenance
     assert numpy.allclose(df_created_with_extracted_func._mlinspect_provenance["0_0"], numpy.array(range(3)))
 
 
@@ -202,7 +197,6 @@ def test_frame_dropna():
     pandas_df._mlinspect_provenance = {"0_0": numpy.array(range(6))}
     filtered_df = extracted_dropna.processing_func(pandas_df)
     assert len(filtered_df) == 3
-    assert "0_0" in filtered_df._mlinspect_provenance
     assert numpy.allclose(filtered_df._mlinspect_provenance["0_0"], numpy.array([0, 1, 4]))
     assert len(list(filtered_df.columns)) == 1
 
@@ -246,7 +240,6 @@ def test_frame_sample():
     pandas_df._mlinspect_provenance = {"3_0": numpy.array(range(8))}
     filtered_df = extracted_dropna.processing_func(pandas_df)
     assert len(filtered_df) == 4
-    assert "3_0" in filtered_df._mlinspect_provenance
     assert numpy.allclose(filtered_df._mlinspect_provenance["3_0"], numpy.array([1, 5, 0, 7]))
 
 
@@ -292,7 +285,6 @@ def test_frame__getitem__series():
     projected_df = extracted_getitem.processing_func(pandas_df)
     pandas.testing.assert_series_equal(projected_df, pandas.Series([0, 2, 5], name='A'))
 
-    assert "0_0" in projected_df._mlinspect_provenance
     assert numpy.allclose(projected_df._mlinspect_provenance["0_0"], numpy.array([0, 1, 4]))
 
 
@@ -342,7 +334,6 @@ def test_frame__getitem__frame():
     projected_df = extracted_getitem.processing_func(pandas_df)
     df_expected = pandas.DataFrame({'A': [0, 2, 5, 7, 1], 'C': [1, 3, 5, None, None]})
     pandas.testing.assert_frame_equal(projected_df, df_expected)
-    assert "3_0" in projected_df._mlinspect_provenance
     assert numpy.allclose(projected_df._mlinspect_provenance["3_0"], numpy.array([0, 1, 4, 8, 10]))
 
 
@@ -410,7 +401,6 @@ def test_frame__getitem__selection():
     filtered_df = extracted_getitem.processing_func(pandas_df, df_selection)
     df_expected = pandas.DataFrame({'col_a': [2, 4, 8], 'col_b': [5, 4, 11.]})
     pandas.testing.assert_frame_equal(filtered_df.reset_index(drop=True), df_expected.reset_index(drop=True))
-    assert "3_0" in filtered_df._mlinspect_provenance
     assert numpy.allclose(filtered_df._mlinspect_provenance["3_0"], numpy.array([1, 4, 8]))
 
 
@@ -497,7 +487,6 @@ def test_frame__setitem__():
                                     'baz': [2, 4, 6, 8, 10, 12],
                                     'zoo': ['x', 'y', 'z', 'q', 'w', 't']})
     pandas.testing.assert_frame_equal(pandas_df, df_expected)
-    assert "3_0" in pandas_df._mlinspect_provenance
     assert numpy.allclose(pandas_df._mlinspect_provenance["3_0"], numpy.array([0, 1, 4, 8, 10]))
 
 
@@ -545,7 +534,6 @@ def test_frame_replace():
     df_replace = extracted_replace.processing_func(pandas_df)
     df_expected = pandas.DataFrame(['Low', 'High', 'Low', 'Low', None], columns=['C'])
     pandas.testing.assert_frame_equal(df_replace.reset_index(drop=True), df_expected.reset_index(drop=True))
-    assert "3_0" in df_replace._mlinspect_provenance
     assert numpy.allclose(df_replace._mlinspect_provenance["3_0"], numpy.array([0, 1, 4, 8, 10]))
 
 
@@ -604,9 +592,7 @@ def test_frame_merge_on():
     df_expected = pandas.DataFrame({'col_a': [20, 4, 8], 'B': [2, 4, 5], 'col_c': [5, 11, None]})
     pandas.testing.assert_frame_equal(df_merged.reset_index(drop=True), df_expected.reset_index(drop=True))
 
-    assert "3_0" in df_merged._mlinspect_provenance
     assert numpy.allclose(df_merged._mlinspect_provenance["3_0"], numpy.array([1, 2, 3]))
-    assert "3_1" in df_merged._mlinspect_provenance
     assert numpy.allclose(df_merged._mlinspect_provenance["3_1"], numpy.array([1, 3, 4]))
 
 def test_frame_merge_left_right_on():
@@ -664,9 +650,7 @@ def test_frame_merge_left_right_on():
     df_expected = pandas.DataFrame({'col_a': [20, 4, 8], 'B': [2, 4, 5], 'C': [2, 4, 5], 'col_d': [5, 11, None]})
     pandas.testing.assert_frame_equal(df_merged.reset_index(drop=True), df_expected.reset_index(drop=True))
 
-    assert "2_0" in df_merged._mlinspect_provenance
     assert numpy.allclose(df_merged._mlinspect_provenance["2_0"], numpy.array([1, 2, 3]))
-    assert "3_0" in df_merged._mlinspect_provenance
     assert numpy.allclose(df_merged._mlinspect_provenance["3_0"], numpy.array([1, 3, 4]))
 
 
@@ -728,9 +712,7 @@ def test_frame_merge_index():
          'col_d': [1., 5., 4., 11., None]})
     pandas.testing.assert_frame_equal(df_merged.reset_index(drop=True), df_expected.reset_index(drop=True))
 
-    assert "2_0" in df_merged._mlinspect_provenance
     assert numpy.allclose(df_merged._mlinspect_provenance["2_0"], numpy.array([0, 1, 2, 3, 4]))
-    assert "3_0" in df_merged._mlinspect_provenance
     assert numpy.allclose(df_merged._mlinspect_provenance["3_0"], numpy.array([0, 1, 2, 3, numpy.nan]), equal_nan=True)
 
 
@@ -787,9 +769,7 @@ def test_frame_merge_sorted():
     df_expected = pandas.DataFrame({'col_a': [20, 4, 8], 'B': [2, 4, 5], 'col_c': [5, None, 11]})
     pandas.testing.assert_frame_equal(df_merged.reset_index(drop=True), df_expected.reset_index(drop=True))
 
-    assert "2_0" in df_merged._mlinspect_provenance
     assert numpy.allclose(df_merged._mlinspect_provenance["2_0"], numpy.array([1, 2, 3]))
-    assert "3_0" in df_merged._mlinspect_provenance
     assert numpy.allclose(df_merged._mlinspect_provenance["3_0"], numpy.array([1, 4, 3]))
 
 
@@ -807,7 +787,6 @@ def test_groupby_agg():
         df_expected = pd.DataFrame({'group': ['A', 'B', 'C'], 'mean_value': [1., 3., 3.]})
         pd.testing.assert_frame_equal(df_groupby_agg.reset_index(drop=False), df_expected.reset_index(drop=True))
         
-        assert "1_0" in df_groupby_agg._mlinspect_provenance
         import numpy
         assert numpy.allclose(df_groupby_agg._mlinspect_provenance["1_0"], numpy.array(range(3)))
         """)
@@ -844,7 +823,6 @@ def test_groupby_agg():
     df_expected = pandas.DataFrame({'group': ['A', 'B'], 'mean_value': [4., 3.]})
     pandas.testing.assert_frame_equal(df_groupby_agg.reset_index(drop=False), df_expected.reset_index(drop=True))
 
-    assert "1_0" in df_groupby_agg._mlinspect_provenance
     assert numpy.allclose(df_groupby_agg._mlinspect_provenance["1_0"], numpy.array(range(2)))
 
 
@@ -881,17 +859,19 @@ def test_to_dict_default():
                                                   OptimizerInfo(RangeComparison(0, 1000), (5, 2),
                                                                 RangeComparison(0, 800))),
                                    OptionalCodeInfo(CodeReference(4, 10, 4, 22), "df.to_dict()"),
-                                   Comparison(FunctionType))
+                                   Comparison(partial))
     expected_dag.add_edge(expected_data, expected_groupby_agg, arg_index=0)
     compare(networkx.to_dict_of_dicts(inspector_result.original_dag), networkx.to_dict_of_dicts(expected_dag))
 
     pandas_df = pandas.DataFrame({'A': ['A', 'B', 'A', 'B'], 'B': [1, 2, 7, 4]})
+    pandas_df._mlinspect_provenance = {"2_0": numpy.array(range(4))}
     extracted_node_groupby_agg = list(inspector_result.original_dag.nodes)[1]
     df_dict = extracted_node_groupby_agg.processing_func(pandas_df)
     assert len(df_dict) == 2
     assert len(list(df_dict.values())[0]) == 4
     assert df_dict["A"][0] == 'A'
     assert df_dict["B"][2] == 7
+    assert numpy.allclose(df_dict._mlinspect_provenance["2_0"], numpy.array([0, 1, 2, 3]))
 
 
 def test_to_dict_records():
@@ -927,17 +907,19 @@ def test_to_dict_records():
                                                   OptimizerInfo(RangeComparison(0, 1000), (5, 2),
                                                                 RangeComparison(0, 800))),
                                    OptionalCodeInfo(CodeReference(4, 10, 4, 31), """df.to_dict("records")"""),
-                                   Comparison(FunctionType))
+                                   Comparison(partial))
     expected_dag.add_edge(expected_data, expected_groupby_agg, arg_index=0)
     compare(networkx.to_dict_of_dicts(inspector_result.original_dag), networkx.to_dict_of_dicts(expected_dag))
 
     pandas_df = pandas.DataFrame({'A': ['A', 'B', 'A', 'B'], 'B': [1, 2, 7, 4]})
+    pandas_df._mlinspect_provenance = {"2_0": numpy.array(range(4))}
     extracted_node_groupby_agg = list(inspector_result.original_dag.nodes)[1]
     df_list = extracted_node_groupby_agg.processing_func(pandas_df)
     assert len(df_list) == 4
     assert len(df_list[0]) == 2
     assert df_list[0]["A"] == 'A'
     assert df_list[2]["B"] == 7
+    assert numpy.allclose(df_list._mlinspect_provenance["2_0"], numpy.array([0, 1, 2, 3]))
 
 
 def test_series__init__():
@@ -949,7 +931,6 @@ def test_series__init__():
         import numpy
         pd_series = pd.Series([0, 2, 4, None], name='A')
         assert len(pd_series) == 4
-        assert "0_0" in pd_series._mlinspect_provenance
         assert numpy.allclose(pd_series._mlinspect_provenance["0_0"], numpy.array(range(4)))
         """)
     inspector_result = _pipeline_executor.singleton.run(python_code=test_code, track_code_references=True)
@@ -970,7 +951,6 @@ def test_series__init__():
 
     df_result = extracted_node.processing_func()
     assert len(df_result) == 4
-    assert "0_0" in df_result._mlinspect_provenance
     assert numpy.allclose(df_result._mlinspect_provenance["0_0"], numpy.array(range(4)))
 
 
