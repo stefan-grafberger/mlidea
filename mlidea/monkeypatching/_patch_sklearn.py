@@ -340,7 +340,8 @@ class SklearnComposePatching:
         operator_context = OperatorContext(OperatorType.CONCATENATION, function_info)
         # input_annotated_dfs = [input_info.annotated_dfobject for input_info in input_infos]
         # No input_infos copy needed because it's only a selection and the rows not being removed don't change
-        initial_func = partial(original, self, *args, **kwargs)
+        orig_func_prov = wrap_projection_func(lambda df: original(self, df, *args[1:], **kwargs))
+        initial_func = partial(orig_func_prov, args[0])
         optimizer_info, result = capture_optimizer_info(initial_func)
 
         def processing_func(*input_dfs):
@@ -360,6 +361,9 @@ class SklearnComposePatching:
             # Not sure if this might be necessary at some point
             # transformed_data._mlinspect_annotation = transformer
             return transformed_data
+
+        # Treating this as projection here is only okay because this is a ColumnTransformer concat
+        processing_func = wrap_projection_func(processing_func)
 
         dag_node = DagNode(singleton.get_next_op_id(),
                            BasicCodeLocation(self.mlinspect_filename, self.mlinspect_lineno),
@@ -542,8 +546,11 @@ class SklearnRobustScalerPatching:
             transformed_data._mlinspect_annotation = transformer  # pylint: disable=protected-access
             return transformed_data
 
+        processing_func = wrap_projection_func(processing_func)
+
         operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
-        initial_func = partial(original, self, input_info.annotated_dfobject.result_data, *args[1:], **kwargs)
+        orig_func_prov = wrap_projection_func(lambda df: original(self, df, *args[1:], ** kwargs))
+        initial_func = partial(orig_func_prov, input_info.annotated_dfobject.result_data)
         optimizer_info, result = capture_optimizer_info(initial_func, estimator_transformer_state=self)
         dag_node_id = singleton.get_next_op_id()
         self.mlinspect_transformer_node_id = dag_node_id
@@ -577,8 +584,11 @@ class SklearnRobustScalerPatching:
                 transformed_data = transformer.transform(input_df, *args[1:], **kwargs)
                 return transformed_data
 
+            processing_func = wrap_predict_func(processing_func)
+
             operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
-            initial_func = partial(original, self, input_info.annotated_dfobject.result_data, *args[1:], **kwargs)
+            orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
+            initial_func = partial(orig_func_prov, self, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
             dag_node = DagNode(singleton.get_next_op_id(),
                                BasicCodeLocation(self.mlinspect_caller_filename, self.mlinspect_lineno),
@@ -986,8 +996,11 @@ class SklearnPCAPatching:
             transformed_data._mlinspect_annotation = transformer  # pylint: disable=protected-access
             return transformed_data
 
+        processing_func = wrap_projection_func(processing_func)
+
         operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
-        initial_func = partial(original, self, input_info.annotated_dfobject.result_data, *args[1:], **kwargs)
+        orig_func_prov = wrap_projection_func(lambda df: original( self, df, *args[1:], ** kwargs))
+        initial_func = partial(orig_func_prov, input_info.annotated_dfobject.result_data)
         optimizer_info, result = capture_optimizer_info(initial_func, estimator_transformer_state=self)
         dag_node_id = singleton.get_next_op_id()
         self.mlinspect_transformer_node_id = dag_node_id
@@ -1021,8 +1034,11 @@ class SklearnPCAPatching:
                 transformed_data = transformer.transform(input_df, *args[1:], **kwargs)
                 return transformed_data
 
+            processing_func = wrap_predict_func(processing_func)
+
             operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
-            initial_func = partial(original, self, input_info.annotated_dfobject.result_data, *args[1:], **kwargs)
+            orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
+            initial_func = partial(orig_func_prov, self, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
             dag_node = DagNode(singleton.get_next_op_id(),
                                BasicCodeLocation(self.mlinspect_caller_filename, self.mlinspect_lineno),

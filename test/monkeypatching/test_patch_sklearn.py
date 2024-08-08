@@ -275,7 +275,7 @@ def test_robust_scaler():
                                                   OptimizerInfo(RangeComparison(0, 200), (4, 1),
                                                                 RangeComparison(0, 4000))),
                                    OptionalCodeInfo(CodeReference(6, 18, 6, 32), 'RobustScaler()'),
-                                   Comparison(FunctionType))
+                                   Comparison(partial))
     expected_dag.add_edge(expected_data_source, expected_transformer, arg_index=0)
     expected_data_source_two = DagNode(2,
                                        BasicCodeLocation("<string-source>", 8),
@@ -294,7 +294,7 @@ def test_robust_scaler():
                                                       OptimizerInfo(RangeComparison(0, 200), (4, 1),
                                                                     RangeComparison(0, 800))),
                                        OptionalCodeInfo(CodeReference(6, 18, 6, 32), 'RobustScaler()'),
-                                       Comparison(FunctionType))
+                                       Comparison(partial))
     expected_dag.add_edge(expected_transformer, expected_transformer_two, arg_index=0)
     expected_dag.add_edge(expected_data_source_two, expected_transformer_two, arg_index=1)
     compare(networkx.to_dict_of_dicts(inspector_result.original_dag), networkx.to_dict_of_dicts(expected_dag))
@@ -302,14 +302,18 @@ def test_robust_scaler():
     fit_transform_node = list(inspector_result.original_dag.nodes)[1]
     transform_node = list(inspector_result.original_dag.nodes)[3]
     pandas_df = pandas.DataFrame({'A': [5, 1, 100, 2]})
+    pandas_df._mlinspect_provenance = {"3_0": numpy.array([0, 1, 4, 8])}
     fit_transformed_result = fit_transform_node.processing_func(pandas_df)
     expected_fit_transform_data = numpy.array([[0.05555556], [-0.09259259], [3.57407407], [-0.05555556]])
     assert numpy.allclose(fit_transformed_result, expected_fit_transform_data)
+    assert numpy.allclose(fit_transformed_result._mlinspect_provenance["3_0"], numpy.array([0, 1, 4, 8]))
 
     test_df = pandas.DataFrame({'A': [50, 2, 10, 1]})
+    test_df._mlinspect_provenance = {"3_0": numpy.array([3, 2, 5, 11])}
     encoded_data = transform_node.processing_func(fit_transformed_result, test_df)
     expected = numpy.array([[1.72222222], [-0.05555556], [0.24074074], [-0.09259259]])
     assert numpy.allclose(encoded_data, expected)
+    assert numpy.allclose(encoded_data._mlinspect_provenance["3_0"], numpy.array([3, 2, 5, 11]))
 
 
 def test_pca():
@@ -357,7 +361,7 @@ def test_pca():
                                                "ColumnTransformer(transformers=[\n"
                                                "    ('numeric', StandardScaler(), ['A']),\n"
                                                "    ('categorical', OneHotEncoder(sparse_output=False), ['B'])\n])"),
-                              Comparison(FunctionType))
+                              Comparison(partial))
     expected_transformer = DagNode(6,
                                    BasicCodeLocation("<string-source>", 14),
                                    OperatorContext(OperatorType.TRANSFORMER,
@@ -368,7 +372,7 @@ def test_pca():
                                                                 RangeComparison(0, 2000))),
                                    OptionalCodeInfo(CodeReference(14, 14, 14, 50),
                                                     'PCA(n_components=2, random_state=42)'),
-                                   Comparison(FunctionType))
+                                   Comparison(partial))
     expected_dag.add_edge(expected_concat, expected_transformer, arg_index=0)
     expected_transform_test = DagNode(7,
                                       BasicCodeLocation("<string-source>", 14),
@@ -380,7 +384,7 @@ def test_pca():
                                                                    RangeComparison(0, 2000))),
                                       OptionalCodeInfo(CodeReference(14, 14, 14, 50),
                                                        'PCA(n_components=2, random_state=42)'),
-                                      Comparison(FunctionType))
+                                      Comparison(partial))
     expected_dag.add_edge(expected_transformer, expected_transform_test, arg_index=0)
     expected_dag.add_edge(expected_concat, expected_transform_test, arg_index=1)
     compare(networkx.to_dict_of_dicts(inspector_result.original_dag), networkx.to_dict_of_dicts(expected_dag))
@@ -388,16 +392,20 @@ def test_pca():
     fit_transform_node = list(inspector_result.original_dag.nodes)[1]
     transform_node = list(inspector_result.original_dag.nodes)[2]
     pandas_df = pandas.DataFrame({'A': [5, 1, 100, 2], 'B': [5, 1, 100, 2]})
+    pandas_df._mlinspect_provenance = {"3_0": numpy.array([0, 1, 4, 8])}
     fit_transformed_result = fit_transform_node.processing_func(pandas_df)
     expected_fit_transform_data = numpy.array([[-3.11126984e+01, 1.17350380e-14], [-3.67695526e+01, -2.15521568e-15],
                                                [1.03237590e+02, 1.99309735e-15], [-3.53553391e+01, -2.26556491e-15]])
     assert numpy.allclose(fit_transformed_result, expected_fit_transform_data)
+    assert numpy.allclose(fit_transformed_result._mlinspect_provenance["3_0"], numpy.array([0, 1, 4, 8]))
 
     test_df = pandas.DataFrame({'A': [50, 2, 10, 1], 'B': [50, 2, 10, 1]})
+    test_df._mlinspect_provenance = {"3_0": numpy.array([3, 2, 5, 11])}
     encoded_data = transform_node.processing_func(fit_transformed_result, test_df)
     expected = numpy.array([[3.25269119e+01, 4.88498131e-15], [-3.53553391e+01, -5.77315973e-15],
                             [-2.40416306e+01, -3.99680289e-15], [-3.67695526e+01, -4.44089210e-15]])
     assert numpy.allclose(encoded_data, expected)
+    assert numpy.allclose(encoded_data._mlinspect_provenance["3_0"], numpy.array([3, 2, 5, 11]))
 
 
 def test_function_transformer():
@@ -888,7 +896,7 @@ def test_column_transformer_one_transformer():
                                   OptionalCodeInfo(CodeReference(8, 21, 10, 2),
                                                    "ColumnTransformer(transformers=[\n"
                                                    "    ('numeric', StandardScaler(), ['A', 'B'])\n])"),
-                                  Comparison(FunctionType))
+                                  Comparison(partial))
     expected_dag.add_edge(expected_data_source, expected_projection, arg_index=0)
     expected_standard_scaler = DagNode(2,
                                        BasicCodeLocation("<string-source>", 9),
@@ -898,7 +906,7 @@ def test_column_transformer_one_transformer():
                                                       OptimizerInfo(RangeComparison(0, 200), (4, 2),
                                                                     RangeComparison(0, 4000))),
                                        OptionalCodeInfo(CodeReference(9, 16, 9, 32), 'StandardScaler()'),
-                                       Comparison(FunctionType))
+                                       Comparison(partial))
     expected_dag.add_edge(expected_projection, expected_standard_scaler, arg_index=0)
     expected_concat = DagNode(3,
                               BasicCodeLocation("<string-source>", 8),
@@ -909,7 +917,7 @@ def test_column_transformer_one_transformer():
                               OptionalCodeInfo(CodeReference(8, 21, 10, 2),
                                                "ColumnTransformer(transformers=[\n"
                                                "    ('numeric', StandardScaler(), ['A', 'B'])\n])"),
-                              Comparison(FunctionType))
+                              Comparison(partial))
     expected_dag.add_edge(expected_standard_scaler, expected_concat, arg_index=0)
     compare(networkx.to_dict_of_dicts(inspector_result.original_dag), networkx.to_dict_of_dicts(expected_dag))
 
@@ -917,11 +925,15 @@ def test_column_transformer_one_transformer():
     transformer_node = list(inspector_result.original_dag.nodes)[2]
     concat_node = list(inspector_result.original_dag.nodes)[3]
     pandas_df = pandas.DataFrame({'A': [1, 2, 10, 5], 'B': [1, 2, 10, 5]})
+    pandas_df._mlinspect_provenance = {"3_0": numpy.array([0, 1, 4, 8])}
     projected_data = project_node.processing_func(pandas_df)
+    assert numpy.allclose(projected_data._mlinspect_provenance["3_0"], numpy.array([0, 1, 4, 8]))
     transformed_data = transformer_node.processing_func(projected_data)
+    assert numpy.allclose(transformed_data._mlinspect_provenance["3_0"], numpy.array([0, 1, 4, 8]))
     concatenated_data = concat_node.processing_func(transformed_data)
     expected = numpy.array([[-1.], [-0.71428571], [1.57142857], [0.14285714]])
     assert numpy.allclose(concatenated_data, expected)
+    assert numpy.allclose(concatenated_data._mlinspect_provenance["3_0"], numpy.array([0, 1, 4, 8]))
 
 
 def test_column_transformer_one_transformer_single_column_projection():

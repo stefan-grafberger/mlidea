@@ -645,11 +645,12 @@ class LocIndexerPatching:
             operator_context = OperatorContext(OperatorType.PROJECTION, function_info)
             input_info = get_input_info(self.obj, caller_filename,  # pylint: disable=no-member
                                         lineno, function_info, optional_code_reference, optional_source_code)
-            initial_func = partial(original, self, *args, **kwargs)
+            processing_func = wrap_projection_func(lambda df: pandas.DataFrame.__getitem__(df, projection_key))
+            initial_func = partial(processing_func, self.obj)
             optimizer_info, result = capture_optimizer_info(initial_func)
 
             # TODO: This behaves correctly in the default cases but loc getitem supports many strange use cases
-            processing_func = lambda df: pandas.DataFrame.__getitem__(df, projection_key)
+
 
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),

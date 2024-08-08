@@ -5,6 +5,8 @@ import pandas
 
 from mlidea.execution._stat_tracking import get_df_shape
 from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
+from monkeypatching._mlinspect_ndarray import MlinspectList
+
 
 def generate_and_add_provenance_data_source(df_obj, op_id):
     df_len = get_df_shape(df_obj)[0]
@@ -34,7 +36,11 @@ def set_output_provenance(df_obj, new_provenance):
 
 def wrap_projection_func(source_func):
     def propagate_provenance(source_func, *inputs):
-        provenance = inputs[0]._mlinspect_provenance
+        if isinstance(inputs[0], list) and not isinstance(inputs[0], MlinspectList):
+            # This is special handling for the sklearn ColumnTransformer hstack
+            provenance = inputs[0][0]._mlinspect_provenance
+        else:
+            provenance = inputs[0]._mlinspect_provenance
         df_obj = source_func(*inputs)
         df_obj = wrap_in_mlinspect_array_if_necessary(df_obj)
         if not hasattr(df_obj, "_mlinspect_provenance") or df_obj._mlinspect_provenance is None:
