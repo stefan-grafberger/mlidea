@@ -783,8 +783,8 @@ class SeriesPatching:
                                         optional_source_code)
             operator_context = OperatorContext(OperatorType.PROJECTION, function_info)
             description = "numpy conversion"
-            processing_func = lambda df: original(df, *args, **kwargs)
-            initial_func = partial(original, input_info.annotated_dfobject.result_data, **func_args)
+            processing_func = wrap_projection_func(lambda df: original(df, *args, **kwargs))
+            initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
@@ -917,8 +917,8 @@ class SeriesPatching:
             operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info)
             description = "~"
             columns = [self.name]  # pylint: disable=no-member
-            processing_func = lambda df: original(df, *args, **kwargs)
-            initial_func = partial(original, input_info.annotated_dfobject.result_data, *args, **kwargs)
+            processing_func = wrap_projection_func(lambda df: original(df, *args, **kwargs))
+            initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
@@ -1147,8 +1147,8 @@ class StringMethodsPatching:
             operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info)
             description = "str.len"
             columns = [self._data.name]  # pylint: disable=no-member
-            processing_func = lambda df: original(df.str, *args, **kwargs)
-            initial_func = partial(original, self, *args, **kwargs)
+            processing_func = wrap_projection_func(lambda df: original(df.str, *args, **kwargs))
+            initial_func = partial(processing_func, self._orig)
             optimizer_info, result = capture_optimizer_info(initial_func)
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
@@ -1179,8 +1179,8 @@ class StringMethodsPatching:
             operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info)
             description = f"match r'{args[0]}'"
             columns = [self._data.name]  # pylint: disable=no-member
-            processing_func = lambda df: original(df.str, *args, **kwargs)
-            initial_func = partial(original, self, *args, **kwargs)
+            processing_func = wrap_projection_func(lambda df: original(df.str, *args, **kwargs))
+            initial_func = partial(processing_func, self._orig)
             optimizer_info, result = capture_optimizer_info(initial_func)
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
@@ -1214,8 +1214,8 @@ class StringMethodsPatching:
                 description += "r"
             description += f"'{args[0]}'"
             columns = [self._data.name]  # pylint: disable=no-member
-            processing_func = lambda df: original(df.str, *args, **kwargs)
-            initial_func = partial(original, self, *args, **kwargs)
+            processing_func = wrap_projection_func(lambda df: original(df.str, *args, **kwargs))
+            initial_func = partial(processing_func, self._orig)
             optimizer_info, result = capture_optimizer_info(initial_func)
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),

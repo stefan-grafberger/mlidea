@@ -378,7 +378,7 @@ def test_frame__getitem__selection():
                                  DagNodeDetails('> 3', ['A'], OptimizerInfo(RangeComparison(0, 100), (5, 1),
                                                                             RangeComparison(0, 500))),
                                  OptionalCodeInfo(CodeReference(4, 18, 4, 29), "df['A'] > 3"),
-                                 Comparison(FunctionType))
+                                 Comparison(partial))
     expected_dag.add_edge(expected_projection, expected_subscript, arg_index=0)
     expected_selection = DagNode(3,
                                  BasicCodeLocation("<string-source>", 4),
@@ -457,7 +457,7 @@ def test_frame__setitem__():
                                  DagNodeDetails('+ 1', ['baz'], OptimizerInfo(RangeComparison(0, 200), (6, 1),
                                                                               RangeComparison(0, 4000))),
                                  OptionalCodeInfo(CodeReference(7, 19, 7, 39), "pandas_df['baz'] + 1"),
-                                 Comparison(FunctionType))
+                                 Comparison(partial))
     expected_dag.add_edge(expected_project, expected_subscript, arg_index=0)
     expected_project_modify = DagNode(3,
                                       BasicCodeLocation("<string-source>", 7),
@@ -822,7 +822,6 @@ def test_groupby_agg():
     df_groupby_agg = extracted_node_groupby_agg.processing_func(pandas_df)
     df_expected = pandas.DataFrame({'group': ['A', 'B'], 'mean_value': [4., 3.]})
     pandas.testing.assert_frame_equal(df_groupby_agg.reset_index(drop=False), df_expected.reset_index(drop=True))
-
     assert numpy.allclose(df_groupby_agg._mlinspect_provenance["1_0"], numpy.array(range(2)))
 
 
@@ -1377,19 +1376,21 @@ def test_series__invert__():
                                                                           RangeComparison(0, 800))),
                                  OptionalCodeInfo(CodeReference(3, 8, 3, 14),
                                                   "~mask1"),
-                                 Comparison(FunctionType))
+                                 Comparison(partial))
     expected_dag.add_edge(expected_data_source1, expected_subscript, arg_index=0)
 
     compare(networkx.to_dict_of_dicts(inspector_result.original_dag), networkx.to_dict_of_dicts(expected_dag))
 
     extracted_node = list(inspector_result.original_dag.nodes)[1]
     pd_series1 = pandas.Series([True, False, True, True], name='C')
+    pd_series1._mlinspect_provenance = {"2_0": numpy.array(range(4))}
     extracted_func_result = extracted_node.processing_func(pd_series1)
     expected = pandas.Series([False, True, False, False], name='C')
     pandas.testing.assert_series_equal(extracted_func_result.reset_index(drop=True), expected.reset_index(drop=True))
+    assert numpy.allclose(extracted_func_result._mlinspect_provenance["2_0"], numpy.array(range(4)))
 
 
-def test_series_as_numpy():
+def test_series_to_numpy():
     """
     Tests whether the monkey patching of ('pandas.core.series', 'Series') works
     """
@@ -1419,18 +1420,20 @@ def test_series_as_numpy():
                                DagNodeDetails('numpy conversion', ['array'],
                                               OptimizerInfo(RangeComparison(0, 200), (4, 1), RangeComparison(0, 800))),
                                OptionalCodeInfo(CodeReference(4, 11, 4, 31), 'pd_series.to_numpy()'),
-                               Comparison(FunctionType))
+                               Comparison(partial))
     expected_dag.add_edge(expected_data_source, expected_project, arg_index=0)
     compare(networkx.to_dict_of_dicts(inspector_result.original_dag), networkx.to_dict_of_dicts(expected_dag))
 
     extracted_node = list(inspector_result.original_dag.nodes)[1]
     pd_series1 = pandas.Series([0, 4, 10, 2], name='C')
+    pd_series1._mlinspect_provenance = {"2_0": numpy.array(range(4))}
     extracted_func_result = extracted_node.processing_func(pd_series1)
     expected = numpy.array([0, 4, 10, 2])
     assert numpy.allclose(extracted_func_result, expected)
+    assert numpy.allclose(extracted_func_result._mlinspect_provenance["2_0"], numpy.array(range(4)))
 
 
-def test_series_as_list():
+def test_series_to_list():
     """
     Tests whether the monkey patching of ('pandas.core.series', 'Series') works
     """
@@ -1461,15 +1464,17 @@ def test_series_as_list():
                                DagNodeDetails('list conversion', ['A'],
                                               OptimizerInfo(RangeComparison(0, 200), (4, 1), RangeComparison(0, 800))),
                                OptionalCodeInfo(CodeReference(4, 10, 4, 29), 'pd_series.to_list()'),
-                               Comparison(FunctionType))
+                               Comparison(partial))
     expected_dag.add_edge(expected_data_source, expected_project, arg_index=0)
     compare(networkx.to_dict_of_dicts(inspector_result.original_dag), networkx.to_dict_of_dicts(expected_dag))
 
     extracted_node = list(inspector_result.original_dag.nodes)[1]
     pd_series1 = pandas.Series([0, 4, 10, 2], name='C')
+    pd_series1._mlinspect_provenance = {"2_0": numpy.array(range(4))}
     extracted_func_result = extracted_node.processing_func(pd_series1)
     expected = numpy.array([0, 4, 10, 2])
     assert numpy.allclose(extracted_func_result, expected)
+    assert numpy.allclose(extracted_func_result._mlinspect_provenance["2_0"], numpy.array(range(4)))
 
 
 def test_series_str_len():
@@ -1507,16 +1512,18 @@ def test_series_str_len():
                                                                            RangeComparison(0, 800))),
                             OptionalCodeInfo(CodeReference(4, 7, 4, 26),
                                              'pd_series.str.len()'),
-                            Comparison(FunctionType))
+                            Comparison(partial))
     expected_dag.add_edge(expected_data_source, expected_isin, arg_index=0)
 
     compare(extracted_dag, expected_dag)
 
     extracted_node = list(extracted_dag.nodes)[1]
     pd_series = pandas.Series(['aaaa', '', 'd', 'ee'], name='b')
+    pd_series._mlinspect_provenance = {"2_0": numpy.array(range(4))}
     extracted_func_result = extracted_node.processing_func(pd_series)
     expected = pandas.Series([4, 0, 1, 2], name='b')
     pandas.testing.assert_series_equal(extracted_func_result.reset_index(drop=True), expected.reset_index(drop=True))
+    assert numpy.allclose(extracted_func_result._mlinspect_provenance["2_0"], numpy.array(range(4)))
 
 
 def test_series_str_match():
@@ -1554,16 +1561,18 @@ def test_series_str_match():
                             DagNodeDetails("match r'^(a|c)*$'", ['A'], OptimizerInfo(RangeComparison(0, 200), (4, 1),
                                                                                      RangeComparison(0, 800))),
                             OptionalCodeInfo(CodeReference(5, 7, 5, 33), 'pd_series.str.match(regex)'),
-                            Comparison(FunctionType))
+                            Comparison(partial))
     expected_dag.add_edge(expected_data_source, expected_isin, arg_index=0)
 
     compare(extracted_dag, expected_dag)
 
     extracted_node = list(extracted_dag.nodes)[1]
     pd_series = pandas.Series(['aaaa', '', 'dd', 'cccc'], name='b')
+    pd_series._mlinspect_provenance = {"2_0": numpy.array(range(4))}
     extracted_func_result = extracted_node.processing_func(pd_series)
     expected = pandas.Series([True, True, False, True], name='b')
     pandas.testing.assert_series_equal(extracted_func_result.reset_index(drop=True), expected.reset_index(drop=True))
+    assert numpy.allclose(extracted_func_result._mlinspect_provenance["2_0"], numpy.array(range(4)))
 
 
 def test_series_str_contains():
@@ -1601,13 +1610,15 @@ def test_series_str_contains():
                             DagNodeDetails("contains r'^(a|c)*$'", ['A'], OptimizerInfo(RangeComparison(0, 200), (4, 1),
                                                                                         RangeComparison(0, 800))),
                             OptionalCodeInfo(CodeReference(5, 7, 5, 48), 'pd_series.str.contains(regex, regex=True)'),
-                            Comparison(FunctionType))
+                            Comparison(partial))
     expected_dag.add_edge(expected_data_source, expected_isin, arg_index=0)
 
     compare(extracted_dag, expected_dag)
 
     extracted_node = list(extracted_dag.nodes)[1]
     pd_series = pandas.Series(['aaaa', '', 'dd', 'cccc'], name='b')
+    pd_series._mlinspect_provenance = {"2_0": numpy.array(range(4))}
     extracted_func_result = extracted_node.processing_func(pd_series)
     expected = pandas.Series([True, True, False, True], name='b')
     pandas.testing.assert_series_equal(extracted_func_result.reset_index(drop=True), expected.reset_index(drop=True))
+    assert numpy.allclose(extracted_func_result._mlinspect_provenance["2_0"], numpy.array(range(4)))
