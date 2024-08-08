@@ -591,7 +591,6 @@ def test_frame_merge_on():
     df_merged = extracted_merge.processing_func(df_a, df_b)
     df_expected = pandas.DataFrame({'col_a': [20, 4, 8], 'B': [2, 4, 5], 'col_c': [5, 11, None]})
     pandas.testing.assert_frame_equal(df_merged.reset_index(drop=True), df_expected.reset_index(drop=True))
-
     assert numpy.allclose(df_merged._mlinspect_provenance["3_0"], numpy.array([1, 2, 3]))
     assert numpy.allclose(df_merged._mlinspect_provenance["3_1"], numpy.array([1, 3, 4]))
 
