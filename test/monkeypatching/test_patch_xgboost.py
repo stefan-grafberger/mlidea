@@ -80,7 +80,7 @@ def test_xgbclassifier():
                                                       OptimizerInfo(RangeComparison(0, 200), (4, 2),
                                                                     RangeComparison(0, 10000))),
                                        OptionalCodeInfo(CodeReference(8, 8, 8, 24), 'StandardScaler()'),
-                                       Comparison(FunctionType))
+                                       Comparison(partial))
     expected_dag.add_edge(expected_data_source, expected_data_projection, arg_index=0)
     expected_dag.add_edge(expected_data_projection, expected_standard_scaler, arg_index=0)
     expected_label_projection = DagNode(3,
@@ -305,6 +305,7 @@ def test_xgbclassifier_predict():
                 test_df = pd.DataFrame({'A': [0., 0.6], 'B':  [0., 0.6], 'target': ['no', 'yes']})
                 predictions = clf.predict(test_df[['A', 'B']])
                 assert len(predictions) == 2
+                assert np.allclose(predictions._mlinspect_provenance["8_0"], np.array([0, 1]))
                 """)
 
     inspector_result = _pipeline_executor.singleton.run(python_code=test_code, track_code_references=True)

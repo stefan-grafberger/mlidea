@@ -34,7 +34,7 @@ from mlidea.monkeypatching._monkey_patching_utils import execute_patched_func, a
     get_optional_code_info_or_none, get_dag_node_for_id, add_train_data_node, \
     add_train_label_node, add_test_label_node, add_test_data_dag_node, FunctionCallResult, \
     wrap_in_mlinspect_array_if_necessary
-from monkeypatching._provenance_propagation import wrap_train_test_split_func, wrap_projection_func
+from monkeypatching._provenance_propagation import wrap_train_test_split_func, wrap_projection_func, wrap_predict_func
 
 
 @gorilla.patches(preprocessing)
@@ -427,8 +427,11 @@ class SklearnStandardScalerPatching:
             transformed_data._mlinspect_annotation = transformer  # pylint: disable=protected-access
             return transformed_data
 
+        processing_func = wrap_projection_func(processing_func)
+
         operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
-        initial_func = partial(original, self, input_info.annotated_dfobject.result_data, *args[1:], **kwargs)
+        orig_func_prov = wrap_projection_func(lambda df: original( self, df, *args[1:], ** kwargs))
+        initial_func = partial(orig_func_prov, input_info.annotated_dfobject.result_data)
         optimizer_info, result = capture_optimizer_info(initial_func, estimator_transformer_state=self)
         dag_node_id = singleton.get_next_op_id()
         self.mlinspect_transformer_node_id = dag_node_id
@@ -462,8 +465,11 @@ class SklearnStandardScalerPatching:
                 transformed_data = transformer.transform(input_df, *args[1:], **kwargs)
                 return transformed_data
 
+            processing_func = wrap_predict_func(processing_func)
+
             operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
-            initial_func = partial(original, self, input_info.annotated_dfobject.result_data, *args[1:], **kwargs)
+            orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
+            initial_func = partial(orig_func_prov, self, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
             dag_node = DagNode(singleton.get_next_op_id(),
                                BasicCodeLocation(self.mlinspect_caller_filename, self.mlinspect_lineno),

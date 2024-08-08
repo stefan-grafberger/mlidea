@@ -153,9 +153,7 @@ def test_train_test_split():
     pandas.testing.assert_frame_equal(train_data.reset_index(drop=True), expected_train_df.reset_index(drop=True))
     pandas.testing.assert_frame_equal(test_data.reset_index(drop=True), expected_test_df.reset_index(drop=True))
 
-    assert "3_0" in train_data._mlinspect_provenance
     assert numpy.allclose(train_data._mlinspect_provenance["3_0"], numpy.array([3, 1, 0]))
-    assert "3_0" in test_data._mlinspect_provenance
     assert numpy.allclose(test_data._mlinspect_provenance["3_0"], numpy.array([2]))
 
 
@@ -171,10 +169,12 @@ def test_standard_scaler():
                 df = pd.DataFrame({'A': [1, 2, 10, 5]})
                 standard_scaler = StandardScaler()
                 encoded_data = standard_scaler.fit_transform(df)
+                assert np.allclose(encoded_data._mlinspect_provenance["0_0"], np.array([0, 1, 2, 3]))
                 test_df = pd.DataFrame({'A': [1, 2, 10, 5]})
                 encoded_data = standard_scaler.transform(test_df)
                 expected = np.array([[-1.], [-0.71428571], [1.57142857], [0.14285714]])
                 assert np.allclose(encoded_data, expected)
+                assert np.allclose(encoded_data._mlinspect_provenance["2_0"], np.array([0, 1, 2, 3]))
                 """)
 
     inspector_result = _pipeline_executor.singleton.run(python_code=test_code, track_code_references=True)
@@ -196,15 +196,15 @@ def test_standard_scaler():
                                                   OptimizerInfo(RangeComparison(0, 200), (4, 1),
                                                                 RangeComparison(0, 4000))),
                                    OptionalCodeInfo(CodeReference(6, 18, 6, 34), 'StandardScaler()'),
-                                   Comparison(FunctionType))
+                                   Comparison(partial))
     expected_dag.add_edge(expected_data_source, expected_transformer, arg_index=0)
     expected_data_source_two = DagNode(2,
-                                       BasicCodeLocation("<string-source>", 8),
+                                       BasicCodeLocation("<string-source>", 9),
                                        OperatorContext(OperatorType.DATA_SOURCE,
                                                        FunctionInfo('pandas.core.frame', 'DataFrame')),
                                        DagNodeDetails(None, ['A'], OptimizerInfo(RangeComparison(0, 200), (4, 1),
                                                                                  RangeComparison(0, 800))),
-                                       OptionalCodeInfo(CodeReference(8, 10, 8, 44),
+                                       OptionalCodeInfo(CodeReference(9, 10, 9, 44),
                                                         "pd.DataFrame({'A': [1, 2, 10, 5]})"),
                                        Comparison(partial))
     expected_transformer_two = DagNode(3,
@@ -215,7 +215,7 @@ def test_standard_scaler():
                                                       OptimizerInfo(RangeComparison(0, 200), (4, 1),
                                                                     RangeComparison(0, 800))),
                                        OptionalCodeInfo(CodeReference(6, 18, 6, 34), 'StandardScaler()'),
-                                       Comparison(FunctionType))
+                                       Comparison(partial))
     expected_dag.add_edge(expected_transformer, expected_transformer_two, arg_index=0)
     expected_dag.add_edge(expected_data_source_two, expected_transformer_two, arg_index=1)
     compare(networkx.to_dict_of_dicts(inspector_result.original_dag), networkx.to_dict_of_dicts(expected_dag))
@@ -223,14 +223,18 @@ def test_standard_scaler():
     fit_transform_node = list(inspector_result.original_dag.nodes)[1]
     transform_node = list(inspector_result.original_dag.nodes)[3]
     pandas_df = pandas.DataFrame({'A': [5, 1, 100, 2]})
+    pandas_df._mlinspect_provenance = {"3_0": numpy.array([0, 1, 4, 8])}
     fit_transformed_result = fit_transform_node.processing_func(pandas_df)
     expected_fit_transform_data = numpy.array([[-0.52166986], [-0.61651893], [1.73099545], [-0.59280666]])
     assert numpy.allclose(fit_transformed_result, expected_fit_transform_data)
+    assert numpy.allclose(fit_transformed_result._mlinspect_provenance["3_0"], numpy.array([0, 1, 4, 8]))
 
     test_df = pandas.DataFrame({'A': [50, 2, 10, 1]})
+    test_df._mlinspect_provenance = {"3_0": numpy.array([3, 2, 5, 11])}
     encoded_data = transform_node.processing_func(fit_transformed_result, test_df)
     expected = numpy.array([[0.54538213], [-0.59280666], [-0.40310853], [-0.61651893]])
     assert numpy.allclose(encoded_data, expected)
+    assert numpy.allclose(encoded_data._mlinspect_provenance["3_0"], numpy.array([3, 2, 5, 11]))
 
 
 def test_robust_scaler():
