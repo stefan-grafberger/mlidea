@@ -96,7 +96,7 @@ def test_binary_rag_classification(tmpdir):
                          DagNodeDetails('dict conversion', ['label'],
                                         OptimizerInfo(RangeComparison(0, 10000), (4, 1), RangeComparison(0, 10000))),
                          OptionalCodeInfo(CodeReference(15, 70, 15, 102), "df[['label']].to_dict('records')"),
-                         Comparison(FunctionType))
+                         Comparison(partial))
     expected_dag.add_edge(expected_3, expected_4, arg_index=0)
     expected_5 = DagNode(5, BasicCodeLocation('<string-source>', 15),
                          OperatorContext(OperatorType.TRAIN_DATA,

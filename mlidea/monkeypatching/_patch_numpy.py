@@ -31,7 +31,7 @@ class NumpyRandomPatching:
             """ Execute inspections, add DAG node """
             function_info = FunctionInfo('numpy.random', 'random')
             operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info)
-            processing_func = wrap_data_source_func(partial(original, *args, **kwargs))
+            processing_func = wrap_data_source_func(partial(original, *args, **kwargs), op_id)
             optimizer_info, result = capture_optimizer_info(processing_func)
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
