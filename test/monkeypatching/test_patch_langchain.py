@@ -22,7 +22,7 @@ from mlidea.execution._dag_executor import DagExecutor
 from mlidea.execution._pipeline_executor import singleton
 from mlidea.instrumentation._dag_node import DagNode, CodeReference, BasicCodeLocation, DagNodeDetails, \
     OptionalCodeInfo, OptimizerInfo
-from monkeypatching._mlinspect_ndarray import MlinspectList
+from mlidea.monkeypatching._mlinspect_ndarray import MlinspectList
 
 
 def test_binary_rag_classification(tmpdir):

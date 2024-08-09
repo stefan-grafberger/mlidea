@@ -23,7 +23,7 @@ from mlidea.execution import _pipeline_executor
 from mlidea.instrumentation._dag_node import DagNode, CodeReference, BasicCodeLocation, DagNodeDetails, \
     OptionalCodeInfo, OptimizerInfo
 from mlidea.monkeypatching._patch_sklearn import TrainTestSplitResult
-from monkeypatching._mlinspect_ndarray import MlinspectNdarray
+from mlidea.monkeypatching._mlinspect_ndarray import MlinspectNdarray
 
 
 def test_label_binarize():

@@ -4,11 +4,8 @@ Tests whether the monkey patching works for all patched sklearn methods
 from functools import partial
 from inspect import cleandoc
 from types import FunctionType
-
-import numpy
-
 from test.monkeypatching.test_patch_sklearn import filter_dag_for_nodes_with_ids
-
+import numpy
 import networkx
 import pandas
 from sklearn.preprocessing import label_binarize
