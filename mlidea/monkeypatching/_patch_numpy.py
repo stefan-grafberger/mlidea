@@ -11,7 +11,7 @@ from mlidea.execution._stat_tracking import capture_optimizer_info
 from mlidea.instrumentation._operator_types import OperatorContext, FunctionInfo, OperatorType
 from mlidea.monkeypatching._monkey_patching_utils import execute_patched_func, add_dag_node, \
     get_optional_code_info_or_none, FunctionCallResult
-from monkeypatching._provenance_propagation import wrap_data_source_func
+from mlidea.monkeypatching._provenance_propagation import wrap_data_source_func
 
 
 @gorilla.patches(random)

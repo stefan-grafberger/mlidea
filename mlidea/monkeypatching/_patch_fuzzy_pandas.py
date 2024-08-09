@@ -11,7 +11,7 @@ from mlidea.execution._stat_tracking import capture_optimizer_info
 from mlidea.instrumentation._operator_types import OperatorContext, FunctionInfo
 from mlidea.monkeypatching._monkey_patching_utils import execute_patched_func, get_input_info, add_dag_node, \
     get_optional_code_info_or_none, FunctionCallResult
-from monkeypatching._provenance_propagation import wrap_join_func
+from mlidea.monkeypatching._provenance_propagation import wrap_join_func
 
 
 @gorilla.patches(fuzzy_pandas)

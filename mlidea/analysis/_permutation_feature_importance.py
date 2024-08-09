@@ -13,7 +13,7 @@ from mlidea.analysis._patch_creation import get_intermediate_extraction_patch_af
 from mlidea.analysis._what_if_analysis import WhatIfAnalysis
 from mlidea.execution._patches import DataProjection, PipelinePatch
 from mlidea.execution._pipeline_executor import singleton
-from monkeypatching._provenance_propagation import wrap_filter_func
+from mlidea.monkeypatching._provenance_propagation import wrap_filter_func
 
 
 class PermutationFeatureImportance(WhatIfAnalysis):

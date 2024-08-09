@@ -34,7 +34,8 @@ from mlidea.monkeypatching._monkey_patching_utils import execute_patched_func, a
     get_optional_code_info_or_none, get_dag_node_for_id, add_train_data_node, \
     add_train_label_node, add_test_label_node, add_test_data_dag_node, FunctionCallResult, \
     wrap_in_mlinspect_array_if_necessary
-from monkeypatching._provenance_propagation import wrap_train_test_split_func, wrap_projection_func, wrap_predict_func
+from mlidea.monkeypatching._provenance_propagation import wrap_train_test_split_func, wrap_projection_func, \
+    wrap_predict_func
 
 
 @gorilla.patches(preprocessing)

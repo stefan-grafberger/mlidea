@@ -16,7 +16,7 @@ from mlidea.monkeypatching._monkey_patching_utils import add_dag_node, \
     get_optional_code_info_or_none, get_dag_node_for_id, add_train_data_node, \
     add_train_label_node, add_test_label_node, add_test_data_dag_node, FunctionCallResult
 from mlidea.monkeypatching._patch_sklearn import call_info_singleton
-from monkeypatching._provenance_propagation import wrap_predict_func
+from mlidea.monkeypatching._provenance_propagation import wrap_predict_func
 
 
 @gorilla.patches(xgboost.XGBClassifier)
