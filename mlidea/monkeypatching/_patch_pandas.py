@@ -378,7 +378,7 @@ class DataFramePatching:
             add_dag_node(dag_node, dag_node_parents, function_call_result)
             new_result = function_call_result.function_result
             assert hasattr(self, "_mlinspect_dag_node")
-            assert hasattr(self, "_mlinspect_provenance")
+            assert singleton.prov_enabled is False or hasattr(self, "_mlinspect_provenance")
             self._mlinspect_dag_node = op_id
             return new_result
 

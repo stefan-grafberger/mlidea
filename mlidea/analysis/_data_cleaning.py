@@ -17,7 +17,7 @@ from mlidea.analysis._what_if_analysis import WhatIfAnalysis
 from mlidea.execution._patches import DataFiltering, DataTransformer, ModelPatch, PipelinePatch
 from mlidea.instrumentation._dag_node import OptimizerInfo
 from mlidea.execution._pipeline_executor import singleton
-from mlidea.monkeypatching._provenance_propagation import wrap_filter_func, wrap_projection_func
+from mlidea.monkeypatching._provenance_propagation import wrap_filter_func, wrap_projection_func, wrap_predict_func
 
 
 class ErrorType(Enum):
@@ -199,7 +199,7 @@ class DataCleaning(WhatIfAnalysis):
                     patches_for_variant.append(filter_patch_test)
                 elif cleaning_method.patch_type == PatchType.DATA_TRANSFORMER_PATCH:
                     fit_transform = wrap_projection_func(partial(cleaning_method.fit_or_fit_transform_func, column=column))
-                    transform = wrap_projection_func(partial(cleaning_method.predict_or_fit_func, column=column))
+                    transform = wrap_predict_func(partial(cleaning_method.predict_or_fit_func, column=column))
                     new_train_cleaning_node = DagNode(singleton.get_next_op_id(),
                                                       BasicCodeLocation("Data Cleaning", None),
                                                       OperatorContext(OperatorType.TRANSFORMER, None),
