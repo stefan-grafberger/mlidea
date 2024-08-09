@@ -8,6 +8,7 @@ from functools import partial
 import networkx
 import pandas
 
+from mlidea import monkeypatching
 from mlidea.instrumentation._dag_node import DagNode, BasicCodeLocation, OperatorContext, DagNodeDetails
 from mlidea.instrumentation._operator_types import OperatorType
 from mlidea.execution._patches import PipelinePatch
@@ -190,9 +191,8 @@ class UdfSplitAndReuse(QueryOptimizationRule):
             return completely_corrupted_df
 
         # TODO: Clean up imports so this doesn't need to happen here
-        from mlidea.monkeypatching._provenance_propagation import wrap_projection_func
-        corrupt_df_with_proper_bindings = wrap_projection_func(partial(corrupt_full_df,
-                                                                       corruption_function=projection_func))
+        corrupt_df_with_proper_bindings = monkeypatching._provenance_propagation.wrap_projection_func(
+            partial(corrupt_full_df, corruption_function=projection_func))
 
         description = f"Corrupt 100% of '{column_name}'"
         new_corruption_node = DagNode(self._pipeline_executor.get_next_op_id(),
@@ -235,8 +235,7 @@ class UdfSplitAndReuse(QueryOptimizationRule):
                 return_df = return_df[column]
             return return_df
 
-        from mlidea.monkeypatching._provenance_propagation import wrap_projection_func
-        corrupt_df_with_proper_bindings = wrap_projection_func(
+        corrupt_df_with_proper_bindings = monkeypatching._provenance_propagation.wrap_projection_func(
             partial(corrupt_df, column=previous_patch.maybe_udf_split_info.column_name_to_corrupt))
         new_corruption_node = DagNode(self._pipeline_executor.get_next_op_id(),
                                       previous_patch.node_to_insert.code_location,

@@ -333,6 +333,7 @@ class DataFramePatching:
     @gorilla.settings(allow_hit=True)
     def patched__setitem__(self, *args, **kwargs):
         """ Patch for ('pandas.core.frame', '__setitem__') """
+        # pylint: disable=too-many-locals
         original = gorilla.get_original_attribute(pandas.DataFrame, '__setitem__')
 
         def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
@@ -646,7 +647,7 @@ class LocIndexerPatching:
             input_info = get_input_info(self.obj, caller_filename,  # pylint: disable=no-member
                                         lineno, function_info, optional_code_reference, optional_source_code)
             processing_func = wrap_projection_func(lambda df: pandas.DataFrame.__getitem__(df, projection_key))
-            initial_func = partial(processing_func, self.obj)
+            initial_func = partial(processing_func, self.obj)  # pylint: disable=no-member
             optimizer_info, result = capture_optimizer_info(initial_func)
 
             # TODO: This behaves correctly in the default cases but loc getitem supports many strange use cases
@@ -1148,8 +1149,9 @@ class StringMethodsPatching:
             operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info)
             description = "str.len"
             columns = [self._data.name]  # pylint: disable=no-member
-            processing_func = wrap_projection_func(lambda df: original(df.str, *args, **kwargs))
-            initial_func = partial(processing_func, self._orig)
+            processing_func = wrap_projection_func(
+                lambda df: original(df.str, *args, **kwargs))
+            initial_func = partial(processing_func, self._orig)  # pylint: disable=no-member
             optimizer_info, result = capture_optimizer_info(initial_func)
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
@@ -1181,7 +1183,7 @@ class StringMethodsPatching:
             description = f"match r'{args[0]}'"
             columns = [self._data.name]  # pylint: disable=no-member
             processing_func = wrap_projection_func(lambda df: original(df.str, *args, **kwargs))
-            initial_func = partial(processing_func, self._orig)
+            initial_func = partial(processing_func, self._orig)  # pylint: disable=no-member
             optimizer_info, result = capture_optimizer_info(initial_func)
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
@@ -1215,8 +1217,9 @@ class StringMethodsPatching:
                 description += "r"
             description += f"'{args[0]}'"
             columns = [self._data.name]  # pylint: disable=no-member
-            processing_func = wrap_projection_func(lambda df: original(df.str, *args, **kwargs))
-            initial_func = partial(processing_func, self._orig)
+            processing_func = wrap_projection_func(
+                lambda df: original(df.str, *args, **kwargs))
+            initial_func = partial(processing_func, self._orig)  # pylint: disable=no-member
             optimizer_info, result = capture_optimizer_info(initial_func)
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),

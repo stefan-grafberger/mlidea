@@ -71,18 +71,18 @@ def wrap_predict_func(source_func):
 
 def wrap_filter_func(source_func):
     def propagate_provenance(source_func, *inputs):
-        input = inputs[0]
+        df_input = inputs[0]
         if singleton.prov_enabled is True:
-            provenance = input._mlinspect_provenance
-            if isinstance(input, pandas.Series):
-                input = pandas.DataFrame(input)
+            provenance = df_input._mlinspect_provenance
+            if isinstance(df_input, pandas.Series):
+                df_input = pandas.DataFrame(df_input)
                 was_series = True
             else:
                 was_series = False
             for prov_key, prov_value in provenance.items():
-                assert isinstance(input, pandas.DataFrame)
-                input[prov_key] = prov_value
-        df_obj = source_func(input, *inputs[1:])
+                assert isinstance(df_input, pandas.DataFrame)
+                df_input[prov_key] = prov_value
+        df_obj = source_func(df_input, *inputs[1:])
 
         if singleton.prov_enabled is True:
             if not hasattr(df_obj, "_mlinspect_provenance") or df_obj._mlinspect_provenance is None:

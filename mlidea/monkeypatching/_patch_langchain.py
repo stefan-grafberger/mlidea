@@ -47,6 +47,7 @@ call_info_singleton = LangchainCallInfo()
 
 
 def execute_embedding_similarity_join(retrieval_corpus_X, retrieval_corpus_y, embedding, inputs: list[Input]):
+    # pylint: disable=too-many-locals
     if singleton.prov_enabled is False:
         filled_vectorstore = Chroma.from_texts(texts=retrieval_corpus_X, metadatas=retrieval_corpus_y,
                                                embedding=embedding).as_retriever()
@@ -58,7 +59,7 @@ def execute_embedding_similarity_join(retrieval_corpus_X, retrieval_corpus_y, em
 
         prov_str_dict = {}
         for prov_key, prov_value in list(retrieval_corpus_X._mlinspect_provenance.items()):
-            prov_value_str_list = list(map(str, prov_value))
+            prov_value_str_list = list(map(str, prov_value))  # pylint: disable=bad-builtin
             prov_str_dict[prov_key] = prov_value_str_list
 
         all_prov_value_str = []
@@ -91,7 +92,7 @@ def execute_embedding_similarity_join(retrieval_corpus_X, retrieval_corpus_y, em
             data_source, index_to_deduplicate = prov_key.rsplit('_', 1)
             index_to_deduplicate = int(index_to_deduplicate)
             prov_id_names = []
-            for index, _ in enumerate(results[0]):
+            for _ in results[0]:
                 prov_id_names.append(f"{data_source}_{index_to_deduplicate}")
                 index_to_deduplicate += 1
 
