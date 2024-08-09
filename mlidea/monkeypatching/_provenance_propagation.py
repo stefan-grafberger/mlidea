@@ -92,6 +92,7 @@ def wrap_filter_func(source_func):
                 assert isinstance(df_obj, pandas.DataFrame)
                 new_provenance[prov_key] = df_obj[prov_key].to_numpy()
                 df_obj.drop([prov_key], axis=1, inplace=True)
+                df_input.drop([prov_key], axis=1, inplace=True)
 
             if was_series is True:
                 df_obj = df_obj.iloc[:, 0]
