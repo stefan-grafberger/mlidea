@@ -4,7 +4,6 @@ Tests whether the PipelineExecutor works
 import ast
 from functools import partial
 from inspect import cleandoc
-from types import FunctionType
 
 import astunparse
 import networkx
