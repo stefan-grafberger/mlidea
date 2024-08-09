@@ -43,7 +43,7 @@ def test_func_defs_and_loops():
                                 DagNodeDetails('dropna', ['A'], OptimizerInfo(RangeComparison(0, 800), (2, 1),
                                                                               RangeComparison(0, 800))),
                                 OptionalCodeInfo(CodeReference(8, 9, 8, 20), 'df.dropna()'),
-                                Comparison(FunctionType))
+                                Comparison(partial))
     expected_dag.add_edge(expected_data_source, expected_select_1, arg_index=0)
     expected_select_2 = DagNode(2,
                                 BasicCodeLocation("<string-source>", 8),
@@ -51,7 +51,7 @@ def test_func_defs_and_loops():
                                 DagNodeDetails('dropna', ['A'], OptimizerInfo(RangeComparison(0, 800), (2, 1),
                                                                               RangeComparison(0, 800))),
                                 OptionalCodeInfo(CodeReference(8, 9, 8, 20), 'df.dropna()'),
-                                Comparison(FunctionType))
+                                Comparison(partial))
     expected_dag.add_edge(expected_select_1, expected_select_2, arg_index=0)
     compare(networkx.to_dict_of_dicts(extracted_dag), networkx.to_dict_of_dicts(expected_dag))
 
@@ -77,14 +77,14 @@ def test_func_defs_and_loops_without_code_reference_tracking():
                                 OperatorContext(OperatorType.SELECTION, FunctionInfo('pandas.core.frame', 'dropna')),
                                 DagNodeDetails('dropna', ['A'], OptimizerInfo(RangeComparison(0, 800), (2, 1),
                                                                               RangeComparison(0, 800))),
-                                processing_func=Comparison(FunctionType))
+                                processing_func=Comparison(partial))
     expected_dag.add_edge(expected_data_source, expected_select_1, arg_index=0)
     expected_select_2 = DagNode(2,
                                 BasicCodeLocation("<string-source>", 8),
                                 OperatorContext(OperatorType.SELECTION, FunctionInfo('pandas.core.frame', 'dropna')),
                                 DagNodeDetails('dropna', ['A'], OptimizerInfo(RangeComparison(0, 800), (2, 1),
                                                                               RangeComparison(0, 800))),
-                                processing_func=Comparison(FunctionType))
+                                processing_func=Comparison(partial))
     expected_dag.add_edge(expected_select_1, expected_select_2, arg_index=0)
     compare(networkx.to_dict_of_dicts(extracted_dag), networkx.to_dict_of_dicts(expected_dag))
 
@@ -131,7 +131,7 @@ def test_black_box_operation():
                               DagNodeDetails('dropna', ['A'], OptimizerInfo(RangeComparison(0, 800), (5, 1),
                                                                             RangeComparison(0, 800))),
                               OptionalCodeInfo(CodeReference(5, 5, 5, 16), 'df.dropna()'),
-                              Comparison(FunctionType))
+                              Comparison(partial))
     expected_dag.add_edge(expected_missing_op, expected_select, arg_index=0)
     compare(networkx.to_dict_of_dicts(extracted_dag), networkx.to_dict_of_dicts(expected_dag))
 

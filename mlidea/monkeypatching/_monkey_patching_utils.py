@@ -18,6 +18,7 @@ from mlidea.instrumentation._dag_node import DagNode, CodeReference, BasicCodeLo
 from mlidea.instrumentation._operator_types import OperatorContext, OperatorType
 from mlidea.monkeypatching._mlinspect_ndarray import MlinspectNdarray, MlinspectList, MlinspectDict, \
     MlinspectTuple
+from mlidea import monkeypatching
 
 
 @dataclasses.dataclass(frozen=False)
@@ -243,6 +244,9 @@ def get_input_info(df_object, caller_filename, lineno, function_info, optional_c
         function_call_result = FunctionCallResult(df_object)
         add_dag_node(input_dag_node, [], function_call_result)
         input_info = InputInfo(input_dag_node, AnnotatedDfObject(df_object, None))  # TODO: Remove annotation stuff
+        if singleton.prov_enabled is True:
+            monkeypatching._provenance_propagation.generate_and_add_provenance_data_source(
+                input_info.annotated_dfobject.result_data, missing_op_id)
     return input_info
 
 
