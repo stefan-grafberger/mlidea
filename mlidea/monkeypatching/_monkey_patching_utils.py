@@ -55,7 +55,8 @@ def execute_patched_func(original_func, execute_inspections_func, *args, **kwarg
 
     caller_filename = sys._getframe(2).f_code.co_filename
 
-    if caller_filename != singleton.source_code_path or singleton.disable_monkey_patching is True:
+    if (caller_filename != singleton.source_code_path or singleton.disable_monkey_patching is True or
+            monkeypatching._provenance_propagation.prov_info_singleton.prov_tracking_operations_active is True):
         result = original_func(*args, **kwargs)
     elif singleton.track_code_references:
         call_ast_node = ast.Call(lineno=singleton.lineno_next_call_or_subscript,

@@ -8,6 +8,14 @@ from mlidea.execution._stat_tracking import get_df_shape
 from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
 from mlidea.monkeypatching._mlinspect_ndarray import MlinspectList
 
+class ProvTrackingInfo:
+    """ Contains info if the current calls originate from provenance tracking only """
+    # pylint: disable=too-few-public-methods
+    prov_tracking_operations_active: bool = False
+
+
+prov_info_singleton = ProvTrackingInfo()
+
 
 def generate_and_add_provenance_data_source(df_obj, op_id):
     if singleton.prov_enabled is True:
@@ -26,8 +34,10 @@ def wrap_data_source_func(source_func, op_id):
 
     return partial(edit_data_source_result, source_func)
 
+
 def get_input_provenance(df_obj):
     return df_obj._mlinspect_provenance
+
 
 def set_output_provenance(df_obj, new_provenance):
     if singleton.prov_enabled is True:
@@ -71,6 +81,7 @@ def wrap_predict_func(source_func):
 
 def wrap_filter_func(source_func):
     def propagate_provenance(source_func, *inputs):
+        prov_info_singleton.prov_tracking_operations_active = True
         df_input = inputs[0]
         if singleton.prov_enabled is True:
             provenance = df_input._mlinspect_provenance
@@ -82,8 +93,9 @@ def wrap_filter_func(source_func):
             for prov_key, prov_value in provenance.items():
                 assert isinstance(df_input, pandas.DataFrame)
                 df_input[prov_key] = prov_value
+        prov_info_singleton.prov_tracking_operations_active = False
         df_obj = source_func(df_input, *inputs[1:])
-
+        prov_info_singleton.prov_tracking_operations_active = True
         if singleton.prov_enabled is True:
             if not hasattr(df_obj, "_mlinspect_provenance") or df_obj._mlinspect_provenance is None:
                 df_obj._mlinspect_provenance = {}
@@ -100,12 +112,14 @@ def wrap_filter_func(source_func):
 
         if singleton.prov_enabled is True:
             df_obj._mlinspect_provenance = new_provenance
+        prov_info_singleton.prov_tracking_operations_active = False
         return df_obj
 
     return partial(propagate_provenance, source_func)
 
 def wrap_join_func(source_func):
     def propagate_provenance(source_func, *inputs):
+        prov_info_singleton.prov_tracking_operations_active = True
         if singleton.prov_enabled is True:
             provenance_a = inputs[0]._mlinspect_provenance
             provenance_b = inputs[1]._mlinspect_provenance
@@ -129,9 +143,12 @@ def wrap_join_func(source_func):
             for prov_key, prov_value in provenance_b.items():
                 assert isinstance(inputs[1], pandas.DataFrame)
                 inputs[1][prov_key] = prov_value
+        prov_info_singleton.prov_tracking_operations_active = False
 
         df_obj = source_func(*inputs)
         df_obj = wrap_in_mlinspect_array_if_necessary(df_obj)
+
+        prov_info_singleton.prov_tracking_operations_active = True
         if singleton.prov_enabled is True:
             if not hasattr(df_obj, "_mlinspect_provenance") or df_obj._mlinspect_provenance is None:
                 df_obj._mlinspect_provenance = {}
@@ -142,19 +159,31 @@ def wrap_join_func(source_func):
                 new_provenance[prov_key] = df_obj[prov_key].to_numpy()
                 df_obj.drop([prov_key],  axis=1, inplace=True)
             df_obj._mlinspect_provenance = new_provenance
+            for prov_key, prov_value in provenance_a.items():
+                assert isinstance(inputs[0], pandas.DataFrame)
+                inputs[0].drop([prov_key],  axis=1, inplace=True)
+            for prov_key, prov_value in provenance_b.items():
+                assert isinstance(inputs[1], pandas.DataFrame)
+                inputs[1].drop([prov_key],  axis=1, inplace=True)
+        prov_info_singleton.prov_tracking_operations_active = False
         return df_obj
 
     return partial(propagate_provenance, source_func)
 
 def wrap_train_test_split_func(source_func):
     def propagate_provenance(source_func, *inputs):
+        prov_info_singleton.prov_tracking_operations_active = True
         if singleton.prov_enabled is True:
             provenance = inputs[0]._mlinspect_provenance
             for prov_key, prov_value in provenance.items():
                 assert isinstance(inputs[0], pandas.DataFrame)
                 inputs[0][prov_key] = prov_value
+        prov_info_singleton.prov_tracking_operations_active = False
+
         df_objs = source_func(*inputs)
         assert isinstance(df_objs, list)
+
+        prov_info_singleton.prov_tracking_operations_active = True
         if singleton.prov_enabled is True:
             for split_result in df_objs:
                 split_result = wrap_in_mlinspect_array_if_necessary(split_result)
@@ -167,6 +196,7 @@ def wrap_train_test_split_func(source_func):
                     new_provenance[prov_key] = split_result[prov_key].to_numpy()
                     split_result.drop([prov_key],  axis=1, inplace=True)
                 split_result._mlinspect_provenance = new_provenance
+        prov_info_singleton.prov_tracking_operations_active = False
         return df_objs
 
     return partial(propagate_provenance, source_func)
@@ -174,13 +204,16 @@ def wrap_train_test_split_func(source_func):
 
 def wrap_rag_join_func_func(source_func):
     def propagate_provenance(source_func, *inputs):
+        prov_info_singleton.prov_tracking_operations_active = True
         if singleton.prov_enabled is True:
             provenance = inputs[0]._mlinspect_provenance
             for prov_key, prov_value in provenance.items():
                 assert isinstance(inputs[0], pandas.DataFrame)
                 inputs[0][prov_key] = prov_value
+        prov_info_singleton.prov_tracking_operations_active = False
         df_objs = source_func(*inputs)
         assert isinstance(df_objs, list)
+        prov_info_singleton.prov_tracking_operations_active = True
         if singleton.prov_enabled is True:
             for split_result in df_objs:
                 split_result = wrap_in_mlinspect_array_if_necessary(split_result)
@@ -193,6 +226,7 @@ def wrap_rag_join_func_func(source_func):
                     new_provenance[prov_key] = split_result[prov_key].to_numpy()
                     split_result.drop([prov_key],  axis=1, inplace=True)
                 split_result._mlinspect_provenance = new_provenance
+        prov_info_singleton.prov_tracking_operations_active = False
         return df_objs
 
     return partial(propagate_provenance, source_func)
