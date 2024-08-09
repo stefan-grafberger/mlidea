@@ -27,8 +27,7 @@ patients = pd.read_csv(os.path.join(str(get_project_root()), "experiments", "end
 histories = pd.read_csv(os.path.join(str(get_project_root()), "experiments", "end_to_end", "datasets", "healthcare",
                                      "histories.csv"), na_values='?')
 
-data = fpd.fuzzy_merge(patients, histories, on='full_name', method='levenshtein',
-                       keep_right=['smoker', 'complications'], threshold=0.95)
+data = fpd.fuzzy_merge(patients, histories, on='full_name', method='levenshtein', threshold=0.95)
 complications = data.groupby('age_group') \
     .agg(mean_complications=('complications', 'mean'))
 data = data.merge(complications, on=['age_group'])

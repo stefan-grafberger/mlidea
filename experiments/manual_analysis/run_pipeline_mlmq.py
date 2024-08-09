@@ -145,8 +145,7 @@ def get_dataset(dataset_name, data_loading_name, featurization_name):
         else:
             raise ValueError(f"Invalid data loading speed: {data_loading_name}!")
 
-        data = fuzzy_pandas.fuzzy_merge(patients, histories, on='full_name', method='levenshtein',
-                                        keep_right=['smoker', 'complications'], threshold=0.95)
+        data = fuzzy_pandas.fuzzy_merge(patients, histories, on='full_name', method='levenshtein', threshold=0.95)
         complications = data.groupby('age_group') \
             .agg(mean_complications=('complications', 'mean'))
         data = data.merge(complications, on=['age_group'])
