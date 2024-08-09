@@ -4,6 +4,7 @@ Tests whether the monkey patching works for all patched numpy methods
 from functools import partial
 from inspect import cleandoc
 
+import numpy
 from testfixtures import compare, Comparison, RangeComparison
 
 from mlidea import OperatorContext, FunctionInfo, OperatorType
@@ -21,6 +22,7 @@ def test_numpy_random():
         np.random.seed(42)
         test = np.random.random(100)
         assert len(test) == 100
+        assert np.allclose(test._mlinspect_provenance["0_0"], np.array(range(100)))
         """)
 
     inspector_result = _pipeline_executor.singleton.run(python_code=test_code, track_code_references=True)
@@ -35,4 +37,7 @@ def test_numpy_random():
                             Comparison(partial))
     compare(extracted_node, expected_node)
 
-    assert len(extracted_node.processing_func()) == 100
+    df_result = extracted_node.processing_func()
+    assert len(df_result) == 100
+    assert "0_0" in df_result._mlinspect_provenance
+    assert numpy.allclose(df_result._mlinspect_provenance["0_0"], numpy.array(range(100)))

@@ -4,18 +4,19 @@ Tests whether the PipelineExecutor works
 import ast
 from functools import partial
 from inspect import cleandoc
-from types import FunctionType
 
 import astunparse
 import networkx
 from testfixtures import compare, Comparison, RangeComparison
 
+from example_pipelines import ADULT_SIMPLE_PY
 from mlidea import OperatorType, OperatorContext, FunctionInfo
 from mlidea.execution import _pipeline_executor
 from mlidea.instrumentation._dag_node import CodeReference, DagNode, BasicCodeLocation, DagNodeDetails, \
     OptionalCodeInfo, OptimizerInfo
 from mlidea.execution._pipeline_executor import singleton
-from mlidea.testing._testing_helper_utils import get_test_code_with_function_def_and_for_loop
+from mlidea.testing._testing_helper_utils import get_test_code_with_function_def_and_for_loop, \
+    get_expected_dag_adult_easy
 
 
 def test_func_defs_and_loops():
@@ -41,7 +42,7 @@ def test_func_defs_and_loops():
                                 DagNodeDetails('dropna', ['A'], OptimizerInfo(RangeComparison(0, 800), (2, 1),
                                                                               RangeComparison(0, 800))),
                                 OptionalCodeInfo(CodeReference(8, 9, 8, 20), 'df.dropna()'),
-                                Comparison(FunctionType))
+                                Comparison(partial))
     expected_dag.add_edge(expected_data_source, expected_select_1, arg_index=0)
     expected_select_2 = DagNode(2,
                                 BasicCodeLocation("<string-source>", 8),
@@ -49,7 +50,7 @@ def test_func_defs_and_loops():
                                 DagNodeDetails('dropna', ['A'], OptimizerInfo(RangeComparison(0, 800), (2, 1),
                                                                               RangeComparison(0, 800))),
                                 OptionalCodeInfo(CodeReference(8, 9, 8, 20), 'df.dropna()'),
-                                Comparison(FunctionType))
+                                Comparison(partial))
     expected_dag.add_edge(expected_select_1, expected_select_2, arg_index=0)
     compare(networkx.to_dict_of_dicts(extracted_dag), networkx.to_dict_of_dicts(expected_dag))
 
@@ -75,14 +76,14 @@ def test_func_defs_and_loops_without_code_reference_tracking():
                                 OperatorContext(OperatorType.SELECTION, FunctionInfo('pandas.core.frame', 'dropna')),
                                 DagNodeDetails('dropna', ['A'], OptimizerInfo(RangeComparison(0, 800), (2, 1),
                                                                               RangeComparison(0, 800))),
-                                processing_func=Comparison(FunctionType))
+                                processing_func=Comparison(partial))
     expected_dag.add_edge(expected_data_source, expected_select_1, arg_index=0)
     expected_select_2 = DagNode(2,
                                 BasicCodeLocation("<string-source>", 8),
                                 OperatorContext(OperatorType.SELECTION, FunctionInfo('pandas.core.frame', 'dropna')),
                                 DagNodeDetails('dropna', ['A'], OptimizerInfo(RangeComparison(0, 800), (2, 1),
                                                                               RangeComparison(0, 800))),
-                                processing_func=Comparison(FunctionType))
+                                processing_func=Comparison(partial))
     expected_dag.add_edge(expected_select_1, expected_select_2, arg_index=0)
     compare(networkx.to_dict_of_dicts(extracted_dag), networkx.to_dict_of_dicts(expected_dag))
 
@@ -129,7 +130,7 @@ def test_black_box_operation():
                               DagNodeDetails('dropna', ['A'], OptimizerInfo(RangeComparison(0, 800), (5, 1),
                                                                             RangeComparison(0, 800))),
                               OptionalCodeInfo(CodeReference(5, 5, 5, 16), 'df.dropna()'),
-                              Comparison(FunctionType))
+                              Comparison(partial))
     expected_dag.add_edge(expected_missing_op, expected_select, arg_index=0)
     compare(networkx.to_dict_of_dicts(extracted_dag), networkx.to_dict_of_dicts(expected_dag))
 
@@ -251,3 +252,13 @@ def test_instrument_pipeline_without_code_reference_tracking():
             undo_monkey_patch()
             """)
     compare(cleandoc(instrumented_code), expected_code)
+
+
+def test_no_prov_tracking():
+    """
+    Tests whether the monkey patching of pandas function works
+    """
+    extracted_dag = _pipeline_executor.singleton.run(
+        python_path=ADULT_SIMPLE_PY, track_code_references=True, prov_enabled=False).original_dag
+    expected_dag = get_expected_dag_adult_easy(ADULT_SIMPLE_PY)
+    compare(networkx.to_dict_of_dicts(extracted_dag), networkx.to_dict_of_dicts(expected_dag))

@@ -13,6 +13,7 @@ from mlidea.analysis._patch_creation import get_intermediate_extraction_patch_af
 from mlidea.analysis._what_if_analysis import WhatIfAnalysis
 from mlidea.execution._patches import DataProjection, PipelinePatch
 from mlidea.execution._pipeline_executor import singleton
+from mlidea.monkeypatching._provenance_propagation import wrap_filter_func
 
 
 class PermutationFeatureImportance(WhatIfAnalysis):
@@ -84,7 +85,7 @@ class PermutationFeatureImportance(WhatIfAnalysis):
         # We need to use partial here to avoid problems with late bindings, see
         #  https://stackoverflow.com/questions/3431676/creating-functions-in-a-loop
         description = f"Permute '{column}' randomly"
-        permute_columns_with_proper_bindings = partial(permute_columns, column=column)
+        permute_columns_with_proper_bindings = wrap_filter_func(partial(permute_columns, column=column))
         new_perutation_node = DagNode(singleton.get_next_op_id(),
                                       BasicCodeLocation("DataCorruption", None),
                                       OperatorContext(OperatorType.PROJECTION_MODIFY, None),

@@ -120,7 +120,7 @@ def get_df_shape(result_or_inplace_obj):
     elif isinstance(result_or_inplace_obj, pandas.Series):
         shape = len(result_or_inplace_obj), 1
     elif isinstance(result_or_inplace_obj, pandas.core.groupby.generic.DataFrameGroupBy):
-        shape = None  # Not needed because we only consider combined groupby/agg nodes
+        shape = (result_or_inplace_obj.ngroups, result_or_inplace_obj.ndim)
     elif isinstance(result_or_inplace_obj, list):
         # A few operations like train_test_split return a list
         if len(result_or_inplace_obj) > 1 and isinstance(result_or_inplace_obj[0], str):

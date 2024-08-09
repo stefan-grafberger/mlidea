@@ -43,13 +43,13 @@ def execute_projection_push_up_ideal_case(scale_factor, tmpdir, variant_count):
         df_a_train = pd.read_csv("{df_a_path_train}", engine='python')
         df_a_train = df_a_train[df_a_train['A'] >= 95]
         df_b_train = pd.read_csv("{df_b_path_train}", engine='python')
-        df_train = fpd.fuzzy_merge(df_a_train, df_b_train, on='str_id', method='levenshtein', keep_right=['C', 'D'],
+        df_train = fpd.fuzzy_merge(df_a_train, df_b_train, on='str_id', method='levenshtein', 
             threshold=0.99)
         
         df_a_test = pd.read_csv("{df_a_path_test}", engine='python')
         df_a_test = df_a_test[df_a_test['A'] >= 95]
         df_b_test = pd.read_csv("{df_b_path_test}", engine='python')
-        df_test = fpd.fuzzy_merge(df_a_test, df_b_test, on='str_id', method='levenshtein', keep_right=['C', 'D'],
+        df_test = fpd.fuzzy_merge(df_a_test, df_b_test, on='str_id', method='levenshtein', 
             threshold=0.99)
         
         train_target = df_train['target_featurized']

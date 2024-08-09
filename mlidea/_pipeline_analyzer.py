@@ -35,6 +35,7 @@ class PipelineInspectorBuilder:
         self._skip_optimizer = False
         self._force_optimization_rules = None
         self._use_dfs_exec_strategy = False
+        self._prov_tracking = True
 
     def add_what_if_analysis(self, analysis: WhatIfAnalysis):
         """
@@ -95,6 +96,13 @@ class PipelineInspectorBuilder:
         self._use_dfs_exec_strategy = use_dfs_exec_strategy
         return self
 
+    def set_provenance_tracking(self, prov_tracking: True):
+        """
+        A convenience function for benchmarking
+        """
+        self._prov_tracking = prov_tracking
+        return self
+
     def execute(self) -> AnalysisResults:
         """
         Instrument and execute the pipeline
@@ -109,7 +117,8 @@ class PipelineInspectorBuilder:
                              skip_optimizer=self._skip_optimizer,
                              force_optimization_rules=self._force_optimization_rules,
                              use_dfs_exec_strategy=self._use_dfs_exec_strategy,
-                             estimate_only=False)
+                             estimate_only=False,
+                             prov_enabled=self._prov_tracking)
 
     def estimate(self) -> EstimationResults:
         """

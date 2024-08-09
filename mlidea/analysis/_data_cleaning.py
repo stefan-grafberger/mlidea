@@ -17,6 +17,7 @@ from mlidea.analysis._what_if_analysis import WhatIfAnalysis
 from mlidea.execution._patches import DataFiltering, DataTransformer, ModelPatch, PipelinePatch
 from mlidea.instrumentation._dag_node import OptimizerInfo
 from mlidea.execution._pipeline_executor import singleton
+from mlidea.monkeypatching._provenance_propagation import wrap_filter_func, wrap_projection_func, wrap_predict_func
 
 
 class ErrorType(Enum):
@@ -173,7 +174,7 @@ class DataCleaning(WhatIfAnalysis):
                         required_cols = list(feature_cols)
                     else:
                         required_cols = [column]
-                    filter_func = partial(cleaning_method.filter_func, column=column)
+                    filter_func = wrap_filter_func(partial(cleaning_method.filter_func, column=column))
 
                     new_train_cleaning_node = DagNode(singleton.get_next_op_id(),
                                                       BasicCodeLocation("Data Cleaning", None),
@@ -197,8 +198,8 @@ class DataCleaning(WhatIfAnalysis):
                                                       new_test_cleaning_node, False, required_cols)
                     patches_for_variant.append(filter_patch_test)
                 elif cleaning_method.patch_type == PatchType.DATA_TRANSFORMER_PATCH:
-                    fit_transform = partial(cleaning_method.fit_or_fit_transform_func, column=column)
-                    transform = partial(cleaning_method.predict_or_fit_func, column=column)
+                    fit_transform = wrap_projection_func(partial(cleaning_method.fit_or_fit_transform_func, column=column))
+                    transform = wrap_predict_func(partial(cleaning_method.predict_or_fit_func, column=column))
                     new_train_cleaning_node = DagNode(singleton.get_next_op_id(),
                                                       BasicCodeLocation("Data Cleaning", None),
                                                       OperatorContext(OperatorType.TRANSFORMER, None),
@@ -224,8 +225,8 @@ class DataCleaning(WhatIfAnalysis):
                         raise NotImplementedError(
                             "Currently, DataCorruption only supports pipelines with exactly one estimator!")
                     estimator_node = estimator_nodes[0]
-                    new_processing_func = partial(cleaning_method.fit_or_fit_transform_func,
-                                                  make_classifier_func=estimator_node.make_classifier_func)
+                    new_processing_func = wrap_projection_func(partial(cleaning_method.fit_or_fit_transform_func,
+                                                               make_classifier_func=estimator_node.make_classifier_func))
                     new_description = f"{cleaning_method.method_name} patched {estimator_node.details.description}"
                     old_optimizer_info = estimator_node.details.optimizer_info
                     if cleaning_method.method_name == "cleanlab":

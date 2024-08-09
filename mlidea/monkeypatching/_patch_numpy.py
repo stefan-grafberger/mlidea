@@ -11,6 +11,7 @@ from mlidea.execution._stat_tracking import capture_optimizer_info
 from mlidea.instrumentation._operator_types import OperatorContext, FunctionInfo, OperatorType
 from mlidea.monkeypatching._monkey_patching_utils import execute_patched_func, add_dag_node, \
     get_optional_code_info_or_none, FunctionCallResult
+from mlidea.monkeypatching._provenance_propagation import wrap_data_source_func
 
 
 @gorilla.patches(random)
@@ -30,9 +31,8 @@ class NumpyRandomPatching:
             """ Execute inspections, add DAG node """
             function_info = FunctionInfo('numpy.random', 'random')
             operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info)
-            initial_func = partial(original, *args, **kwargs)
-            optimizer_info, result = capture_optimizer_info(initial_func)
-            processing_func = partial(original, *args, **kwargs)
+            processing_func = wrap_data_source_func(partial(original, *args, **kwargs), op_id)
+            optimizer_info, result = capture_optimizer_info(processing_func)
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
                                operator_context,

@@ -11,6 +11,7 @@ from mlidea.execution._stat_tracking import capture_optimizer_info
 from mlidea.instrumentation._operator_types import OperatorContext, FunctionInfo
 from mlidea.monkeypatching._monkey_patching_utils import execute_patched_func, get_input_info, add_dag_node, \
     get_optional_code_info_or_none, FunctionCallResult
+from mlidea.monkeypatching._provenance_propagation import wrap_join_func
 
 
 @gorilla.patches(fuzzy_pandas)
@@ -38,14 +39,13 @@ class FuzzyPandasPatching:
             input_info_b = get_input_info(right_df, caller_filename, lineno, function_info, optional_code_reference,
                                           optional_source_code)
             operator_context = OperatorContext(OperatorType.JOIN, function_info)
+            processing_func = wrap_join_func(lambda df_a, df_b: original(df_a, df_b, *args[args_start_index:], **kwargs))
             # No input_infos copy needed because it's only a selection and the rows not being removed don't change
-            initial_func = partial(original, input_info_a.annotated_dfobject.result_data,
-                                   input_info_b.annotated_dfobject.result_data,
-                                   *args[args_start_index:],
-                                   **kwargs)
+            initial_func = partial(processing_func, input_info_a.annotated_dfobject.result_data,
+                                   input_info_b.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
             description = FuzzyPandasPatching.get_fuzzy_merge_description(**kwargs)
-            processing_func = lambda df_a, df_b: original(df_a, df_b, *args[args_start_index:], **kwargs)
+
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
                                operator_context,

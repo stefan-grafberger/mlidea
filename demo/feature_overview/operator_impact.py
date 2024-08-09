@@ -16,6 +16,7 @@ from mlidea.analysis._what_if_analysis import WhatIfAnalysis
 from mlidea.execution._patches import PipelinePatch, OperatorReplacement, ModelPatch
 from mlidea.execution._pipeline_executor import singleton
 from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
+from mlidea.monkeypatching._provenance_propagation import wrap_projection_func
 
 
 class OperatorImpact(WhatIfAnalysis):
@@ -112,7 +113,7 @@ class OperatorImpact(WhatIfAnalysis):
                                    OperatorContext(OperatorType.TRANSFORMER, None),
                                    DagNodeDetails(replacement_desc, operator_to_replace.details.columns),
                                    None,
-                                   replacement_func)
+                                   wrap_projection_func(replacement_func))
         return replacement_node
 
     @staticmethod

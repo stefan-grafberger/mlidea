@@ -16,6 +16,7 @@ from mlidea.monkeypatching._monkey_patching_utils import add_dag_node, \
     get_optional_code_info_or_none, get_dag_node_for_id, add_train_data_node, \
     add_train_label_node, add_test_label_node, add_test_data_dag_node, FunctionCallResult
 from mlidea.monkeypatching._patch_sklearn import call_info_singleton
+from mlidea.monkeypatching._provenance_propagation import wrap_predict_func
 
 
 @gorilla.patches(xgboost.XGBClassifier)
@@ -138,13 +139,15 @@ class XGBoostXGBClassifierPatching:
                 predictions = estimator.predict(test_data)
                 return predictions
 
+            processing_func_predict = wrap_predict_func(processing_func_predict)
+
             def processing_func_score(predictions, test_labels):
                 score = accuracy_score(test_labels, predictions)
                 return score
 
             # input_dfs = [data_backend_result.annotated_dfobject, label_backend_result.annotated_dfobject]
 
-            original_predict = gorilla.get_original_attribute(xgboost.XGBClassifier, 'predict')
+            original_predict = wrap_predict_func(gorilla.get_original_attribute(xgboost.XGBClassifier, 'predict'))
             initial_func_predict = partial(original_predict, self, test_data_result)
             optimizer_info_predict, result_predict = capture_optimizer_info(initial_func_predict)
             operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info)
@@ -199,7 +202,9 @@ class XGBoostXGBClassifierPatching:
                 predictions = estimator.predict(test_data)
                 return predictions
 
-            original_predict = gorilla.get_original_attribute(xgboost.XGBClassifier, 'predict')
+            processing_func_predict = wrap_predict_func(processing_func_predict)
+
+            original_predict = wrap_predict_func(gorilla.get_original_attribute(xgboost.XGBClassifier, 'predict'))
             initial_func_predict = partial(original_predict, self, test_data_result)
             optimizer_info_predict, result_predict = capture_optimizer_info(initial_func_predict)
             operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info)

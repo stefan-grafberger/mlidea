@@ -103,6 +103,7 @@ def test_data_corruption_model_variants_mini_example_with_projection_modify(tmpd
     analysis_result = PipelineAnalyzer \
         .on_pipeline_from_string(test_code) \
         .add_what_if_analysis(data_corruption) \
+        .set_provenance_tracking(True) \
         .execute()
 
     report = analysis_result.analysis_to_result_reports[data_corruption]

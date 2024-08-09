@@ -22,6 +22,7 @@ from mlidea.execution._dag_executor import DagExecutor
 from mlidea.execution._pipeline_executor import singleton
 from mlidea.instrumentation._dag_node import DagNode, CodeReference, BasicCodeLocation, DagNodeDetails, \
     OptionalCodeInfo, OptimizerInfo
+from mlidea.monkeypatching._mlinspect_ndarray import MlinspectList
 
 
 def test_binary_rag_classification(tmpdir):
@@ -75,27 +76,27 @@ def test_binary_rag_classification(tmpdir):
                          OperatorContext(OperatorType.PROJECTION, FunctionInfo('pandas.core.frame', '__getitem__')),
                          DagNodeDetails("to ['text']", ['text'],
                                         OptimizerInfo(RangeComparison(0, 10000), (4, 1), RangeComparison(0, 10000))),
-                         OptionalCodeInfo(CodeReference(15, 38, 15, 48), "df['text']"), Comparison(FunctionType))
+                         OptionalCodeInfo(CodeReference(15, 38, 15, 48), "df['text']"), Comparison(partial))
     expected_dag.add_edge(expected_0, expected_1, arg_index=0)
     expected_2 = DagNode(2, BasicCodeLocation('<string-source>', 15),
                          OperatorContext(OperatorType.PROJECTION, FunctionInfo('pandas.core.series.Series', 'to_list')),
                          DagNodeDetails('list conversion', ['text'],
                                         OptimizerInfo(RangeComparison(0, 10000), (4, 1), RangeComparison(0, 10000))),
                          OptionalCodeInfo(CodeReference(15, 38, 15, 58), "df['text'].to_list()"),
-                         Comparison(FunctionType))
+                         Comparison(partial))
     expected_dag.add_edge(expected_1, expected_2, arg_index=0)
     expected_3 = DagNode(3, BasicCodeLocation('<string-source>', 15),
                          OperatorContext(OperatorType.PROJECTION, FunctionInfo('pandas.core.frame', '__getitem__')),
                          DagNodeDetails("to ['label']", ['label'],
                                         OptimizerInfo(RangeComparison(0, 10000), (4, 1), RangeComparison(0, 10000))),
-                         OptionalCodeInfo(CodeReference(15, 70, 15, 83), "df[['label']]"), Comparison(FunctionType))
+                         OptionalCodeInfo(CodeReference(15, 70, 15, 83), "df[['label']]"), Comparison(partial))
     expected_dag.add_edge(expected_0, expected_3, arg_index=0)
     expected_4 = DagNode(4, BasicCodeLocation('<string-source>', 15),
                          OperatorContext(OperatorType.PROJECTION, FunctionInfo('pandas.core.frame', 'to_dict')),
                          DagNodeDetails('dict conversion', ['label'],
                                         OptimizerInfo(RangeComparison(0, 10000), (4, 1), RangeComparison(0, 10000))),
                          OptionalCodeInfo(CodeReference(15, 70, 15, 102), "df[['label']].to_dict('records')"),
-                         Comparison(FunctionType))
+                         Comparison(partial))
     expected_dag.add_edge(expected_3, expected_4, arg_index=0)
     expected_5 = DagNode(5, BasicCodeLocation('<string-source>', 15),
                          OperatorContext(OperatorType.TRAIN_DATA,
@@ -145,7 +146,7 @@ def test_binary_rag_classification(tmpdir):
                          OperatorContext(OperatorType.PROJECTION, FunctionInfo('pandas.core.frame', '__getitem__')),
                          DagNodeDetails("to ['text']", ['text'],
                                         OptimizerInfo(RangeComparison(0, 10000), (2, 1), RangeComparison(0, 10000))),
-                         OptionalCodeInfo(CodeReference(21, 53, 21, 65), "test['text']"), Comparison(FunctionType))
+                         OptionalCodeInfo(CodeReference(21, 53, 21, 65), "test['text']"), Comparison(partial))
     expected_dag.add_edge(expected_8, expected_9, arg_index=0)
     expected_10 = DagNode(10, BasicCodeLocation('<string-source>', 21),
                           OperatorContext(OperatorType.PROJECTION,
@@ -153,7 +154,7 @@ def test_binary_rag_classification(tmpdir):
                           DagNodeDetails('list conversion', ['text'],
                                          OptimizerInfo(RangeComparison(0, 10000), (2, 1), RangeComparison(0, 10000))),
                           OptionalCodeInfo(CodeReference(21, 53, 21, 75), "test['text'].to_list()"),
-                          Comparison(FunctionType))
+                          Comparison(partial))
     expected_dag.add_edge(expected_9, expected_10, arg_index=0)
     expected_11 = DagNode(11, BasicCodeLocation('<string-source>', 21), OperatorContext(OperatorType.TEST_DATA,
                                                                                         FunctionInfo(
@@ -191,7 +192,7 @@ def test_binary_rag_classification(tmpdir):
                           OperatorContext(OperatorType.PROJECTION, FunctionInfo('pandas.core.frame', '__getitem__')),
                           DagNodeDetails("to ['label']", ['label'],
                                          OptimizerInfo(RangeComparison(0, 10000), (2, 1), RangeComparison(0, 10000))),
-                          OptionalCodeInfo(CodeReference(22, 34, 22, 47), "test['label']"), Comparison(FunctionType))
+                          OptionalCodeInfo(CodeReference(22, 34, 22, 47), "test['label']"), Comparison(partial))
     expected_dag.add_edge(expected_8, expected_14, arg_index=0)
     expected_15 = DagNode(15, BasicCodeLocation('<string-source>', 22),
                           OperatorContext(OperatorType.PROJECTION_MODIFY, FunctionInfo('sklearn.preprocessing._label',
@@ -200,7 +201,7 @@ def test_binary_rag_classification(tmpdir):
                                          OptimizerInfo(RangeComparison(0, 10000), (2, 1), RangeComparison(0, 10000))),
                           OptionalCodeInfo(CodeReference(22, 19, 22, 71),
                                            "label_binarize(test['label'], classes=['no', 'yes'])"),
-                          Comparison(FunctionType))
+                          Comparison(partial))
     expected_dag.add_edge(expected_14, expected_15, arg_index=0)
     expected_16 = DagNode(16, BasicCodeLocation('<string-source>', 23),
                           OperatorContext(OperatorType.TEST_LABELS, FunctionInfo('sklearn.metrics._classification',
@@ -226,12 +227,18 @@ def test_binary_rag_classification(tmpdir):
     vectorstore_join_node = list(inspector_result.original_dag.nodes)[12]
     llm_node = list(inspector_result.original_dag.nodes)[13]
 
-    vectorstore_texts = ["positive", "positive", "negative", "negative"]
+    vectorstore_texts = MlinspectList(["positive", "positive", "negative", "negative"])
+    vectorstore_texts._mlinspect_provenance = {"11_0": numpy.array(range(4))}
+    # TODO: Also track label provenance here? But for now not necessary
     vectorstore_labels = [{"label": "yes"}, {"label": "yes"}, {"label": "no"}, {"label": "no"}]
     concat_result = vectorstore_creation_node.processing_func(vectorstore_texts, vectorstore_labels)
-    test_data = ["pos.", "pos."]
+    test_data = MlinspectList(["pos.", "pos."])
+    test_data._mlinspect_provenance = {"13_0": numpy.array(range(2))}
     rag_result = vectorstore_join_node.processing_func(concat_result, test_data)
+    assert len(rag_result[4].items()) == 5
     llm_result = llm_node.processing_func(rag_result)
+    assert len(llm_result._mlinspect_provenance.items()) == 5
+
 
     expected = numpy.array([1, 1]).reshape(-1, 1)
     assert numpy.allclose(llm_result, expected, atol=1)
@@ -246,8 +253,8 @@ def test_binary_rag_classification(tmpdir):
 
     analysis_result = PipelineAnalyzer \
         .on_previously_extracted_pipeline(inspector_result.dag_extraction_info) \
-        .add_what_if_analysis(data_cleaning) \
         .add_what_if_analysis(data_corruption) \
+        .add_what_if_analysis(data_cleaning) \
         .add_what_if_analysis(PermutationFeatureImportance()) \
         .add_what_if_analysis(OperatorImpact(True, True)) \
         .execute()
@@ -267,4 +274,3 @@ def test_binary_rag_classification(tmpdir):
     analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-dag"))
     analysis_result.save_what_if_dags_to_path(os.path.join(str(tmpdir), "whatif-dags"))
     analysis_result.save_optimised_what_if_dags_to_path(os.path.join(str(tmpdir), "opt-dag"))
-

@@ -18,6 +18,7 @@ from mlidea.analysis._patch_creation import get_intermediate_extraction_patch_af
 from mlidea.analysis._what_if_analysis import WhatIfAnalysis
 from mlidea.execution._patches import DataProjection, PipelinePatch, UdfSplitInfo, ModelPatch
 from mlidea.execution._pipeline_executor import singleton
+from mlidea.monkeypatching._provenance_propagation import wrap_projection_func
 
 
 class DataCorruptionWithModelVariants(WhatIfAnalysis):
@@ -110,7 +111,8 @@ class DataCorruptionWithModelVariants(WhatIfAnalysis):
                         patches_for_variant.extend(extraction_nodes)
                         corruption_node, corrupt_func, index_selection_func = self.create_corruption_node(
                             column, corruption_function, corruption_percentage)
-                        patch = DataProjection(singleton.get_next_patch_id(), self, True, corruption_node, False, column,
+                        patch = DataProjection(singleton.get_next_patch_id(), self, True, corruption_node, False,
+                                               column,
                                                only_reads_column,
                                                UdfSplitInfo(corruption_percentage_index, index_selection_func,
                                                             column_corruption_tuple_index, corrupt_func, column,
@@ -173,10 +175,11 @@ class DataCorruptionWithModelVariants(WhatIfAnalysis):
         else:
             index_selection_with_proper_bindings = corruption_percentage_or_selection_function
             description = f"Corrupt '{column}' with custom corruption index selection"
-        corrupt_df_with_proper_bindings = partial(corrupt_df,
-                                                  corruption_index_selection_func=index_selection_with_proper_bindings,
-                                                  corruption_function=corruption_function,
-                                                  column=column)
+        corrupt_df_with_proper_bindings = wrap_projection_func(
+            partial(corrupt_df,
+                    corruption_index_selection_func=index_selection_with_proper_bindings,
+                    corruption_function=corruption_function,
+                    column=column))
         new_corruption_node = DagNode(singleton.get_next_op_id(),
                                       BasicCodeLocation("DataCorruption", None),
                                       OperatorContext(OperatorType.PROJECTION_MODIFY, None),

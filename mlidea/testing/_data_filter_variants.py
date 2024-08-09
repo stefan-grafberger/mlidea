@@ -14,6 +14,7 @@ from mlidea.analysis._patch_creation import get_intermediate_extraction_patch_af
 from mlidea.analysis._what_if_analysis import WhatIfAnalysis
 from mlidea.execution._patches import PipelinePatch, ModelPatch, DataFiltering
 from mlidea.execution._pipeline_executor import singleton
+from mlidea.monkeypatching._provenance_propagation import wrap_filter_func
 
 
 class DataFilterVariants(WhatIfAnalysis):
@@ -80,6 +81,7 @@ class DataFilterVariants(WhatIfAnalysis):
 
     def _get_filter_patches(self, filter_description, column, filter_function, est_selectivity):
         filter_patches = []
+        filter_function = wrap_filter_func(filter_function)
 
         new_train_cleaning_node = DagNode(singleton.get_next_op_id(),
                                           BasicCodeLocation("Data Filtering Variants", None),

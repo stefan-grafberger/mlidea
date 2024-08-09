@@ -50,13 +50,13 @@ def execute_operator_deletion_filter_push_up_ideal_case(scale_factor, tmpdir, va
         df_a_train = pd.read_csv("{df_a_path_train}", engine='python')
         {filter_line_train}
         df_b_train = pd.read_csv("{df_b_path_train}", engine='python')
-        df_train = fpd.fuzzy_merge(df_a_train, df_b_train, on='str_id', method='levenshtein', keep_right=['C', 'D'],
+        df_train = fpd.fuzzy_merge(df_a_train, df_b_train, on='str_id', method='levenshtein', 
             threshold=0.99)
         
         df_a_test = pd.read_csv("{df_a_path_test}", engine='python')
         {filter_line_test}
         df_b_test = pd.read_csv("{df_b_path_test}", engine='python')
-        df_test = fpd.fuzzy_merge(df_a_test, df_b_test, on='str_id', method='levenshtein', keep_right=['C', 'D'],
+        df_test = fpd.fuzzy_merge(df_a_test, df_b_test, on='str_id', method='levenshtein', 
             threshold=0.99)
         
         train_target = df_train['target_featurized']
@@ -131,13 +131,13 @@ def execute_operator_deletion_filter_push_up_worst_case_safety_inactive(scale_fa
         df_a_train = pd.read_csv("{df_a_path_train}")
         {filter_line_train}
         df_b_train = pd.read_csv("{df_b_path_train}")
-        df_train = fpd.fuzzy_merge(df_a_train, df_b_train, on='str_id', method='levenshtein', keep_right=['C', 'D'],
+        df_train = fpd.fuzzy_merge(df_a_train, df_b_train, on='str_id', method='levenshtein', 
             threshold=0.99)
 
         df_a_test = pd.read_csv("{df_a_path_test}")
         {filter_line_test}
         df_b_test = pd.read_csv("{df_b_path_test}")
-        df_test = fpd.fuzzy_merge(df_a_test, df_b_test, on='str_id', method='levenshtein', keep_right=['C', 'D'],
+        df_test = fpd.fuzzy_merge(df_a_test, df_b_test, on='str_id', method='levenshtein', 
             threshold=0.99)
 
         train_target = df_train['target_featurized']
@@ -211,13 +211,13 @@ def execute_operator_deletion_filter_push_up_worst_case_safety_active(scale_fact
         df_a_train = pd.read_csv("{df_a_path_train}")
         {filter_line_train}
         df_b_train = pd.read_csv("{df_b_path_train}")
-        df_train = fpd.fuzzy_merge(df_a_train, df_b_train, on='str_id', method='levenshtein', keep_right=['C', 'D'],
+        df_train = fpd.fuzzy_merge(df_a_train, df_b_train, on='str_id', method='levenshtein', 
             threshold=0.99)
 
         df_a_test = pd.read_csv("{df_a_path_test}")
         {filter_line_test}
         df_b_test = pd.read_csv("{df_b_path_test}")
-        df_test = fpd.fuzzy_merge(df_a_test, df_b_test, on='str_id', method='levenshtein', keep_right=['C', 'D'],
+        df_test = fpd.fuzzy_merge(df_a_test, df_b_test, on='str_id', method='levenshtein', 
             threshold=0.99)
 
         train_target = df_train['target_featurized']
@@ -388,13 +388,13 @@ def execute_operator_deletion_filter_push_up_worst_case_safety_too_defensive_for
         df_a_train = pd.read_csv("{df_a_path_train}")
         {filter_line_train}
         df_b_train = pd.read_csv("{df_b_path_train}")
-        df_train = fpd.fuzzy_merge(df_a_train, df_b_train, on='str_id', method='levenshtein', keep_right=['C', 'D'],
+        df_train = fpd.fuzzy_merge(df_a_train, df_b_train, on='str_id', method='levenshtein', 
             threshold=0.99)
 
         df_a_test = pd.read_csv("{df_a_path_test}")
         {filter_line_test}
         df_b_test = pd.read_csv("{df_b_path_test}")
-        df_test = fpd.fuzzy_merge(df_a_test, df_b_test, on='str_id', method='levenshtein', keep_right=['C', 'D'],
+        df_test = fpd.fuzzy_merge(df_a_test, df_b_test, on='str_id', method='levenshtein', 
             threshold=0.99)
 
         train_target = df_train['target_featurized']
@@ -475,12 +475,12 @@ def execute_operator_deletion_filter_push_up_worst_case_only_some_filters_worth_
         df_a_train = pd.read_csv("{df_a_path_train}")
         {filter_line_train}
         df_b_train = pd.read_csv("{df_b_path_train}")
-        df_train = fpd.fuzzy_merge(df_a_train, df_b_train, on='str_id', method='levenshtein', keep_right=['C', 'D'],
+        df_train = fpd.fuzzy_merge(df_a_train, df_b_train, on='str_id', method='levenshtein', 
             threshold=0.99)
         df_a_test = pd.read_csv("{df_a_path_test}")
         {filter_line_test}
         df_b_test = pd.read_csv("{df_b_path_test}")
-        df_test = fpd.fuzzy_merge(df_a_test, df_b_test, on='str_id', method='levenshtein', keep_right=['C', 'D'],
+        df_test = fpd.fuzzy_merge(df_a_test, df_b_test, on='str_id', method='levenshtein', 
             threshold=0.99)
         train_target = df_train['target_featurized']
         train_data = df_train[['A', 'B']]

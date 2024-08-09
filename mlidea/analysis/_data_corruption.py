@@ -20,6 +20,7 @@ from mlidea.analysis._patch_creation import get_intermediate_extraction_patch_af
 from mlidea.analysis._what_if_analysis import WhatIfAnalysis
 from mlidea.execution._patches import DataProjection, PipelinePatch, UdfSplitInfo
 from mlidea.execution._pipeline_executor import singleton
+from mlidea.monkeypatching._provenance_propagation import wrap_projection_func
 
 
 class CorruptionType(Enum):
@@ -200,10 +201,11 @@ class DataCorruption(WhatIfAnalysis):
         else:
             index_selection_with_proper_bindings = corruption_percentage_or_selection_function
             description = f"Corrupt '{column}' with custom corruption index selection"
-        corrupt_df_with_proper_bindings = partial(corrupt_df,
-                                                  corruption_index_selection_func=index_selection_with_proper_bindings,
-                                                  corruption_function=corruption_function,
-                                                  column=column)
+        corrupt_df_with_proper_bindings = wrap_projection_func(
+            partial(corrupt_df,
+                    corruption_index_selection_func=index_selection_with_proper_bindings,
+                    corruption_function=corruption_function,
+                    column=column))
         new_corruption_node = DagNode(singleton.get_next_op_id(),
                                       BasicCodeLocation("DataCorruption", None),
                                       OperatorContext(OperatorType.PROJECTION_MODIFY, None),

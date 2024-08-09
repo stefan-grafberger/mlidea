@@ -19,6 +19,8 @@ from mlidea.monkeypatching._monkey_patching_utils import execute_patched_func, g
     get_dag_node_for_id, execute_patched_func_no_op_id, get_optional_code_info_or_none, FunctionCallResult, \
     execute_patched_internal_func_with_depth, get_dag_node_copy_with_optimizer_info
 from mlidea.monkeypatching._patch_sklearn import call_info_singleton
+from mlidea.monkeypatching._provenance_propagation import wrap_data_source_func, \
+    generate_and_add_provenance_data_source, wrap_projection_func, wrap_filter_func, wrap_join_func
 
 
 @gorilla.patches(pandas)
@@ -37,7 +39,7 @@ class PandasPatching:
             function_info = FunctionInfo('pandas.io.parsers', 'read_csv')
 
             operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info)
-            processing_func = partial(original, *args, **kwargs)
+            processing_func = wrap_data_source_func(partial(original, *args, **kwargs), op_id=op_id)
             optimizer_info, result = capture_optimizer_info(processing_func)
 
             description = f"{args[0].split(os.path.sep)[-1]}"
@@ -66,7 +68,7 @@ class PandasPatching:
             function_info = FunctionInfo('pandas.io.parsers', 'read_parquet')
 
             operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info)
-            processing_func = partial(original, *args, **kwargs)
+            processing_func = wrap_data_source_func(partial(original, *args, **kwargs), op_id=op_id)
             optimizer_info, result = capture_optimizer_info(processing_func)
 
             description = f"{args[0].split(os.path.sep)[-1]}"
@@ -99,10 +101,13 @@ class DataFramePatching:
             function_info = FunctionInfo('pandas.core.frame', 'DataFrame')
             operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info)
             initial_func = partial(original, self, *args, **kwargs)
-            optimizer_info, _ = capture_optimizer_info(initial_func, self)
+            def initial_func_prov():
+                initial_func()
+                generate_and_add_provenance_data_source(self, op_id=op_id)
+            optimizer_info, _ = capture_optimizer_info(initial_func_prov, self)
             result = self
 
-            process_func = partial(pandas.DataFrame, *args, **kwargs)
+            process_func = wrap_data_source_func(partial(pandas.DataFrame, *args, **kwargs), op_id=op_id)
             columns = list(self.columns)  # pylint: disable=no-member
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
@@ -126,10 +131,9 @@ class DataFramePatching:
             """ Execute inspections, add DAG node """
             function_info = FunctionInfo('pandas.core.frame.DataFrame', 'from_records')
             operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info)
-            initial_func = partial(original, cls, *args, **kwargs)
-            optimizer_info, result = capture_optimizer_info(initial_func)
+            process_func = wrap_data_source_func(partial(original, cls, *args, **kwargs), op_id=op_id)
+            optimizer_info, result = capture_optimizer_info(process_func)
 
-            process_func = partial(original, cls, *args, **kwargs)
             columns = list(result.columns)
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
@@ -157,9 +161,12 @@ class DataFramePatching:
             input_info = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
                                         optional_source_code)
             operator_context = OperatorContext(OperatorType.SELECTION, function_info)
+            # For the provenance tracking we briefly add provenance columns which should be ignored for the dropna eval
+            if 'subset' not in kwargs:
+                kwargs['subset'] = list(self.columns)  # pylint: disable=no-member
             # No input_infos copy needed because it's only a selection and the rows not being removed don't change
-            processing_func = lambda df: original(df, *args[1:], **kwargs)
-            initial_func = partial(original, input_info.annotated_dfobject.result_data, *args[1:], **kwargs)
+            processing_func = wrap_filter_func(lambda df: original(df, *args[1:], **kwargs))
+            initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
             if result is None:
                 raise NotImplementedError("TODO: Support inplace dropna")
@@ -193,8 +200,8 @@ class DataFramePatching:
             operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, function_info)
             description = f"fillna: {value}"
             columns = list(self.columns)  # pylint: disable=no-member
-            processing_func = lambda df: original(df, **func_args)
-            initial_func = partial(original, input_info.annotated_dfobject.result_data, **func_args)
+            processing_func = wrap_projection_func(lambda df: original(df, **func_args))
+            initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
@@ -225,8 +232,8 @@ class DataFramePatching:
             # TODO: For now, we only consider the cases where value are dropped, not upsampling.
             operator_context = OperatorContext(OperatorType.SELECTION, function_info)
             # No input_infos copy needed because it's only a selection and the rows not being removed don't change
-            processing_func = lambda df: original(df, *args[1:], **kwargs)
-            initial_func = partial(original, input_info.annotated_dfobject.result_data, *args[1:], **kwargs)
+            processing_func = wrap_filter_func(lambda df: original(df, *args[1:], **kwargs))
+            initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
             if result is None:
                 raise NotImplementedError("TODO: Support inplace dropna")
@@ -261,23 +268,25 @@ class DataFramePatching:
             if isinstance(args[0], str):  # Projection to Series
                 columns = [args[0]]
                 operator_context = OperatorContext(OperatorType.PROJECTION, function_info)
-                processing_func = lambda df: original(df, *args, **kwargs)
+                processing_func = wrap_projection_func(lambda df: original(df, *args, **kwargs))
                 dag_node = DagNode(op_id,
                                    BasicCodeLocation(caller_filename, lineno),
                                    operator_context,
                                    DagNodeDetails(f"to {columns}", columns),
                                    get_optional_code_info_or_none(optional_code_reference, optional_source_code),
                                    processing_func)
+                initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             elif isinstance(args[0], list) and isinstance(args[0][0], str):  # Projection to DF
                 columns = args[0]
                 operator_context = OperatorContext(OperatorType.PROJECTION, function_info)
-                processing_func = lambda df: original(df, *args, **kwargs)
+                processing_func = wrap_projection_func(lambda df: original(df, *args, **kwargs))
                 dag_node = DagNode(op_id,
                                    BasicCodeLocation(caller_filename, lineno),
                                    operator_context,
                                    DagNodeDetails(f"to {columns}", columns),
                                    get_optional_code_info_or_none(optional_code_reference, optional_source_code),
                                    processing_func)
+                initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             elif isinstance(args[0], pandas.Series):  # Selection
                 operator_context = OperatorContext(OperatorType.SELECTION, function_info)
                 columns = list(self.columns)  # pylint: disable=no-member
@@ -298,16 +307,18 @@ class DataFramePatching:
                     description = f"Select by Series: {description_code}"
                 else:
                     description = "Select by Series"
-                processing_func = lambda df, filter_series: original(df, filter_series, *args[1:], **kwargs)
+
+                processing_func = wrap_filter_func(lambda df, filter_series: original(df, filter_series, *args[1:], **kwargs))
                 dag_node = DagNode(op_id,
                                    BasicCodeLocation(caller_filename, lineno),
                                    operator_context,
                                    DagNodeDetails(description, columns),
                                    get_optional_code_info_or_none(optional_code_reference, optional_source_code),
                                    processing_func)
+                initial_func = partial(processing_func, input_info.annotated_dfobject.result_data, args[0])
             else:
                 raise NotImplementedError()
-            initial_func = partial(original, input_info.annotated_dfobject.result_data, *args, **kwargs)
+
             optimizer_info, result = capture_optimizer_info(initial_func)
             function_call_result = FunctionCallResult(result)
             dag_node = get_dag_node_copy_with_optimizer_info(dag_node, optimizer_info)
@@ -322,6 +333,7 @@ class DataFramePatching:
     @gorilla.settings(allow_hit=True)
     def patched__setitem__(self, *args, **kwargs):
         """ Patch for ('pandas.core.frame', '__setitem__') """
+        # pylint: disable=too-many-locals
         original = gorilla.get_original_attribute(pandas.DataFrame, '__setitem__')
 
         def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
@@ -341,12 +353,15 @@ class DataFramePatching:
                 def processing_func(pandas_df, new_val):
                     original(pandas_df, args[0], new_val, *args[2:], **kwargs)
                     return pandas_df
+                processing_func_prov = wrap_projection_func(processing_func)
+                initial_func = partial(processing_func_prov, self, args[1])
             else:
                 def processing_func(pandas_df):
                     original(pandas_df, *args, **kwargs)
                     return pandas_df
+                processing_func_prov = wrap_projection_func(processing_func)
+                initial_func = partial(processing_func_prov, self)
             if isinstance(args[0], str):
-                initial_func = partial(original, self, *args, **kwargs)
                 optimizer_info, result = capture_optimizer_info(initial_func, self)
                 columns = list(self.columns)  # pylint: disable=no-member
                 description = f"modifies {[args[0]]}"
@@ -357,12 +372,13 @@ class DataFramePatching:
                                operator_context,
                                DagNodeDetails(description, columns, optimizer_info),
                                get_optional_code_info_or_none(optional_code_reference, optional_source_code),
-                               processing_func)
+                               processing_func_prov)
 
             function_call_result = FunctionCallResult(result)
             add_dag_node(dag_node, dag_node_parents, function_call_result)
             new_result = function_call_result.function_result
             assert hasattr(self, "_mlinspect_dag_node")
+            assert singleton.prov_enabled is False or hasattr(self, "_mlinspect_provenance")
             self._mlinspect_dag_node = op_id
             return new_result
 
@@ -382,12 +398,12 @@ class DataFramePatching:
                                         optional_source_code)
             operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, function_info)
             # No input_infos copy needed because it's only a selection and the rows not being removed don't change
-            initial_func = partial(original, input_info.annotated_dfobject.result_data, *args, **kwargs)
+            processing_func = wrap_projection_func(lambda df: original(df, *args, **kwargs))
+            initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func, self)
             if isinstance(args[0], dict):
                 raise NotImplementedError("TODO: Add support for replace with dicts")
             description = f"Replace '{args[0]}' with '{args[1]}'"
-            processing_func = lambda df: original(df, *args, **kwargs)
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
                                operator_context,
@@ -424,13 +440,13 @@ class DataFramePatching:
             input_info_b = get_input_info(right_df, caller_filename, lineno, function_info, optional_code_reference,
                                           optional_source_code)
             operator_context = OperatorContext(OperatorType.JOIN, function_info)
-            initial_func = partial(original, input_info_a.annotated_dfobject.result_data,
-                                   input_info_b.annotated_dfobject.result_data,
-                                   *args[args_start_index:],
-                                   **kwargs)
+            processing_func = wrap_join_func(lambda df_a, df_b: original(df_a, df_b, *args[args_start_index:],
+                                                                         **kwargs))
+            initial_func = partial(processing_func, input_info_a.annotated_dfobject.result_data,
+                                   input_info_b.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
             description = self.get_merge_description(**kwargs)
-            processing_func = lambda df_a, df_b: original(df_a, df_b, *args[args_start_index:], **kwargs)
+
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
                                operator_context,
@@ -507,8 +523,8 @@ class DataFramePatching:
                                         optional_source_code)
             operator_context = OperatorContext(OperatorType.PROJECTION, function_info)
             description = "dict conversion"
-            processing_func = lambda df: original(df, **func_args)  # pylint: disable=unnecessary-lambda
-            initial_func = partial(original, input_info.annotated_dfobject.result_data, **func_args)
+            processing_func = wrap_projection_func(lambda df: original(df, **func_args))  # pylint: disable=unnecessary-lambda
+            initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
 
             if isinstance(result, dict) and isinstance(list(result.values())[0], dict):
@@ -559,9 +575,11 @@ class DataFrameGroupByPatching:
 
             def process_func(pandas_df):
                 groupby_df = groupby_func(pandas_df)
-                return original(groupby_df, *args, **kwargs)
+                result = original(groupby_df, *args, **kwargs)
+                generate_and_add_provenance_data_source(result, op_id=op_id)
+                return result
 
-            initial_func = partial(original, self, *args, **kwargs)
+            initial_func = wrap_data_source_func(partial(original, self, *args, **kwargs), op_id=op_id)
             optimizer_info, result = capture_optimizer_info(initial_func)
 
             if len(args) > 0:
@@ -628,11 +646,12 @@ class LocIndexerPatching:
             operator_context = OperatorContext(OperatorType.PROJECTION, function_info)
             input_info = get_input_info(self.obj, caller_filename,  # pylint: disable=no-member
                                         lineno, function_info, optional_code_reference, optional_source_code)
-            initial_func = partial(original, self, *args, **kwargs)
+            processing_func = wrap_projection_func(lambda df: pandas.DataFrame.__getitem__(df, projection_key))
+            initial_func = partial(processing_func, self.obj)  # pylint: disable=no-member
             optimizer_info, result = capture_optimizer_info(initial_func)
 
             # TODO: This behaves correctly in the default cases but loc getitem supports many strange use cases
-            processing_func = lambda df: pandas.DataFrame.__getitem__(df, projection_key)
+
 
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
@@ -665,10 +684,13 @@ class SeriesPatching:
 
             operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info)
             initial_func = partial(original, self, *args, **kwargs)
-            optimizer_info, _ = capture_optimizer_info(initial_func, self)
+            def initial_func_prov():
+                initial_func()
+                generate_and_add_provenance_data_source(self, op_id=op_id)
+            optimizer_info, _ = capture_optimizer_info(initial_func_prov, self)
             result = self
 
-            process_func = partial(pandas.Series, *args, **kwargs)
+            process_func = wrap_data_source_func(partial(pandas.Series, *args, **kwargs), op_id=op_id)
 
             if self.name:  # pylint: disable=no-member
                 columns = list(self.name)  # pylint: disable=no-member
@@ -699,8 +721,8 @@ class SeriesPatching:
             operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info)
             description = f"as type: {args[0].__name__}"
             columns = [self.name]  # pylint: disable=no-member
-            processing_func = lambda df: original(df, *args, **kwargs)
-            initial_func = partial(original, input_info.annotated_dfobject.result_data, *args, **kwargs)
+            processing_func = wrap_projection_func(lambda df: original(df, *args, **kwargs))
+            initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
@@ -732,8 +754,8 @@ class SeriesPatching:
             operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, function_info)
             description = f"fillna: {value}"
             columns = [self.name]  # pylint: disable=no-member
-            processing_func = lambda df: original(df, **func_args)
-            initial_func = partial(original, input_info.annotated_dfobject.result_data, **func_args)
+            processing_func = wrap_projection_func(lambda df: original(df, **func_args))
+            initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
@@ -763,8 +785,8 @@ class SeriesPatching:
                                         optional_source_code)
             operator_context = OperatorContext(OperatorType.PROJECTION, function_info)
             description = "numpy conversion"
-            processing_func = lambda df: original(df, *args, **kwargs)
-            initial_func = partial(original, input_info.annotated_dfobject.result_data, **func_args)
+            processing_func = wrap_projection_func(lambda df: original(df, *args, **kwargs))
+            initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
@@ -795,8 +817,8 @@ class SeriesPatching:
                                         optional_source_code)
             operator_context = OperatorContext(OperatorType.PROJECTION, function_info)
             description = "list conversion"
-            processing_func = lambda df: original(df, *args, **kwargs)
-            initial_func = partial(original, input_info.annotated_dfobject.result_data, **func_args)
+            processing_func = wrap_projection_func(lambda df: original(df, *args, **kwargs))
+            initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
             columns = input_info.dag_node.details.columns
             dag_node = DagNode(op_id,
@@ -808,7 +830,6 @@ class SeriesPatching:
             function_call_result = FunctionCallResult(result)
             add_dag_node(dag_node, [input_info.dag_node], function_call_result)
             new_result = function_call_result.function_result
-
             return new_result
 
         return execute_patched_func(original, execute_inspections, self, **func_args)
@@ -816,7 +837,7 @@ class SeriesPatching:
     @gorilla.name('replace')
     @gorilla.settings(allow_hit=True)
     def patched_replace(self, *args, **kwargs):
-        """ Patch for ('pandas.core.frame', 'replace') """
+        """ Patch for ('pandas.core.series', 'replace') """
         original = gorilla.get_original_attribute(pandas.Series, 'replace')
 
         def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
@@ -827,7 +848,8 @@ class SeriesPatching:
                                         optional_source_code)
             operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, function_info)
             # No input_infos copy needed because it's only a selection and the rows not being removed don't change
-            initial_func = partial(original, input_info.annotated_dfobject.result_data, *args, **kwargs)
+            processing_func = wrap_projection_func(lambda df: original(df, *args, **kwargs))
+            initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func, self)
             if isinstance(args[0], dict):
                 replacement_items = list(args[0].items())[1:]
@@ -837,7 +859,6 @@ class SeriesPatching:
                     description += f", '{to_replace}'->'{replacement}'"
             else:
                 description = f"Replace '{args[0]}' with '{args[1]}'"
-            processing_func = lambda df: original(df, *args, **kwargs)
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
                                operator_context,
@@ -867,8 +888,8 @@ class SeriesPatching:
             operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info)
             description = f"isin: {args[0]}"
             columns = [self.name]  # pylint: disable=no-member
-            processing_func = lambda df: original(df, *args, **kwargs)
-            initial_func = partial(original, input_info.annotated_dfobject.result_data, *args, **kwargs)
+            processing_func = wrap_projection_func(lambda df: original(df, *args, **kwargs))
+            initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
@@ -898,8 +919,8 @@ class SeriesPatching:
             operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info)
             description = "~"
             columns = [self.name]  # pylint: disable=no-member
-            processing_func = lambda df: original(df, *args, **kwargs)
-            initial_func = partial(original, input_info.annotated_dfobject.result_data, *args, **kwargs)
+            processing_func = wrap_projection_func(lambda df: original(df, *args, **kwargs))
+            initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
@@ -948,17 +969,18 @@ class SeriesPatching:
                     description += f" '{other}'"
                 else:
                     description += f" {other}"
-                processing_func = lambda df_one: original(df_one, other, cmp_op)
+                processing_func = wrap_projection_func(lambda df_one: original(df_one, other, cmp_op))
+                initial_func = partial(processing_func, self)
             else:
                 input_info_other = get_input_info(other, caller_filename, lineno, function_info,
                                                   optional_code_reference,
                                                   optional_source_code)
                 dag_node_parents.append(input_info_other.dag_node)
-                processing_func = lambda df_one, df_two: original(df_one, df_two, cmp_op)
+                processing_func = wrap_projection_func(lambda df_one, df_two: original(df_one, df_two, cmp_op))
+                initial_func = partial(processing_func, self, other)
             # TODO: Pandas uses a function 'get_op_result_name' to construct the new name, this can also be
             #  None sometimes. If these names are actually important for something, revisit this columns code line.
             columns = [self.name]  # pylint: disable=no-member
-            initial_func = partial(original, self, other, cmp_op)
             optimizer_info, result = capture_optimizer_info(initial_func)
             function_call_result = FunctionCallResult(result)
             dag_node = DagNode(op_id,
@@ -1001,8 +1023,8 @@ class SeriesPatching:
             # TODO: Pandas uses a function 'get_op_result_name' to construct the new name, this can also be
             #  None sometimes. If these names are actually important for something, revisit this columns code line.
             columns = [self.name]  # pylint: disable=no-member
-            processing_func = lambda df_one, df_two: original(df_one, df_two, logical_op)
-            initial_func = partial(original, self, other, logical_op)
+            processing_func = wrap_projection_func(lambda df_one, df_two: original(df_one, df_two, logical_op))
+            initial_func = partial(processing_func, self, other)
             optimizer_info, result = capture_optimizer_info(initial_func)
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
@@ -1080,17 +1102,18 @@ class SeriesPatching:
                     description += f" '{other}'"
                 else:
                     description += f" {other}"
-                processing_func = lambda df_one: original(df_one, other, arith_op)
+                processing_func = wrap_projection_func(lambda df_one: original(df_one, other, arith_op))
+                initial_func = partial(processing_func, self)
             else:
                 input_info_other = get_input_info(other, caller_filename, lineno, function_info,
                                                   optional_code_reference,
                                                   optional_source_code)
                 dag_node_parents.append(input_info_other.dag_node)
-                processing_func = lambda df_one, df_two: original(df_one, df_two, arith_op)
+                processing_func = wrap_projection_func(lambda df_one, df_two: original(df_one, df_two, arith_op))
+                initial_func = partial(processing_func, self, other)
             # TODO: Pandas uses a function 'get_op_result_name' to construct the new name, this can also be
             #  None sometimes. If these names are actually important for something, revisit this columns code line.
             columns = [self.name]  # pylint: disable=no-member
-            initial_func = partial(original, self, other, arith_op)
             optimizer_info, result = capture_optimizer_info(initial_func)
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
@@ -1126,8 +1149,9 @@ class StringMethodsPatching:
             operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info)
             description = "str.len"
             columns = [self._data.name]  # pylint: disable=no-member
-            processing_func = lambda df: original(df.str, *args, **kwargs)
-            initial_func = partial(original, self, *args, **kwargs)
+            processing_func = wrap_projection_func(
+                lambda df: original(df.str, *args, **kwargs))
+            initial_func = partial(processing_func, self._orig)  # pylint: disable=no-member
             optimizer_info, result = capture_optimizer_info(initial_func)
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
@@ -1158,8 +1182,8 @@ class StringMethodsPatching:
             operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info)
             description = f"match r'{args[0]}'"
             columns = [self._data.name]  # pylint: disable=no-member
-            processing_func = lambda df: original(df.str, *args, **kwargs)
-            initial_func = partial(original, self, *args, **kwargs)
+            processing_func = wrap_projection_func(lambda df: original(df.str, *args, **kwargs))
+            initial_func = partial(processing_func, self._orig)  # pylint: disable=no-member
             optimizer_info, result = capture_optimizer_info(initial_func)
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
@@ -1193,8 +1217,9 @@ class StringMethodsPatching:
                 description += "r"
             description += f"'{args[0]}'"
             columns = [self._data.name]  # pylint: disable=no-member
-            processing_func = lambda df: original(df.str, *args, **kwargs)
-            initial_func = partial(original, self, *args, **kwargs)
+            processing_func = wrap_projection_func(
+                lambda df: original(df.str, *args, **kwargs))
+            initial_func = partial(processing_func, self._orig)  # pylint: disable=no-member
             optimizer_info, result = capture_optimizer_info(initial_func)
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),

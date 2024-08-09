@@ -3,9 +3,9 @@ Tests whether the monkey patching works for all patched pandas methods
 """
 from functools import partial
 from inspect import cleandoc
-from types import FunctionType
 
 import networkx
+import numpy
 import pandas
 from testfixtures import compare, Comparison, RangeComparison
 
@@ -63,16 +63,20 @@ def test_frame_fuzzy_merge_on():
                             OptionalCodeInfo(CodeReference(8, 12, 8, 101),
                                              "fpd.fuzzy_merge(df_a, df_b, left_on='name', right_on='person_name', "
                                              "method='levenshtein')"),
-                            Comparison(FunctionType))
+                            Comparison(partial))
     expected_dag.add_edge(expected_a, expected_join, arg_index=0)
     expected_dag.add_edge(expected_b, expected_join, arg_index=1)
     compare(networkx.to_dict_of_dicts(inspector_result.original_dag), networkx.to_dict_of_dicts(expected_dag))
 
     extracted_merge = list(inspector_result.original_dag.nodes)[2]
     df_a = pandas.DataFrame({'A': [0, 2, 4], 'name': ['George Smiley', 'Oliver Lacon', 'Toby Esterhase']})
+    df_a._mlinspect_provenance = {"3_0": numpy.array(range(3))}
     df_b = pandas.DataFrame({'B': [1, 2, 3, 4], 'person_name': ['Peter Guillam', 'Oliver LACON', 'George SMILEY',
                                                                 'Claus Kretzschmar']})
+    df_b._mlinspect_provenance = {"3_0": numpy.array(range(4))}
     df_merged = extracted_merge.processing_func(df_a, df_b)
     df_expected = pandas.DataFrame({'A': [0, 2], 'name': ['George Smiley', 'Oliver Lacon'],
                                     'B': [3, 2], 'person_name': ['George SMILEY', 'Oliver LACON']})
     pandas.testing.assert_frame_equal(df_merged.reset_index(drop=True), df_expected.reset_index(drop=True))
+    assert numpy.allclose(df_merged._mlinspect_provenance["3_0"], numpy.array([0, 1]))
+    assert numpy.allclose(df_merged._mlinspect_provenance["3_1"], numpy.array([2, 1]))
