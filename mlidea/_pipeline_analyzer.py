@@ -3,6 +3,7 @@ User-facing API for inspecting the pipeline
 """
 from collections.abc import Iterable
 
+from shadow_pipelines._shadow_pipeline import ShadowPipeline
 from .execution._pipeline_executor import singleton, logger
 from ._analysis_results import AnalysisResults, DagExtractionInfo, EstimationResults
 from .analysis._what_if_analysis import WhatIfAnalysis
@@ -28,6 +29,7 @@ class PipelineInspectorBuilder:
         self._python_code = python_code
         self._extraction_info = extraction_info
         self._analyses = []
+        self._shadow_pipelines = []
         self._checks = []
         self._prefix_original_dag = None
         self._prefix_analysis_dags = None
@@ -49,6 +51,20 @@ class PipelineInspectorBuilder:
         Add a list of analyses
         """
         self._analyses.extend(analyses)
+        return self
+
+    def add_shadow_pipeline(self, shadow_pipeline: ShadowPipeline):
+        """
+        Add a shadow pipeline.
+        """
+        self._shadow_pipelines.append(shadow_pipeline)
+        return self
+
+    def add_shadow_pipelines(self, shadow_pipelines: Iterable[ShadowPipeline]):
+        """
+        Add a list of shadow pipelines.
+        """
+        self._shadow_pipelines.extend(shadow_pipelines)
         return self
 
     def set_code_reference_tracking(self, track_code_references: bool):
@@ -113,6 +129,7 @@ class PipelineInspectorBuilder:
                              extraction_info=self._extraction_info,
                              track_code_references=self._track_code_references,
                              analyses=self._analyses,
+                             shadow_pipelines=self._shadow_pipelines,
                              custom_monkey_patching=self._monkey_patching_modules,
                              skip_optimizer=self._skip_optimizer,
                              force_optimization_rules=self._force_optimization_rules,
@@ -130,6 +147,7 @@ class PipelineInspectorBuilder:
                                                           extraction_info=self._extraction_info,
                                                           track_code_references=self._track_code_references,
                                                           analyses=self._analyses,
+                                                          shadow_pipelines=self._shadow_pipelines,
                                                           custom_monkey_patching=self._monkey_patching_modules,
                                                           skip_optimizer=self._skip_optimizer,
                                                           force_optimization_rules=self._force_optimization_rules,

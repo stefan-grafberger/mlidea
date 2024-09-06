@@ -46,8 +46,10 @@ class AnalysisResults:
     The class the PipelineExecutor returns
     """
     analysis_to_result_reports: dict[any, any]
+    shadow_pipelines_to_result_reports: dict[any, any]
     original_dag: networkx.DiGraph
     what_if_dags: list[tuple[list[PipelinePatch], networkx.DiGraph]]
+    shadow_pipeline_dags: list[tuple[list[PipelinePatch], networkx.DiGraph]]
     combined_optimized_dag: networkx.DiGraph
     runtime_info: RuntimeInfo
     dag_extraction_info: DagExtractionInfo

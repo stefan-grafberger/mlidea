@@ -10,6 +10,8 @@ class ShadowPipeline(metaclass=abc.ABCMeta):
     """
     The Interface for the Shadow Pipelines
     """
+    # Maybe they should start by building an empty DAG that has a few nodes from the original DAG
+    #  That way, prioritisation etc will be easier later
 
     @property
     def shadow_pipeline_id(self):
@@ -22,7 +24,7 @@ class ShadowPipeline(metaclass=abc.ABCMeta):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def check_rebuilding_necessary(self, extracted_plan_results: dict[str, any]) -> any:
+    def check_rebuilding_necessary(self, extracted_plan_results: dict[str, any]) -> bool:
         """Get the final report after trying out the different pipeline variants"""
         # TODO: Not sure if we really need something like this or not
         raise NotImplementedError

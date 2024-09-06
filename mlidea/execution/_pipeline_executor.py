@@ -23,6 +23,7 @@ from mlidea.analysis._what_if_analysis import WhatIfAnalysis
 from mlidea.execution._dag_executor import DagExecutor
 from mlidea.optimization._multi_query_optimizer import MultiQueryOptimizer
 from mlidea.optimization._query_optimization_rules import QueryOptimizationRule
+from shadow_pipelines._shadow_pipeline import ShadowPipeline
 
 logging.basicConfig(format='%(asctime)s %(levelname)-5s %(message)s',
                     level=logging.INFO,
@@ -52,11 +53,12 @@ class PipelineExecutor:
     track_code_references = True
     op_id_to_dag_node = {}
     analyses = []
+    shadow_pipelines = []
     custom_monkey_patching = []
     # TODO: Do we want to add the analysis to the key next to label to isolate analyses and avoid name clashes?
     original_pipeline_labels_to_extracted_plan_results = {}
     labels_to_extracted_plan_results = {}
-    analysis_results = AnalysisResults({}, networkx.DiGraph(), [], networkx.DiGraph(),
+    analysis_results = AnalysisResults({}, {}, networkx.DiGraph(), [], [], networkx.DiGraph(),
                                        RuntimeInfo(0, 0, 0, 0, None, None, 0, 0, 0, 0, 0, 0, 0),
                                        DagExtractionInfo(networkx.DiGraph(), {}, 0, 0, 0), None)
     monkey_patch_duration = 0
@@ -74,6 +76,7 @@ class PipelineExecutor:
             python_code: str or None = None,
             extraction_info: DagExtractionInfo or None = None,
             analyses: list[WhatIfAnalysis] or None = None,
+            shadow_pipelines: list[ShadowPipeline] or None = None,
             reset_state: bool = True,
             track_code_references: bool = True,
             custom_monkey_patching: list[any] = None,
@@ -97,10 +100,13 @@ class PipelineExecutor:
             custom_monkey_patching = []
         if analyses is None:
             analyses = []
+        if shadow_pipelines is None:
+            shadow_pipelines = []
 
         self.track_code_references = track_code_references
         self.custom_monkey_patching = custom_monkey_patching
         self.analyses = analyses
+        self.shadow_pipelines = shadow_pipelines
         self.skip_optimizer = skip_optimizer
         self.force_optimization_rules = force_optimization_rules
         self.estimate_only = estimate_only
@@ -253,10 +259,11 @@ class PipelineExecutor:
         self.next_missing_op_id = -1
         self.track_code_references = True
         self.op_id_to_dag_node = {}
-        self.analysis_results = AnalysisResults({}, networkx.DiGraph(), [], networkx.DiGraph(),
+        self.analysis_results = AnalysisResults({}, {}, networkx.DiGraph(), [], [], networkx.DiGraph(),
                                                 RuntimeInfo(0, 0, 0, 0, None, None, 0, 0, 0, 0, 0, 0, 0),
-                                                DagExtractionInfo(networkx.DiGraph(), {}, 0, 0, 0), self)
+                                                DagExtractionInfo(networkx.DiGraph(), {}, 0, 0, 0), None)
         self.analyses = []
+        self.shadow_pipelines = []
         self.original_pipeline_labels_to_extracted_plan_results = {}
         self.labels_to_extracted_plan_results = {}
         self.custom_monkey_patching = []
