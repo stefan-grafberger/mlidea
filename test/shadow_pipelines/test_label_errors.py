@@ -39,6 +39,6 @@ def test_label_errors_mini_example_with_transformer_processing_multiple_columns(
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    assert report.shape == (0, 1)
+    assert report.shape == (4, 2)
 
     visualize_dags(analysis_result, tmpdir)

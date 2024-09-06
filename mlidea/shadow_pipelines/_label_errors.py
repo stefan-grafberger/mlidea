@@ -4,13 +4,18 @@
 # but might have a big of added performance overhead. then, conditional operator depending on how many mislabels
 # found. but maybe not that problematic here. but maybe for this we do want to use the provenance since the labeling
 # might not be the final step in the data preprocessing and there might be filte
+from functools import partial
 
 import networkx
+import numpy
 import pandas
+from numba import prange, njit
 
+from mlidea.execution._pipeline_executor import singleton
 from mlidea.analysis._analysis_utils import find_nodes_by_type
-from mlidea import OperatorType
-from shadow_pipelines._shadow_pipeline import ShadowPipeline
+from mlidea import OperatorType, DagNode, BasicCodeLocation, OperatorContext, DagNodeDetails
+from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
+from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node
 
 
 class LabelErrors(ShadowPipeline):
@@ -21,14 +26,17 @@ class LabelErrors(ShadowPipeline):
     def check_rebuilding_necessary(self, extracted_plan_results: dict[str, any]) -> any:
         return False
 
-    def __init__(self, train_fraction_to_consider=1., test_fraction_to_consider=1., proxy_model=False):
+    def __init__(self, train_fraction_to_consider=1., test_fraction_to_consider=1., proxy_model=False,
+                 cleaning_batch_size=20):
         # TODO: We should probably also implement the second proxy version from the workshop paper
         self._train_fraction_to_consider = train_fraction_to_consider
         self._test_fraction_to_consider = test_fraction_to_consider
         self._proxy_model = proxy_model
+        self._cleaning_batch_size = cleaning_batch_size
         if proxy_model is True:
             raise NotImplementedError("TODO")
-        self._shadow_pipeline_id = (train_fraction_to_consider, test_fraction_to_consider, proxy_model)
+        self._shadow_pipeline_id = (
+        train_fraction_to_consider, test_fraction_to_consider, proxy_model, cleaning_batch_size)
 
     @property
     def shadow_pipeline_id(self):
@@ -56,6 +64,52 @@ class LabelErrors(ShadowPipeline):
             raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
                                       "pattern!")
 
+        def shapley_top_k_func(encoded_train_data, encoded_train_labels, encoded_test_data, encoded_test_labels,
+                               train_fraction_to_consider, test_fraction_to_consider, cleaning_batch_size):
+            indices = numpy.arange(len(encoded_train_labels))
+            numpy.random.shuffle(indices)
+
+            train_fraction_to_consider = 1.
+            num_values_to_typo = int(len(encoded_train_labels) * train_fraction_to_consider)
+            train_indices_to_consider = indices[:num_values_to_typo]
+            train_data_sample = encoded_train_data[train_indices_to_consider]
+            train_label_sample = encoded_train_labels[train_indices_to_consider]
+
+            indices = numpy.arange(len(encoded_test_labels))
+            test_fraction_to_consider = 1.
+            num_values_to_typo = int(len(encoded_test_labels) * test_fraction_to_consider)
+            test_indices_to_consider = indices[:num_values_to_typo]
+            test_data_sample = encoded_test_data[test_indices_to_consider]
+            test_label_sample = encoded_test_labels[test_indices_to_consider]
+
+            shapley_values = LabelErrors._compute_shapley_values(train_data_sample, numpy.squeeze(train_label_sample),
+                                                                 test_data_sample, numpy.squeeze(test_label_sample))
+            df_with_id_and_shapley_value = pandas.DataFrame(
+                {"train_id": train_indices_to_consider, "shapley_value": shapley_values})
+
+            rows_to_fix = df_with_id_and_shapley_value.nsmallest(cleaning_batch_size, "shapley_value")
+            return rows_to_fix
+
+        processing_func = partial(shapley_top_k_func, train_fraction_to_consider=self._train_fraction_to_consider,
+                                  test_fraction_to_consider=self._test_fraction_to_consider,
+                                  cleaning_batch_size=self._cleaning_batch_size)
+
+        new_shapley_node = DagNode(singleton.get_next_op_id(),
+                                   BasicCodeLocation("Label Errors", None),
+                                   OperatorContext(OperatorType.GROUP_BY_AGG, None),
+                                   DagNodeDetails(
+                                       f"Top {self._cleaning_batch_size} Shapley values", None),
+                                   None,
+                                   processing_func)
+
+        new_dag.add_edge(train_data_operators[0], new_shapley_node, arg_index=0)
+        new_dag.add_edge(train_labels_operators[0], new_shapley_node, arg_index=1)
+        new_dag.add_edge(test_data_operators[0], new_shapley_node, arg_index=2)
+        new_dag.add_edge(test_labels_operators[0], new_shapley_node, arg_index=3)
+
+        extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node, "label-errors-shapley-values")
+        new_dag.add_edge(new_shapley_node, extraction_node, arg_index=0)
+
         # 2. then get other info required for shapley:
         # train_data_sample, train_label_sample, test_data_sample, test_label_sample,
         # Also, have a configurable threshold how much of the train and test data gets used for the shapley stuff
@@ -69,5 +123,36 @@ class LabelErrors(ShadowPipeline):
         return new_dag
 
     def generate_final_report(self, extracted_plan_results: dict[str, any]) -> any:
-        result_df = pandas.DataFrame({'todo': []})
-        return result_df
+        # result_df = pandas.DataFrame({'todo': []})
+        return extracted_plan_results["label-errors-shapley-values"]
+
+    @staticmethod
+    @njit(fastmath=True, parallel=True, cache=True)
+    def _compute_shapley_values(X_train, y_train, X_test, y_test, K=1):
+        # pylint: disable=invalid-name,too-many-locals
+        """Compute approximate shapley values as presented in the DataScope paper. Here, we only do it for the
+        estimator input data though and not for the input data of the surrounding pipeline.
+        """
+        N = len(X_train)
+        M = len(X_test)
+        result = numpy.zeros(N, dtype=numpy.float32)
+
+        for j in prange(M):  # pylint: disable=not-an-iterable
+            score = numpy.zeros(N, dtype=numpy.float32)
+            dist = numpy.zeros(N, dtype=numpy.float32)
+            div_range = numpy.arange(1.0, N)
+            div_min = numpy.minimum(div_range, K)
+            for i in range(N):
+                dist[i] = numpy.sqrt(numpy.sum(numpy.square(X_train[i] - X_test[j])))
+            indices = numpy.argsort(dist)
+            y_sorted = y_train[indices]
+            eq_check = (y_sorted == y_test[j]) * 1.0
+            diff = - 1 / K * (eq_check[1:] - eq_check[:-1])
+            diff /= div_range
+            diff *= div_min
+            score[indices[:-1]] = diff
+            score[indices[-1]] = eq_check[-1] / N
+            score[indices] += numpy.sum(score[indices]) - numpy.cumsum(score[indices])
+            result += score / M
+
+        return result
