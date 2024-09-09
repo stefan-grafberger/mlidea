@@ -76,14 +76,12 @@ class LabelErrors(ShadowPipeline):
             indices = numpy.arange(len(encoded_train_labels))
             numpy.random.shuffle(indices)
 
-            train_fraction_to_consider = 1.
             num_values_to_typo = int(len(encoded_train_labels) * train_fraction_to_consider)
             train_indices_to_consider = indices[:num_values_to_typo]
             train_data_sample = encoded_train_data[train_indices_to_consider]
             train_label_sample = encoded_train_labels[train_indices_to_consider]
 
             indices = numpy.arange(len(encoded_test_labels))
-            test_fraction_to_consider = 1.
             num_values_to_typo = int(len(encoded_test_labels) * test_fraction_to_consider)
             test_indices_to_consider = indices[:num_values_to_typo]
             test_data_sample = encoded_test_data[test_indices_to_consider]
@@ -117,12 +115,6 @@ class LabelErrors(ShadowPipeline):
         extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node, "label-errors-shapley-values")
         new_dag.add_edge(new_shapley_node, extraction_node, arg_index=0)
 
-        # 2. then get other info required for shapley:
-        # train_data_sample, train_label_sample, test_data_sample, test_label_sample,
-        # Also, have a configurable threshold how much of the train and test data gets used for the shapley stuff
-        #  because this is calculated using sampling, we also need to keep track of their indices (or at least prov ids)
-        # train_indices_to_consider
-        # output: the train indices to flip
         def label_flip_processing_func(encoded_train_labels, shapley_result):
             unfair_indices = shapley_result['train_id']
             modified_encoded_train_labels = encoded_train_labels.copy()
@@ -133,7 +125,7 @@ class LabelErrors(ShadowPipeline):
                                       BasicCodeLocation("Label Errors", None),
                                       OperatorContext(OperatorType.PROJECTION, None),
                                       DagNodeDetails(
-                                          f"Flip most likely incorrect labels", None),
+                                          f"Flip {self._cleaning_batch_size} most likely incorrect labels", None),
                                       None,
                                       label_flip_processing_func)
 
@@ -155,9 +147,6 @@ class LabelErrors(ShadowPipeline):
         retrain_extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node,
                                                                    "label-errors-flip-retrain")
         new_dag.add_edge(new_score_node, retrain_extraction_node, arg_index=0)
-
-        # 3. then, look into label flipping:
-        # copy the original train labels, flip them. rerun the model fitting, run predict, and rerun the eval
 
         return new_dag
 
