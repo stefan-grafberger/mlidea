@@ -5,7 +5,6 @@ Tests whether the monkey patching works for all patched sklearn methods
 # FIXME: do we want to support the analyses or not? either fix tests or remove
 import os
 from functools import partial
-from inspect import cleandoc
 from types import FunctionType
 
 import networkx
@@ -23,6 +22,7 @@ from mlidea.execution._pipeline_executor import singleton
 from mlidea.instrumentation._dag_node import DagNode, CodeReference, BasicCodeLocation, DagNodeDetails, \
     OptionalCodeInfo, OptimizerInfo
 from mlidea.monkeypatching._mlinspect_ndarray import MlinspectList
+from mlidea.testing._testing_helper_utils import get_llm_rag_mini_example_code
 
 
 def test_binary_rag_classification(tmpdir):
@@ -30,36 +30,7 @@ def test_binary_rag_classification(tmpdir):
     Tests whether the monkey patching of langchain pipelines works
     """
     # pylint: disable=too-many-locals,too-many-statements
-    test_code = cleandoc("""
-                from functools import partial
-                import pandas as pd
-                from langchain_community.embeddings.huggingface import HuggingFaceEmbeddings
-                from langchain_community.vectorstores import Chroma  # pylint: disable=no-name-in-module
-                from example_pipelines.anhedonia_llm.pipeline_utils import initialize_environment, \
-                    get_langchain_rag_binary_classification, wait_llm_call
-                import numpy as np
-                from sklearn.metrics import accuracy_score
-                from sklearn.preprocessing import label_binarize
-
-                initialize_environment()
-                
-                df = pd.DataFrame({'text': ["positive", "positive", "negative", "negative"], 
-                                   'label': ['no', 'no', 'yes', 'yes']})
-
-                vectorstore = Chroma.from_texts(texts=df['text'].to_list(), metadatas=df[['label']].to_dict('records'),
-                                embedding=HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2'))
-
-                rag_chain = get_langchain_rag_binary_classification(["no", "yes"], vectorstore.as_retriever())
-
-                test = pd.DataFrame({'text': ["pos", "neg."], 'label': ['no', 'yes']})
-                y_predicted = wait_llm_call(partial(rag_chain.batch, test['text'].to_list()), test)
-                y_test_binarized = label_binarize(test['label'], classes=['no', 'yes'])
-                accuracy = accuracy_score(y_test_binarized, y_predicted)
-                print(y_test_binarized)
-                expected = np.array([0, 1]).reshape(-1, 1)
-                assert np.allclose(y_test_binarized, expected)
-                assert accuracy >= 0.
-                """)
+    test_code = get_llm_rag_mini_example_code()
 
     inspector_result = _pipeline_executor.singleton.run(python_code=test_code, track_code_references=True)
 

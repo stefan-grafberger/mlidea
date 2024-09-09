@@ -1,8 +1,8 @@
 from inspect import cleandoc
 
 from mlidea import PipelineAnalyzer
-from shadow_pipelines._label_errors import LabelErrors
-from testing._testing_helper_utils import visualize_dags_shadow_pipelines
+from mlidea.shadow_pipelines._label_errors import LabelErrors
+from mlidea.testing._testing_helper_utils import visualize_dags_shadow_pipelines, get_llm_rag_mini_example_code
 
 
 def test_label_errors_mini_example_with_transformer_processing_multiple_columns(tmpdir):
@@ -31,6 +31,25 @@ def test_label_errors_mini_example_with_transformer_processing_multiple_columns(
         test_score = clf.score(test_data, test_labels)
         assert test_score == 1.0
         """)
+
+    label_errors = LabelErrors()
+    analysis_result = PipelineAnalyzer \
+        .on_pipeline_from_string(test_code) \
+        .add_shadow_pipeline(label_errors) \
+        .execute()
+
+    report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
+    # assert report.shape == (4, 2)
+    assert "the pipeline metric was" in report
+
+    visualize_dags_shadow_pipelines(analysis_result, tmpdir)
+
+
+def test_label_errors_mini_example_llm_rag(tmpdir):
+    """
+    Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
+    """
+    test_code = get_llm_rag_mini_example_code()
 
     label_errors = LabelErrors()
     analysis_result = PipelineAnalyzer \
