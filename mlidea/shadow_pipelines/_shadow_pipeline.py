@@ -18,6 +18,11 @@ class ShadowPipeline(metaclass=abc.ABCMeta):
         """The Interface for the Shadow Pipelines"""
         return None
 
+    @property
+    def simple_name(self):
+        """The Simple String name for the Shadow Pipeline"""
+        return None
+
     @abc.abstractmethod
     def generate_shadow_pipeline_dag(self, dag: networkx.DiGraph) -> networkx.DiGraph:
         """Generate the shadow pipeline to run"""

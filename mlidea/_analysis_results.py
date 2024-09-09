@@ -49,7 +49,7 @@ class AnalysisResults:
     shadow_pipelines_to_result_reports: dict[any, any]
     original_dag: networkx.DiGraph
     what_if_dags: list[tuple[list[PipelinePatch], networkx.DiGraph]]
-    shadow_pipeline_dags: list[tuple[list[PipelinePatch], networkx.DiGraph]]
+    shadow_pipeline_to_dags: dict[any, any]
     combined_optimized_dag: networkx.DiGraph
     runtime_info: RuntimeInfo
     dag_extraction_info: DagExtractionInfo
@@ -74,6 +74,14 @@ class AnalysisResults:
                 patch.apply(original_copy, self.pipeline_executor)
             if prefix_analysis_dags is not None:
                 save_fig_to_path(original_copy, f"{prefix_analysis_dags}-{dag_index}.png")
+
+    def save_shadow_pipeline_dags_to_path(self, prefix_shadow_dags: str):
+        """
+        Save the generated What-If DAGs to a file
+        """
+        for shadow_pipeline, dag in self.shadow_pipeline_to_dags.items():
+            if prefix_shadow_dags is not None:
+                save_fig_to_path(dag, f"{prefix_shadow_dags}-{shadow_pipeline.simple_name}.png")
 
     def save_optimised_what_if_dags_to_path(self, prefix_optimised_analysis_dag: str):
         """

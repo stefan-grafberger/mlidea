@@ -276,6 +276,12 @@ def visualize_dags(analysis_result, tmpdir, skip_combined_dag=False):
         analysis_result.save_optimised_what_if_dags_to_path(os.path.join(str(tmpdir), "what-if-optimised"))
 
 
+def visualize_dags_shadow_pipelines(analysis_result, tmpdir):
+    """Visualise the intermediate DAGs"""
+    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig"))
+    analysis_result.save_shadow_pipeline_dags_to_path(os.path.join(str(tmpdir), "shadow"))
+
+
 def run_scenario_and_visualize_dags(dataset, scenario, tmpdir, featurization="featurization_0",
                                     model="logistic_regression"):
     """Run a scenario and visualize the DAGs for debugging and save them to same temporary directory"""

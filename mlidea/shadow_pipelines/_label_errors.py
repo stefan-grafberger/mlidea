@@ -42,6 +42,10 @@ class LabelErrors(ShadowPipeline):
     def shadow_pipeline_id(self):
         return self._shadow_pipeline_id
 
+    @property
+    def simple_name(self):
+        return "label_errors"
+
     def generate_shadow_pipeline_dag(self, dag: networkx.DiGraph) -> networkx.DiGraph:
         # pylint: disable=too-many-locals,too-many-statements
         new_dag = dag.copy()

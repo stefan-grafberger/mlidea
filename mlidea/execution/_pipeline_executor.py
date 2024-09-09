@@ -58,7 +58,7 @@ class PipelineExecutor:
     # TODO: Do we want to add the analysis to the key next to label to isolate analyses and avoid name clashes?
     original_pipeline_labels_to_extracted_plan_results = {}
     labels_to_extracted_plan_results = {}
-    analysis_results = AnalysisResults({}, {}, networkx.DiGraph(), [], [], networkx.DiGraph(),
+    analysis_results = AnalysisResults({}, {}, networkx.DiGraph(), [], {}, networkx.DiGraph(),
                                        RuntimeInfo(0, 0, 0, 0, None, None, 0, 0, 0, 0, 0, 0, 0),
                                        DagExtractionInfo(networkx.DiGraph(), {}, 0, 0, 0), None)
     monkey_patch_duration = 0
@@ -168,6 +168,7 @@ class PipelineExecutor:
         #  TODO: Extract this into new functions
         for shadow_pipeline in self.shadow_pipelines:
             shadow_dag = shadow_pipeline.generate_shadow_pipeline_dag(self.analysis_results.original_dag.copy())
+            self.analysis_results.shadow_pipeline_to_dags[shadow_pipeline] = shadow_dag
             DagExecutor(self).execute(shadow_dag, self.use_dfs_exec_strategy)
         for shadow_pipeline in self.shadow_pipelines:
             report = shadow_pipeline.generate_final_report(self.labels_to_extracted_plan_results)
@@ -269,7 +270,7 @@ class PipelineExecutor:
         self.next_missing_op_id = -1
         self.track_code_references = True
         self.op_id_to_dag_node = {}
-        self.analysis_results = AnalysisResults({}, {}, networkx.DiGraph(), [], [], networkx.DiGraph(),
+        self.analysis_results = AnalysisResults({}, {}, networkx.DiGraph(), [], {}, networkx.DiGraph(),
                                                 RuntimeInfo(0, 0, 0, 0, None, None, 0, 0, 0, 0, 0, 0, 0),
                                                 DagExtractionInfo(networkx.DiGraph(), {}, 0, 0, 0), None)
         self.analyses = []

@@ -2,7 +2,7 @@ from inspect import cleandoc
 
 from mlidea import PipelineAnalyzer
 from shadow_pipelines._label_errors import LabelErrors
-from testing._testing_helper_utils import visualize_dags
+from testing._testing_helper_utils import visualize_dags_shadow_pipelines
 
 
 def test_label_errors_mini_example_with_transformer_processing_multiple_columns(tmpdir):
@@ -42,4 +42,4 @@ def test_label_errors_mini_example_with_transformer_processing_multiple_columns(
     # assert report.shape == (4, 2)
     assert "the pipeline metric was" in report
 
-    visualize_dags(analysis_result, tmpdir)
+    visualize_dags_shadow_pipelines(analysis_result, tmpdir)
