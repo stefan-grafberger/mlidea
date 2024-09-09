@@ -48,12 +48,21 @@ class LabelErrors(ShadowPipeline):
 
     def generate_shadow_pipeline_dag(self, dag: networkx.DiGraph) -> networkx.DiGraph:
         # pylint: disable=too-many-locals,too-many-statements
-        new_dag = dag.copy()
-
         # TODO: Maybe it would be better to delete all unrelated DAG nodes here that are not specifically mentioned
         #  below. But this only works once intermediate resutl caching is implemented
 
-        # 1. first search for predict labels
+        rag_join_operators = find_nodes_by_type(dag, OperatorType.RAG_JOIN)
+
+        if len(rag_join_operators) == 0:
+            new_dag = self.get_traditional_ml_dag(dag)
+        else:
+            new_dag = self.get_llm_rag_dag(dag)
+
+        return new_dag
+
+    def get_traditional_ml_dag(self, dag):
+        new_dag = dag.copy()
+
         predict_operators = find_nodes_by_type(dag, OperatorType.PREDICT)
         score_operators = find_nodes_by_type(dag, OperatorType.SCORE)
         model_operators = find_nodes_by_type(dag, OperatorType.ESTIMATOR)
@@ -61,13 +70,11 @@ class LabelErrors(ShadowPipeline):
         train_labels_operators = find_nodes_by_type(dag, OperatorType.TRAIN_LABELS)
         test_data_operators = find_nodes_by_type(dag, OperatorType.TEST_DATA)
         test_labels_operators = find_nodes_by_type(dag, OperatorType.TEST_LABELS)
-
         if len(predict_operators) != 1 or len(score_operators) != 1 or len(model_operators) != 1 \
                 or len(train_data_operators) != 1 or len(train_labels_operators) != 1 \
                 or len(test_data_operators) != 1 or len(test_labels_operators) != 1:
             raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
                                       "pattern!")
-
         orig_extraction_node = get_intermediate_extraction_node(singleton, score_operators[0], "label-errors-orig")
         new_dag.add_edge(score_operators[0], orig_extraction_node, arg_index=0)
 
@@ -98,7 +105,6 @@ class LabelErrors(ShadowPipeline):
         processing_func = partial(shapley_top_k_func, train_fraction_to_consider=self._train_fraction_to_consider,
                                   test_fraction_to_consider=self._test_fraction_to_consider,
                                   cleaning_batch_size=self._cleaning_batch_size)
-
         new_shapley_node = DagNode(singleton.get_next_op_id(),
                                    BasicCodeLocation("Label Errors", None),
                                    OperatorContext(OperatorType.GROUP_BY_AGG, None),
@@ -106,12 +112,10 @@ class LabelErrors(ShadowPipeline):
                                        f"Top {self._cleaning_batch_size} Shapley values", None),
                                    None,
                                    processing_func)
-
         new_dag.add_edge(train_data_operators[0], new_shapley_node, arg_index=0)
         new_dag.add_edge(train_labels_operators[0], new_shapley_node, arg_index=1)
         new_dag.add_edge(test_data_operators[0], new_shapley_node, arg_index=2)
         new_dag.add_edge(test_labels_operators[0], new_shapley_node, arg_index=3)
-
         extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node, "label-errors-shapley-values")
         new_dag.add_edge(new_shapley_node, extraction_node, arg_index=0)
 
@@ -128,26 +132,109 @@ class LabelErrors(ShadowPipeline):
                                           f"Flip {self._cleaning_batch_size} most likely incorrect labels", None),
                                       None,
                                       label_flip_processing_func)
-
         new_dag.add_edge(train_labels_operators[0], new_label_flip_node, arg_index=0)
         new_dag.add_edge(extraction_node, new_label_flip_node, arg_index=1)
-
         new_model_node = copy_node_with_new_id(singleton, model_operators[0])
         new_dag.add_edge(train_data_operators[0], new_model_node, arg_index=0)
         new_dag.add_edge(new_label_flip_node, new_model_node, arg_index=1)
-
         new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
         new_dag.add_edge(new_model_node, new_predict_node, arg_index=0)
         new_dag.add_edge(test_data_operators[0], new_predict_node, arg_index=1)
-
         new_score_node = copy_node_with_new_id(singleton, score_operators[0])
         new_dag.add_edge(new_predict_node, new_score_node, arg_index=0)
         new_dag.add_edge(test_labels_operators[0], new_score_node, arg_index=1)
-
         retrain_extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node,
                                                                    "label-errors-flip-retrain")
         new_dag.add_edge(new_score_node, retrain_extraction_node, arg_index=0)
+        return new_dag
 
+    def get_llm_rag_dag(self, dag):
+        # FIXME: This won't work yet
+        new_dag = dag.copy()
+
+        predict_operators = find_nodes_by_type(dag, OperatorType.PREDICT)
+        score_operators = find_nodes_by_type(dag, OperatorType.SCORE)
+        rag_join_operators = find_nodes_by_type(dag, OperatorType.RAG_JOIN)
+        train_data_operators = find_nodes_by_type(dag, OperatorType.TRAIN_DATA)
+        train_labels_operators = find_nodes_by_type(dag, OperatorType.TRAIN_LABELS)
+        test_data_operators = find_nodes_by_type(dag, OperatorType.TEST_DATA)
+        test_labels_operators = find_nodes_by_type(dag, OperatorType.TEST_LABELS)
+        if len(predict_operators) != 1 or len(score_operators) != 1 or len(rag_join_operators) != 1 \
+                or len(train_data_operators) != 1 or len(train_labels_operators) != 1 \
+                or len(test_data_operators) != 1 or len(test_labels_operators) != 1:
+            raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
+                                      "pattern!")
+        orig_extraction_node = get_intermediate_extraction_node(singleton, score_operators[0], "label-errors-orig")
+        new_dag.add_edge(score_operators[0], orig_extraction_node, arg_index=0)
+
+        def shapley_top_k_func(encoded_train_data, encoded_train_labels, encoded_test_data, encoded_test_labels,
+                               train_fraction_to_consider, test_fraction_to_consider, cleaning_batch_size):
+            indices = numpy.arange(len(encoded_train_labels))
+            numpy.random.shuffle(indices)
+
+            num_values_to_typo = int(len(encoded_train_labels) * train_fraction_to_consider)
+            train_indices_to_consider = indices[:num_values_to_typo]
+            train_data_sample = encoded_train_data[train_indices_to_consider]
+            train_label_sample = encoded_train_labels[train_indices_to_consider]
+
+            indices = numpy.arange(len(encoded_test_labels))
+            num_values_to_typo = int(len(encoded_test_labels) * test_fraction_to_consider)
+            test_indices_to_consider = indices[:num_values_to_typo]
+            test_data_sample = encoded_test_data[test_indices_to_consider]
+            test_label_sample = encoded_test_labels[test_indices_to_consider]
+
+            shapley_values = LabelErrors._compute_shapley_values(train_data_sample, numpy.squeeze(train_label_sample),
+                                                                 test_data_sample, numpy.squeeze(test_label_sample))
+            df_with_id_and_shapley_value = pandas.DataFrame(
+                {"train_id": train_indices_to_consider, "shapley_value": shapley_values})
+
+            rows_to_fix = df_with_id_and_shapley_value.nsmallest(cleaning_batch_size, "shapley_value")
+            return rows_to_fix
+
+        processing_func = partial(shapley_top_k_func, train_fraction_to_consider=self._train_fraction_to_consider,
+                                  test_fraction_to_consider=self._test_fraction_to_consider,
+                                  cleaning_batch_size=self._cleaning_batch_size)
+        new_shapley_node = DagNode(singleton.get_next_op_id(),
+                                   BasicCodeLocation("Label Errors", None),
+                                   OperatorContext(OperatorType.GROUP_BY_AGG, None),
+                                   DagNodeDetails(
+                                       f"Top {self._cleaning_batch_size} Shapley values", None),
+                                   None,
+                                   processing_func)
+        new_dag.add_edge(train_data_operators[0], new_shapley_node, arg_index=0)
+        new_dag.add_edge(train_labels_operators[0], new_shapley_node, arg_index=1)
+        new_dag.add_edge(test_data_operators[0], new_shapley_node, arg_index=2)
+        new_dag.add_edge(test_labels_operators[0], new_shapley_node, arg_index=3)
+        extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node, "label-errors-shapley-values")
+        new_dag.add_edge(new_shapley_node, extraction_node, arg_index=0)
+
+        def label_flip_processing_func(encoded_train_labels, shapley_result):
+            unfair_indices = shapley_result['train_id']
+            modified_encoded_train_labels = encoded_train_labels.copy()
+            modified_encoded_train_labels[unfair_indices, :] = 1 - modified_encoded_train_labels[unfair_indices, :]
+            return modified_encoded_train_labels
+
+        new_label_flip_node = DagNode(singleton.get_next_op_id(),
+                                      BasicCodeLocation("Label Errors", None),
+                                      OperatorContext(OperatorType.PROJECTION, None),
+                                      DagNodeDetails(
+                                          f"Flip {self._cleaning_batch_size} most likely incorrect labels", None),
+                                      None,
+                                      label_flip_processing_func)
+        new_dag.add_edge(train_labels_operators[0], new_label_flip_node, arg_index=0)
+        new_dag.add_edge(extraction_node, new_label_flip_node, arg_index=1)
+        new_model_node = copy_node_with_new_id(singleton, rag_join_operators[0])
+        new_dag.add_edge(train_data_operators[0], new_model_node, arg_index=0)
+        new_dag.add_edge(new_label_flip_node, new_model_node, arg_index=1)
+        new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
+        new_dag.add_edge(new_model_node, new_predict_node, arg_index=0)
+        new_dag.add_edge(test_data_operators[0], new_predict_node, arg_index=1)
+        new_score_node = copy_node_with_new_id(singleton, score_operators[0])
+        new_dag.add_edge(new_predict_node, new_score_node, arg_index=0)
+        new_dag.add_edge(test_labels_operators[0], new_score_node, arg_index=1)
+        retrain_extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node,
+                                                                   "label-errors-flip-retrain")
+        new_dag.add_edge(new_score_node, retrain_extraction_node, arg_index=0)
         return new_dag
 
     def generate_final_report(self, extracted_plan_results: dict[str, any]) -> any:
