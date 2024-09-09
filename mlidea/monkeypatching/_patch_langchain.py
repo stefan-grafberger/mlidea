@@ -48,6 +48,7 @@ call_info_singleton = LangchainCallInfo()
 
 def execute_embedding_similarity_join(retrieval_corpus_X, retrieval_corpus_y, embedding, inputs: list[Input]):
     # pylint: disable=too-many-locals
+    Chroma(collection_name=Chroma._LANGCHAIN_DEFAULT_COLLECTION_NAME).delete_collection()
     if singleton.prov_enabled is False:
         filled_vectorstore = Chroma.from_texts(texts=retrieval_corpus_X, metadatas=retrieval_corpus_y,
                                                embedding=embedding).as_retriever()
@@ -100,7 +101,7 @@ def execute_embedding_similarity_join(retrieval_corpus_X, retrieval_corpus_y, em
                 results._mlinspect_provenance[prov_id_name] = numpy.array(prov_id_value)
             results._mlinspect_provenance = (results._mlinspect_provenance | inputs._mlinspect_provenance)
     # Without this there are some re-execution issues
-    Chroma(collection_name=Chroma._LANGCHAIN_DEFAULT_COLLECTION_NAME).delete_collection()
+    results._mlinspect_vectorstore_ref = filled_vectorstore.vectorstore
     return results
 
 
@@ -186,9 +187,11 @@ class RunnableSequencePatching:
                         retriever_concat_result.retrieval_corpus_X, retriever_concat_result.retrieval_corpus_y,
                         retriever_concat_result.embedding, retrieval_results)
                     rag_provenance = retrieval_results._mlinspect_provenance
+                    vectorstore_ref = retrieval_results._mlinspect_vectorstore_ref
                 else:
                     retrieval_results = child_sequence_step.batch(retrieval_results)
-        found_retriever = (retriever_step_index, retriever_sub_step_name, retrieval_results, inputs, rag_provenance)
+        found_retriever = (retriever_step_index, retriever_sub_step_name, retrieval_results, inputs, rag_provenance,
+                           vectorstore_ref)
         return found_retriever
 
     def find_retriever(self):
@@ -220,7 +223,7 @@ class RunnableSequencePatching:
     def execute_langchain_batch_with_preexecuted_retriever(runnable_sequence, config, return_exceptions,
                                                            found_retriever):
         # pylint: disable=no-member
-        retriever_step_num, retriever_step_name, retriever_step_result, inputs, provenance = found_retriever
+        retriever_step_num, retriever_step_name, retriever_step_result, inputs, provenance, _ = found_retriever
         if not inputs:
             return []
         configs, run_managers = RunnableSequencePatching.do_langchain_batch_setup(runnable_sequence,

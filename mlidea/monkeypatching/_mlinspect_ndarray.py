@@ -14,6 +14,7 @@ class MlinspectList(list):
     _mlinspect_dag_node = None
     _mlinspect_annotation = None
     _mlinspect_provenance = None
+    _mlinspect_vectorstore_ref = None
 
 
 class MlinspectDict(dict):

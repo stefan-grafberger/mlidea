@@ -159,28 +159,43 @@ class LabelErrors(ShadowPipeline):
         train_labels_operators = find_nodes_by_type(dag, OperatorType.TRAIN_LABELS)
         test_data_operators = find_nodes_by_type(dag, OperatorType.TEST_DATA)
         test_labels_operators = find_nodes_by_type(dag, OperatorType.TEST_LABELS)
+
         if len(predict_operators) != 1 or len(score_operators) != 1 or len(rag_join_operators) != 1 \
                 or len(train_data_operators) != 1 or len(train_labels_operators) != 1 \
                 or len(test_data_operators) != 1 or len(test_labels_operators) != 1:
             raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
                                       "pattern!")
+        label_encoder_operators = list(new_dag.predecessors(test_labels_operators[0]))
+        if len(label_encoder_operators) != 1 or "label_binarize" not in label_encoder_operators[0].details.description:
+            raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
+                                      "pattern!")
+        train_labels_dict_conversion = list(new_dag.predecessors(train_labels_operators[0]))[0]
+        train_labels_before_dict = list(new_dag.predecessors(train_labels_dict_conversion))[0]
+
         orig_extraction_node = get_intermediate_extraction_node(singleton, score_operators[0], "label-errors-orig")
         new_dag.add_edge(score_operators[0], orig_extraction_node, arg_index=0)
 
-        def shapley_top_k_func(encoded_train_data, encoded_train_labels, encoded_test_data, encoded_test_labels,
+        def shapley_top_k_func(rag_join_result, train_labels_before_dict, encoded_test_data, encoded_test_labels,
                                train_fraction_to_consider, test_fraction_to_consider, cleaning_batch_size):
-            indices = numpy.arange(len(encoded_train_labels))
+            indices = numpy.arange(len(train_labels_before_dict))
             numpy.random.shuffle(indices)
 
-            num_values_to_typo = int(len(encoded_train_labels) * train_fraction_to_consider)
+            num_values_to_typo = int(len(train_labels_before_dict) * train_fraction_to_consider)
             train_indices_to_consider = indices[:num_values_to_typo]
-            train_data_sample = encoded_train_data[train_indices_to_consider]
-            train_label_sample = encoded_train_labels[train_indices_to_consider]
+
+            vectorstore = rag_join_result[5]
+            train_data_sample = numpy.array(vectorstore.get(
+                ids=list(map(str, train_indices_to_consider)), include=["embeddings"])['embeddings'])
+            to_label_encode = train_labels_before_dict.iloc[train_indices_to_consider, 0]
+            # FIXME: What should we do provenance-wise in shadow pipelines?
+            to_label_encode._mlinspect_provenance = None
+            train_label_sample = label_encoder_operators[0].processing_func(to_label_encode)
 
             indices = numpy.arange(len(encoded_test_labels))
             num_values_to_typo = int(len(encoded_test_labels) * test_fraction_to_consider)
             test_indices_to_consider = indices[:num_values_to_typo]
-            test_data_sample = encoded_test_data[test_indices_to_consider]
+            test_data_sample = numpy.array(vectorstore.embeddings.embed_documents(
+                encoded_test_data[test_indices_to_consider.astype(int)]))
             test_label_sample = encoded_test_labels[test_indices_to_consider]
 
             shapley_values = LabelErrors._compute_shapley_values(train_data_sample, numpy.squeeze(train_label_sample),
@@ -201,8 +216,8 @@ class LabelErrors(ShadowPipeline):
                                        f"Top {self._cleaning_batch_size} Shapley values", None),
                                    None,
                                    processing_func)
-        new_dag.add_edge(train_data_operators[0], new_shapley_node, arg_index=0)
-        new_dag.add_edge(train_labels_operators[0], new_shapley_node, arg_index=1)
+        new_dag.add_edge(rag_join_operators[0], new_shapley_node, arg_index=0)
+        new_dag.add_edge(train_labels_before_dict, new_shapley_node, arg_index=1)
         new_dag.add_edge(test_data_operators[0], new_shapley_node, arg_index=2)
         new_dag.add_edge(test_labels_operators[0], new_shapley_node, arg_index=3)
         extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node, "label-errors-shapley-values")
