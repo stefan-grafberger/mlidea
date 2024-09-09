@@ -15,7 +15,7 @@ from mlidea.execution._pipeline_executor import singleton
 from mlidea.analysis._analysis_utils import find_nodes_by_type
 from mlidea import OperatorType, DagNode, BasicCodeLocation, OperatorContext, DagNodeDetails
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
-from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node
+from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id
 
 
 class LabelErrors(ShadowPipeline):
@@ -36,7 +36,7 @@ class LabelErrors(ShadowPipeline):
         if proxy_model is True:
             raise NotImplementedError("TODO")
         self._shadow_pipeline_id = (
-        train_fraction_to_consider, test_fraction_to_consider, proxy_model, cleaning_batch_size)
+            train_fraction_to_consider, test_fraction_to_consider, proxy_model, cleaning_batch_size)
 
     @property
     def shadow_pipeline_id(self):
@@ -63,6 +63,9 @@ class LabelErrors(ShadowPipeline):
                 or len(test_data_operators) != 1 or len(test_labels_operators) != 1:
             raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
                                       "pattern!")
+
+        orig_extraction_node = get_intermediate_extraction_node(singleton, score_operators[0], "label-errors-orig")
+        new_dag.add_edge(score_operators[0], orig_extraction_node, arg_index=0)
 
         def shapley_top_k_func(encoded_train_data, encoded_train_labels, encoded_test_data, encoded_test_labels,
                                train_fraction_to_consider, test_fraction_to_consider, cleaning_batch_size):
@@ -116,6 +119,38 @@ class LabelErrors(ShadowPipeline):
         #  because this is calculated using sampling, we also need to keep track of their indices (or at least prov ids)
         # train_indices_to_consider
         # output: the train indices to flip
+        def label_flip_processing_func(encoded_train_labels, shapley_result):
+            unfair_indices = shapley_result['train_id']
+            modified_encoded_train_labels = encoded_train_labels.copy()
+            modified_encoded_train_labels[unfair_indices, :] = 1 - modified_encoded_train_labels[unfair_indices, :]
+            return modified_encoded_train_labels
+
+        new_label_flip_node = DagNode(singleton.get_next_op_id(),
+                                      BasicCodeLocation("Label Errors", None),
+                                      OperatorContext(OperatorType.PROJECTION, None),
+                                      DagNodeDetails(
+                                          f"Flip most likely incorrect labels", None),
+                                      None,
+                                      label_flip_processing_func)
+
+        new_dag.add_edge(train_labels_operators[0], new_label_flip_node, arg_index=0)
+        new_dag.add_edge(extraction_node, new_label_flip_node, arg_index=1)
+
+        new_model_node = copy_node_with_new_id(singleton, model_operators[0])
+        new_dag.add_edge(train_data_operators[0], new_model_node, arg_index=0)
+        new_dag.add_edge(new_label_flip_node, new_model_node, arg_index=1)
+
+        new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
+        new_dag.add_edge(new_model_node, new_predict_node, arg_index=0)
+        new_dag.add_edge(test_data_operators[0], new_predict_node, arg_index=1)
+
+        new_score_node = copy_node_with_new_id(singleton, score_operators[0])
+        new_dag.add_edge(new_predict_node, new_score_node, arg_index=0)
+        new_dag.add_edge(test_labels_operators[0], new_score_node, arg_index=1)
+
+        retrain_extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node,
+                                                                   "label-errors-flip-retrain")
+        new_dag.add_edge(new_score_node, retrain_extraction_node, arg_index=0)
 
         # 3. then, look into label flipping:
         # copy the original train labels, flip them. rerun the model fitting, run predict, and rerun the eval
@@ -124,7 +159,12 @@ class LabelErrors(ShadowPipeline):
 
     def generate_final_report(self, extracted_plan_results: dict[str, any]) -> any:
         # result_df = pandas.DataFrame({'todo': []})
-        return extracted_plan_results["label-errors-shapley-values"]
+        orig_result = extracted_plan_results["label-errors-orig"]
+        shapley_values = extracted_plan_results["label-errors-shapley-values"]
+        flip_result = extracted_plan_results["label-errors-flip-retrain"]
+        return (f"The original result was {orig_result}. After flipping the top {self._cleaning_batch_size} most "
+                f"likely incorrect row labels, the pipeline metric was {flip_result}. The shapley values of the "
+                f"most likely mislabeled rows: {str(shapley_values)}.")
 
     @staticmethod
     @njit(fastmath=True, parallel=True, cache=True)
