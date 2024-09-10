@@ -202,8 +202,24 @@ class RunnableSequencePatching:
                 else:
                     retrieval_results = child_sequence_step.batch(retrieval_results)
         found_retriever = (retriever_step_index, retriever_sub_step_name, retrieval_results, inputs, rag_provenance,
-                           vectorstore_ref, retrieval_index)
+                           vectorstore_ref, retrieval_index, retriever_steps)
         return found_retriever
+
+    @staticmethod
+    def execute_rag_join_diff(retriever_steps, inputs, filled_vectorstore):
+        retriever_step_index, retriever_sub_step_name, retriever_sub_step, _ = retriever_steps
+        retrieval_results = inputs
+        retrieval_index_update = numpy.zeros((len(inputs), 4), dtype=int)
+        if retrieval_results:
+            for child_sequence_step in retriever_sub_step.steps:
+                if isinstance(child_sequence_step, BaseRetriever):
+                    retrieval_results = filled_vectorstore.as_retriever().batch(inputs)
+                    retrieval_results = wrap_in_mlinspect_array_if_necessary(retrieval_results)
+                    for prediction_index, result in enumerate(retrieval_results):
+                        retrieval_index_update[prediction_index, :] = [doc.metadata['_metadata_ids'] for doc in result]
+                else:
+                    retrieval_results = child_sequence_step.batch(retrieval_results)
+        return retrieval_results, retrieval_index_update
 
     def find_retriever(self):
         # pylint: disable=no-member,too-many-nested-blocks
@@ -234,7 +250,8 @@ class RunnableSequencePatching:
     def execute_langchain_batch_with_preexecuted_retriever(runnable_sequence, config, return_exceptions,
                                                            found_retriever):
         # pylint: disable=no-member
-        retriever_step_num, retriever_step_name, retriever_step_result, inputs, provenance, _, _ = found_retriever
+        # TODO: Clean this up
+        retriever_step_num, retriever_step_name, retriever_step_result, inputs, provenance, _, _, _ = found_retriever
         if not inputs:
             return []
         configs, run_managers = RunnableSequencePatching.do_langchain_batch_setup(runnable_sequence,

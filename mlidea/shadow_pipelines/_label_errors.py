@@ -17,7 +17,7 @@ from mlidea.analysis._analysis_utils import find_nodes_by_type
 from mlidea import OperatorType, DagNode, BasicCodeLocation, OperatorContext, DagNodeDetails
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id
-from monkeypatching._patch_langchain import call_info_singleton
+from monkeypatching._patch_langchain import call_info_singleton, RunnableSequencePatching
 
 
 class LabelErrors(ShadowPipeline):
@@ -225,7 +225,7 @@ class LabelErrors(ShadowPipeline):
         extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node, "label-errors-shapley-values")
         new_dag.add_edge(new_shapley_node, extraction_node, arg_index=0)
 
-        def label_flip_processing_func(rag_join_result, encoded_train_labels, shapley_result):
+        def label_flip_processing_func(rag_join_result, encoded_train_labels, shapley_result, inputs):
             unfair_indices = shapley_result['train_id']
             modified_encoded_train_labels = encoded_train_labels.copy()
             classes = set()
@@ -247,9 +247,10 @@ class LabelErrors(ShadowPipeline):
             # Update the labels in the vectorstore
             vectorstore = rag_join_result[5]
             vectorstore_ids = list(map(str, unfair_indices))
-            old_entries = vectorstore.get(ids=vectorstore_ids, include=["embeddings", "documents"])
+            old_entries = vectorstore.get(ids=vectorstore_ids, include=["embeddings", "documents", "metadatas"])
             documents = old_entries['documents']
             embeddings = old_entries['embeddings']
+            old_metadata = old_entries['metadatas']
             vectorstore._collection.update(vectorstore_ids, embeddings, modified_encoded_train_labels, documents)
             retrieval_index = rag_join_result[6]
 
@@ -267,14 +268,22 @@ class LabelErrors(ShadowPipeline):
                         OR c.train_id = train_retrieved_4 
                     """).fetchnumpy()['prediction_id']
 
-            # TODO: Now actually retrieve the updated results for all_predictions_to_rerun
-            # modified_predicted_test_labels = predicted_test_labels.copy()
-            # llm_input = test['tweet'][all_predictions_to_rerun].tolist()
-            # modified_predictions_diff = numpy.array(wait_llm_call(partial(rag_chain.batch, llm_input), llm_input))
-            #
-            # modified_predicted_test_labels[all_predictions_to_rerun] = modified_predictions_diff
+            diff_inputs = list(numpy.array(inputs)[all_predictions_to_rerun])
+            diff_rag_result, diff_retrieval_index = RunnableSequencePatching.execute_rag_join_diff(
+                rag_join_result[7], diff_inputs, vectorstore)
+            # Revert vectorstore changes again
+            vectorstore._collection.update(vectorstore_ids, embeddings, old_metadata, documents)
 
-            return modified_encoded_train_labels
+            new_rag_join_text_result = numpy.array(rag_join_result[2])
+            new_rag_join_text_result[all_predictions_to_rerun] = diff_rag_result
+            new_rag_join_text_result = list(new_rag_join_text_result)
+
+            new_retrieval_index = retrieval_index.copy()
+            new_retrieval_index[all_predictions_to_rerun, :] = diff_retrieval_index
+
+            new_rag_join_result = (rag_join_result[0], rag_join_result[1], new_rag_join_text_result, rag_join_result[3],
+                                   rag_join_result[4], rag_join_result[5], new_retrieval_index, rag_join_result[7])
+            return new_rag_join_result
 
         new_label_flip_node = DagNode(singleton.get_next_op_id(),
                                       BasicCodeLocation("Label Errors", None),
@@ -286,6 +295,7 @@ class LabelErrors(ShadowPipeline):
         new_dag.add_edge(rag_join_operators[0], new_label_flip_node, arg_index=0)
         new_dag.add_edge(train_labels_operators[0], new_label_flip_node, arg_index=1)
         new_dag.add_edge(extraction_node, new_label_flip_node, arg_index=2)
+        new_dag.add_edge(test_data_operators[0], new_label_flip_node, arg_index=3)
 
         # new_model_node = copy_node_with_new_id(singleton, rag_join_operators[0])
         # new_dag.add_edge(train_data_operators[0], new_model_node, arg_index=0)
