@@ -226,32 +226,33 @@ class LabelErrors(ShadowPipeline):
         new_dag.add_edge(new_shapley_node, extraction_node, arg_index=0)
 
         def label_flip_processing_func(rag_join_result, encoded_train_labels, shapley_result, inputs):
-            unfair_indices = shapley_result['train_id']
-            modified_encoded_train_labels = encoded_train_labels.copy()
+            mislabeled_indices = shapley_result['train_id']
             classes = set()
             class_search_index = 0
             label_key = None
-            while len(classes) != 2 and class_search_index < len(modified_encoded_train_labels):
-                label_dict_items = list(modified_encoded_train_labels[class_search_index].items())
+            while len(classes) != 2 and class_search_index < len(encoded_train_labels):
+                label_dict_items = list(encoded_train_labels[class_search_index].items())
                 assert len(label_dict_items) == 1
                 label_key, label_value = label_dict_items[0]
                 classes.add(label_value)
                 class_search_index += 1
             classes = list(classes)
-            for unfair_index in unfair_indices:
+            diff_encoded_train_labels = numpy.array(encoded_train_labels)[mislabeled_indices]
+            for mislabeled_row in diff_encoded_train_labels:
                 assert label_key is not None
-                current_val = modified_encoded_train_labels[unfair_index][label_key]
+                current_val = mislabeled_row[label_key]
                 current_val_index = classes.index(current_val)
-                modified_encoded_train_labels[unfair_index][label_key] = classes[1 - current_val_index]
+                mislabeled_row[label_key] = classes[1 - current_val_index]
+            diff_encoded_train_labels = list(diff_encoded_train_labels)
 
             # Update the labels in the vectorstore
             vectorstore = rag_join_result[5]
-            vectorstore_ids = list(map(str, unfair_indices))
+            vectorstore_ids = list(map(str, mislabeled_indices))
             old_entries = vectorstore.get(ids=vectorstore_ids, include=["embeddings", "documents", "metadatas"])
             documents = old_entries['documents']
             embeddings = old_entries['embeddings']
             old_metadata = old_entries['metadatas']
-            vectorstore._collection.update(vectorstore_ids, embeddings, modified_encoded_train_labels, documents)
+            vectorstore._collection.update(vectorstore_ids, embeddings, diff_encoded_train_labels, documents)
             retrieval_index = rag_join_result[6]
 
             pandas_retrieval_index_df = pandas.DataFrame(retrieval_index,
