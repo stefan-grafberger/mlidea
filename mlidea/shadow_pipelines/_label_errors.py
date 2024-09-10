@@ -17,8 +17,9 @@ from mlidea.execution._pipeline_executor import singleton
 from mlidea.analysis._analysis_utils import find_nodes_by_type
 from mlidea import OperatorType, DagNode, BasicCodeLocation, OperatorContext, DagNodeDetails
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
-from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id
-from monkeypatching._patch_langchain import call_info_singleton, RunnableSequencePatching
+from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
+    get_sorted_parent_nodes
+from monkeypatching._patch_langchain import RunnableSequencePatching
 
 
 class LabelErrors(ShadowPipeline):
@@ -40,6 +41,7 @@ class LabelErrors(ShadowPipeline):
             raise NotImplementedError("TODO")
         self._shadow_pipeline_id = (
             train_fraction_to_consider, test_fraction_to_consider, proxy_model, cleaning_batch_size)
+        self.score_operator_count = 0
 
     @property
     def shadow_pipeline_id(self):
@@ -73,13 +75,16 @@ class LabelErrors(ShadowPipeline):
         train_labels_operators = find_nodes_by_type(dag, OperatorType.TRAIN_LABELS)
         test_data_operators = find_nodes_by_type(dag, OperatorType.TEST_DATA)
         test_labels_operators = find_nodes_by_type(dag, OperatorType.TEST_LABELS)
-        if len(predict_operators) != 1 or len(score_operators) != 1 or len(model_operators) != 1 \
+        if len(predict_operators) != 1 or len(score_operators) < 1 or len(model_operators) != 1 \
                 or len(train_data_operators) != 1 or len(train_labels_operators) != 1 \
-                or len(test_data_operators) != 1 or len(test_labels_operators) != 1:
+                or len(test_data_operators) != 1 or len(test_labels_operators) < 1:
             raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
                                       "pattern!")
-        orig_extraction_node = get_intermediate_extraction_node(singleton, score_operators[0], "label-errors-orig")
-        new_dag.add_edge(score_operators[0], orig_extraction_node, arg_index=0)
+        for score_index, score_operator in enumerate(score_operators):
+            orig_extraction_node = get_intermediate_extraction_node(singleton, score_operator,
+                                                                    f"label-errors-orig-{score_index}")
+            new_dag.add_edge(score_operator, orig_extraction_node, arg_index=0)
+        self.score_operator_count = len(score_operators)
 
         def shapley_top_k_func(encoded_train_data, encoded_train_labels, encoded_test_data, encoded_test_labels,
                                train_fraction_to_consider, test_fraction_to_consider, cleaning_batch_size):
@@ -147,12 +152,19 @@ class LabelErrors(ShadowPipeline):
         new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
         new_dag.add_edge(new_model_node, new_predict_node, arg_index=0)
         new_dag.add_edge(test_data_operators[0], new_predict_node, arg_index=1)
-        new_score_node = copy_node_with_new_id(singleton, score_operators[0])
-        new_dag.add_edge(new_predict_node, new_score_node, arg_index=0)
-        new_dag.add_edge(test_labels_operators[0], new_score_node, arg_index=1)
-        retrain_extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node,
-                                                                   "label-errors-flip-retrain")
-        new_dag.add_edge(new_score_node, retrain_extraction_node, arg_index=0)
+
+        for score_index, score_operator in enumerate(score_operators):
+            new_score_node = copy_node_with_new_id(singleton, score_operators[0])
+            new_dag.add_edge(new_predict_node, new_score_node, arg_index=0)
+            new_dag.add_edge(test_labels_operators[0], new_score_node, arg_index=1)
+            parents = get_sorted_parent_nodes(dag, score_operator)[2:]
+            for parent_index, parent in enumerate(parents):
+                # TODO: There might be shadow pipeline edge cases where this does not work without further work
+                new_dag.add_edge(parent, new_score_node, arg_index=parent_index + 2)
+
+            retrain_extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node,
+                                                                       f"label-errors-flip-retrain-{score_index}")
+            new_dag.add_edge(new_score_node, retrain_extraction_node, arg_index=0)
         return new_dag
 
     def get_llm_rag_dag(self, dag):
@@ -167,20 +179,25 @@ class LabelErrors(ShadowPipeline):
         test_data_operators = find_nodes_by_type(dag, OperatorType.TEST_DATA)
         test_labels_operators = find_nodes_by_type(dag, OperatorType.TEST_LABELS)
 
-        if len(predict_operators) != 1 or len(score_operators) != 1 or len(rag_join_operators) != 1 \
+        if len(predict_operators) != 1 or len(score_operators) < 1 or len(rag_join_operators) != 1 \
                 or len(train_data_operators) != 1 or len(train_labels_operators) != 1 \
-                or len(test_data_operators) != 1 or len(test_labels_operators) != 1:
+                or len(test_data_operators) != 1 or len(test_labels_operators) < 1:
             raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
                                       "pattern!")
         label_encoder_operators = list(new_dag.predecessors(test_labels_operators[0]))
         if len(label_encoder_operators) != 1 or "label_binarize" not in label_encoder_operators[0].details.description:
             raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
                                       "pattern!")
+
+        self.score_operator_count = len(score_operators)
+
         train_labels_dict_conversion = list(new_dag.predecessors(train_labels_operators[0]))[0]
         train_labels_before_dict = list(new_dag.predecessors(train_labels_dict_conversion))[0]
 
-        orig_extraction_node = get_intermediate_extraction_node(singleton, score_operators[0], "label-errors-orig")
-        new_dag.add_edge(score_operators[0], orig_extraction_node, arg_index=0)
+        for score_index, score_operator in enumerate(score_operators):
+            orig_extraction_node = get_intermediate_extraction_node(singleton, score_operator,
+                                                                    f"label-errors-orig-{score_index}")
+            new_dag.add_edge(score_operator, orig_extraction_node, arg_index=0)
 
         def shapley_top_k_func(rag_join_result, train_labels_before_dict, encoded_test_data, encoded_test_labels,
                                train_fraction_to_consider, test_fraction_to_consider, cleaning_batch_size):
@@ -305,19 +322,29 @@ class LabelErrors(ShadowPipeline):
 
         new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
         new_dag.add_edge(new_label_flip_node, new_predict_node, arg_index=0)
-        new_score_node = copy_node_with_new_id(singleton, score_operators[0])
-        new_dag.add_edge(new_predict_node, new_score_node, arg_index=0)
-        new_dag.add_edge(test_labels_operators[0], new_score_node, arg_index=1)
-        retrain_extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node,
-                                                                   "label-errors-flip-retrain")
-        new_dag.add_edge(new_score_node, retrain_extraction_node, arg_index=0)
+        for score_index, score_operator in enumerate(score_operators):
+            new_score_node = copy_node_with_new_id(singleton, score_operators[0])
+            new_dag.add_edge(new_predict_node, new_score_node, arg_index=0)
+            new_dag.add_edge(test_labels_operators[0], new_score_node, arg_index=1)
+            parents = get_sorted_parent_nodes(dag, score_operator)[2:]
+            for parent_index, parent in enumerate(parents):
+                # TODO: There might be shadow pipeline edge cases where this does not work without further work
+                new_dag.add_edge(parent, new_score_node, arg_index=parent_index + 2)
+
+            retrain_extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node,
+                                                                       f"label-errors-flip-retrain-{score_index}")
+            new_dag.add_edge(new_score_node, retrain_extraction_node, arg_index=0)
         return new_dag
 
     def generate_final_report(self, extracted_plan_results: dict[str, any]) -> any:
         # result_df = pandas.DataFrame({'todo': []})
-        orig_result = extracted_plan_results["label-errors-orig"]
+        orig_result = []
+        for score_index in range(self.score_operator_count):
+            orig_result.append(extracted_plan_results[f"label-errors-orig-{score_index}"])
         shapley_values = extracted_plan_results["label-errors-shapley-values"]
-        flip_result = extracted_plan_results["label-errors-flip-retrain"]
+        flip_result = []
+        for score_index in range(self.score_operator_count):
+            flip_result.append(extracted_plan_results[f"label-errors-flip-retrain-{score_index}"])
         return (f"The original result was {orig_result}. After flipping the top {self._cleaning_batch_size} most "
                 f"likely incorrect row labels, the pipeline metric was {flip_result}. The shapley values of the "
                 f"most likely mislabeled rows: {str(shapley_values)}.")

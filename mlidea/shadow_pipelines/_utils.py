@@ -1,3 +1,5 @@
+import networkx
+
 from mlidea import DagNode, OperatorContext, OperatorType, DagNodeDetails
 
 
@@ -26,3 +28,13 @@ def copy_node_with_new_id(singleton, dag_node):
                      dag_node.processing_func,
                      dag_node.make_classifier_func)
     return result
+
+
+def get_sorted_parent_nodes(dag: networkx.DiGraph, first_op_requiring_corruption):
+    """Get the parent nodes of a node sorted by arg_index"""
+    operator_parent_nodes = list(dag.predecessors(first_op_requiring_corruption))
+    parent_nodes_with_arg_index = [(parent_node, dag.get_edge_data(parent_node, first_op_requiring_corruption))
+                                   for parent_node in operator_parent_nodes]
+    parent_nodes_with_arg_index = sorted(parent_nodes_with_arg_index, key=lambda x: x[1]['arg_index'])
+    operator_parent_nodes = [node for (node, _) in parent_nodes_with_arg_index]
+    return operator_parent_nodes
