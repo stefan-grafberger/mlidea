@@ -118,6 +118,23 @@ def test_label_errors_anhedonia_llm(tmpdir):
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
 
+def test_label_errors_adult_complex(tmpdir):
+    """
+    Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
+    """
+    label_errors = LabelErrors()
+    analysis_result = PipelineAnalyzer \
+        .on_pipeline_from_py_file(ADULT_COMPLEX_PY) \
+        .add_shadow_pipeline(label_errors) \
+        .execute()
+
+    report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
+    # assert report.shape == (4, 2)
+    assert "the pipeline metric was" in report
+
+    visualize_dags_shadow_pipelines(analysis_result, tmpdir)
+
+
 def test_label_errors_healthcare(tmpdir):
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
@@ -132,22 +149,6 @@ def test_label_errors_healthcare(tmpdir):
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
     # assert report.shape == (4, 2)
     assert "the pipeline metric was" in report
-
-    visualize_dags_shadow_pipelines(analysis_result, tmpdir)
-
-
-def test_label_errors_adult_complex(tmpdir):
-    """
-    Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
-    """
-    label_errors = LabelErrors()
-    analysis_result = PipelineAnalyzer \
-        .on_pipeline_from_py_file(ADULT_COMPLEX_PY) \
-        .add_shadow_pipeline(label_errors) \
-        .execute()
-
-    report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    # assert report.shape == (4, 2)
-    assert "the pipeline metric was" in report
+    # TODO: Does not work yet because of multiple score functions
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)

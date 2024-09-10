@@ -11,6 +11,7 @@ import networkx
 import numpy
 import pandas
 from numba import prange, njit
+from scipy.sparse import csr_matrix
 
 from mlidea.execution._pipeline_executor import singleton
 from mlidea.analysis._analysis_utils import find_nodes_by_type
@@ -96,6 +97,10 @@ class LabelErrors(ShadowPipeline):
             test_data_sample = encoded_test_data[test_indices_to_consider]
             test_label_sample = encoded_test_labels[test_indices_to_consider]
 
+            if isinstance(train_data_sample, csr_matrix):
+                train_data_sample = train_data_sample.todense()
+            if isinstance(test_data_sample, csr_matrix):
+                test_data_sample = test_data_sample.todense()
             shapley_values = LabelErrors._compute_shapley_values(train_data_sample, numpy.squeeze(train_label_sample),
                                                                  test_data_sample, numpy.squeeze(test_label_sample))
             df_with_id_and_shapley_value = pandas.DataFrame(
