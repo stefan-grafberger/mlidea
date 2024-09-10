@@ -63,12 +63,12 @@ def execute_embedding_similarity_join(retrieval_corpus_X, retrieval_corpus_y, em
             prov_value_str_list = list(map(str, prov_value))  # pylint: disable=bad-builtin
             prov_str_dict[prov_key] = prov_value_str_list
 
-        all_prov_value_str = []
-        for row_prov_id in range(len(list(prov_str_dict.items())[0][1])):
-            new_prov_value_str = ""
-            for prov_key, prov_value in list(prov_str_dict.items()):
-                new_prov_value_str += f"{prov_key}: {prov_value[row_prov_id]};"
-            all_prov_value_str.append(new_prov_value_str)
+        # all_prov_value_str = []
+        # for row_prov_id in range(len(list(prov_str_dict.items())[0][1])):
+        #     new_prov_value_str = ""
+        #     for prov_key, prov_value in list(prov_str_dict.items()):
+        #         new_prov_value_str += f"{prov_key}: {prov_value[row_prov_id]};"
+        #     all_prov_value_str.append(new_prov_value_str)
         # TODO: Improve performance here
         metadatas_with_prov = []
         for row_metadatas, row_prov_id in zip(retrieval_corpus_y, range(len(list(prov_str_dict.items())[0][1]))):
@@ -80,7 +80,7 @@ def execute_embedding_similarity_join(retrieval_corpus_X, retrieval_corpus_y, em
         filled_vectorstore = Chroma.from_texts(texts=retrieval_corpus_X, metadatas=metadatas_with_prov,
                                                embedding=embedding,
                                                # TODO: Not sure if ids is really necessary in addition to metadatas prov
-                                               ids=all_prov_value_str).as_retriever()
+                                               ids=list(map(str, range(len(retrieval_corpus_X))))).as_retriever()
     results = filled_vectorstore.batch(inputs)
     results = wrap_in_mlinspect_array_if_necessary(results)
     results._mlinspect_provenance = {}

@@ -195,7 +195,7 @@ class LabelErrors(ShadowPipeline):
             num_values_to_typo = int(len(encoded_test_labels) * test_fraction_to_consider)
             test_indices_to_consider = indices[:num_values_to_typo]
             test_data_sample = numpy.array(vectorstore.embeddings.embed_documents(
-                encoded_test_data[test_indices_to_consider.astype(int)]))
+                numpy.array(encoded_test_data)[test_indices_to_consider]))
             test_label_sample = encoded_test_labels[test_indices_to_consider]
 
             shapley_values = LabelErrors._compute_shapley_values(train_data_sample, numpy.squeeze(train_label_sample),
