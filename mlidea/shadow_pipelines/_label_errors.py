@@ -297,18 +297,14 @@ class LabelErrors(ShadowPipeline):
         new_dag.add_edge(extraction_node, new_label_flip_node, arg_index=2)
         new_dag.add_edge(test_data_operators[0], new_label_flip_node, arg_index=3)
 
-        # new_model_node = copy_node_with_new_id(singleton, rag_join_operators[0])
-        # new_dag.add_edge(train_data_operators[0], new_model_node, arg_index=0)
-        # new_dag.add_edge(new_label_flip_node, new_model_node, arg_index=1)
-        # new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
-        # new_dag.add_edge(new_model_node, new_predict_node, arg_index=0)
-        # new_dag.add_edge(test_data_operators[0], new_predict_node, arg_index=1)
-        # new_score_node = copy_node_with_new_id(singleton, score_operators[0])
-        # new_dag.add_edge(new_predict_node, new_score_node, arg_index=0)
-        # new_dag.add_edge(test_labels_operators[0], new_score_node, arg_index=1)
-        # retrain_extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node,
-        #                                                            "label-errors-flip-retrain")
-        # new_dag.add_edge(new_score_node, retrain_extraction_node, arg_index=0)
+        new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
+        new_dag.add_edge(new_label_flip_node, new_predict_node, arg_index=0)
+        new_score_node = copy_node_with_new_id(singleton, score_operators[0])
+        new_dag.add_edge(new_predict_node, new_score_node, arg_index=0)
+        new_dag.add_edge(test_labels_operators[0], new_score_node, arg_index=1)
+        retrain_extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node,
+                                                                   "label-errors-flip-retrain")
+        new_dag.add_edge(new_score_node, retrain_extraction_node, arg_index=0)
         return new_dag
 
     def generate_final_report(self, extracted_plan_results: dict[str, any]) -> any:
