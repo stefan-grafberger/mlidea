@@ -250,7 +250,7 @@ class LabelErrors(ShadowPipeline):
             documents = old_entries['documents']
             embeddings = old_entries['embeddings']
             vectorstore._collection.update(vectorstore_ids, embeddings, modified_encoded_train_labels, documents)
-            retrieval_index = rag_join_result[6][0]
+            retrieval_index = rag_join_result[6]
 
             return modified_encoded_train_labels
 

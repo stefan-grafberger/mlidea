@@ -41,8 +41,6 @@ class LangchainCallInfo:
     """ Contains info like lineno from the current Transformer so indirect utility function calls can access it """
     # pylint: disable=too-few-public-methods
     runnable_sequence_active: bool = False
-    prediction_counter = [0]
-    retrieval_index = [numpy.zeros((0, 4), dtype=int)]
 
 
 call_info_singleton = LangchainCallInfo()
@@ -110,15 +108,10 @@ def execute_embedding_similarity_join(retrieval_corpus_X, retrieval_corpus_y, em
     # Without this there are some re-execution issues
     results._mlinspect_vectorstore_ref = filled_vectorstore.vectorstore
 
-    if call_info_singleton.retrieval_index[0].shape[0] < len(results):
-        call_info_singleton.prediction_counter = [0]
-        call_info_singleton.retrieval_index[0] = numpy.zeros((len(results), 4), dtype=int)
-    if call_info_singleton.prediction_counter[0] < call_info_singleton.retrieval_index[0].shape[0]:
-        for result in results:
-            call_info_singleton.retrieval_index[0][call_info_singleton.prediction_counter[0], :] = [
-                doc.metadata['_metadata_ids'] for doc in result]
-            call_info_singleton.prediction_counter[0] += 1
-    results._mlinspect_retrieval_index = call_info_singleton.retrieval_index.copy()
+    retrieval_index = numpy.zeros((len(results), 4), dtype=int)
+    for prediction_index, result in enumerate(results):
+        retrieval_index[prediction_index, :] = [doc.metadata['_metadata_ids'] for doc in result]
+    results._mlinspect_retrieval_index = retrieval_index
     return results
 
 

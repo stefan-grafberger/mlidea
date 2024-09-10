@@ -18,6 +18,7 @@ class MlinspectList(list):
     _mlinspect_retrieval_index = None
 
 
+
 class MlinspectDict(dict):
     """A dict wrapper that can store mlinspect annotations"""
     _mlinspect_dag_node = None
