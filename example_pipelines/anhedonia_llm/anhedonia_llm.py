@@ -1,6 +1,7 @@
 import time
 from functools import partial
 
+import numpy
 import pandas as pd
 from langchain_community.embeddings.huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma  # pylint: disable=no-name-in-module
@@ -8,7 +9,7 @@ from sklearn.metrics import accuracy_score
 from sklearn.preprocessing import label_binarize
 
 from example_pipelines.anhedonia_llm.pipeline_utils import initialize_environment, \
-    get_langchain_rag_binary_classification, wait_llm_call
+    wait_llm_call, get_langchain_rag_binary_classification_with_retrieval_tracking
 from mlidea.utils import get_project_root
 
 initialize_environment()
@@ -47,7 +48,9 @@ test = pd.read_parquet(test_location)
 vectorstore = Chroma.from_texts(texts=train['tweet'].to_list(), metadatas=train[['label']].to_dict('records'),
                                 embedding=HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2'))
 
-rag_chain = get_langchain_rag_binary_classification(list(boolean_dictionary.values()), vectorstore.as_retriever())
+# remember to reset this if we want to update the index on more than the first test set prediction call
+rag_chain = get_langchain_rag_binary_classification_with_retrieval_tracking(
+    list(boolean_dictionary.values()), vectorstore.as_retriever())
 
 y_predicted = wait_llm_call(partial(rag_chain.batch, test['tweet'].to_list()), test)
 y_test_binarized = label_binarize(test['anhedonia'], classes=[True, False])

@@ -16,6 +16,7 @@ from mlidea.analysis._analysis_utils import find_nodes_by_type
 from mlidea import OperatorType, DagNode, BasicCodeLocation, OperatorContext, DagNodeDetails
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id
+from monkeypatching._patch_langchain import call_info_singleton
 
 
 class LabelErrors(ShadowPipeline):
@@ -223,10 +224,34 @@ class LabelErrors(ShadowPipeline):
         extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node, "label-errors-shapley-values")
         new_dag.add_edge(new_shapley_node, extraction_node, arg_index=0)
 
-        def label_flip_processing_func(encoded_train_labels, shapley_result):
+        def label_flip_processing_func(rag_join_result, encoded_train_labels, shapley_result):
             unfair_indices = shapley_result['train_id']
             modified_encoded_train_labels = encoded_train_labels.copy()
-            modified_encoded_train_labels[unfair_indices, :] = 1 - modified_encoded_train_labels[unfair_indices, :]
+            classes = set()
+            class_search_index = 0
+            label_key = None
+            while len(classes) != 2 and class_search_index < len(modified_encoded_train_labels):
+                label_dict_items = list(modified_encoded_train_labels[class_search_index].items())
+                assert len(label_dict_items) == 1
+                label_key, label_value = label_dict_items[0]
+                classes.add(label_value)
+                class_search_index += 1
+            classes = list(classes)
+            for unfair_index in unfair_indices:
+                assert label_key is not None
+                current_val = modified_encoded_train_labels[unfair_index][label_key]
+                current_val_index = classes.index(current_val)
+                modified_encoded_train_labels[unfair_index][label_key] = classes[1 - current_val_index]
+
+            # Update the labels in the vectorstore
+            vectorstore = rag_join_result[5]
+            vectorstore_ids = list(map(str, unfair_indices))
+            old_entries = vectorstore.get(ids=vectorstore_ids, include=["embeddings", "documents"])
+            documents = old_entries['documents']
+            embeddings = old_entries['embeddings']
+            vectorstore._collection.update(vectorstore_ids, embeddings, modified_encoded_train_labels, documents)
+            retrieval_index = rag_join_result[6][0]
+
             return modified_encoded_train_labels
 
         new_label_flip_node = DagNode(singleton.get_next_op_id(),
@@ -236,20 +261,22 @@ class LabelErrors(ShadowPipeline):
                                           f"Flip {self._cleaning_batch_size} most likely incorrect labels", None),
                                       None,
                                       label_flip_processing_func)
-        new_dag.add_edge(train_labels_operators[0], new_label_flip_node, arg_index=0)
-        new_dag.add_edge(extraction_node, new_label_flip_node, arg_index=1)
-        new_model_node = copy_node_with_new_id(singleton, rag_join_operators[0])
-        new_dag.add_edge(train_data_operators[0], new_model_node, arg_index=0)
-        new_dag.add_edge(new_label_flip_node, new_model_node, arg_index=1)
-        new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
-        new_dag.add_edge(new_model_node, new_predict_node, arg_index=0)
-        new_dag.add_edge(test_data_operators[0], new_predict_node, arg_index=1)
-        new_score_node = copy_node_with_new_id(singleton, score_operators[0])
-        new_dag.add_edge(new_predict_node, new_score_node, arg_index=0)
-        new_dag.add_edge(test_labels_operators[0], new_score_node, arg_index=1)
-        retrain_extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node,
-                                                                   "label-errors-flip-retrain")
-        new_dag.add_edge(new_score_node, retrain_extraction_node, arg_index=0)
+        new_dag.add_edge(rag_join_operators[0], new_label_flip_node, arg_index=0)
+        new_dag.add_edge(train_labels_operators[0], new_label_flip_node, arg_index=1)
+        new_dag.add_edge(extraction_node, new_label_flip_node, arg_index=2)
+
+        # new_model_node = copy_node_with_new_id(singleton, rag_join_operators[0])
+        # new_dag.add_edge(train_data_operators[0], new_model_node, arg_index=0)
+        # new_dag.add_edge(new_label_flip_node, new_model_node, arg_index=1)
+        # new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
+        # new_dag.add_edge(new_model_node, new_predict_node, arg_index=0)
+        # new_dag.add_edge(test_data_operators[0], new_predict_node, arg_index=1)
+        # new_score_node = copy_node_with_new_id(singleton, score_operators[0])
+        # new_dag.add_edge(new_predict_node, new_score_node, arg_index=0)
+        # new_dag.add_edge(test_labels_operators[0], new_score_node, arg_index=1)
+        # retrain_extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node,
+        #                                                            "label-errors-flip-retrain")
+        # new_dag.add_edge(new_score_node, retrain_extraction_node, arg_index=0)
         return new_dag
 
     def generate_final_report(self, extracted_plan_results: dict[str, any]) -> any:
