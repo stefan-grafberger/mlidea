@@ -6,6 +6,7 @@
 # might not be the final step in the data preprocessing and there might be filte
 from functools import partial
 
+import duckdb
 import networkx
 import numpy
 import pandas
@@ -251,6 +252,27 @@ class LabelErrors(ShadowPipeline):
             embeddings = old_entries['embeddings']
             vectorstore._collection.update(vectorstore_ids, embeddings, modified_encoded_train_labels, documents)
             retrieval_index = rag_join_result[6]
+
+            pandas_retrieval_index_df = pandas.DataFrame(retrieval_index,
+                                                         columns=['train_retrieved_1', 'train_retrieved_2',
+                                                                  'train_retrieved_3', 'train_retrieved_4'])
+            pandas_retrieval_index_df['prediction_id'] = list(range(len(rag_join_result[2])))
+            changed_df = shapley_result[['train_id']]
+            all_predictions_to_rerun = duckdb.query("""
+                        SELECT DISTINCT prediction_id
+                        FROM changed_df c JOIN pandas_retrieval_index_df p 
+                        ON c.train_id = train_retrieved_1 
+                        OR c.train_id = train_retrieved_2 
+                        OR c.train_id = train_retrieved_3 
+                        OR c.train_id = train_retrieved_4 
+                    """).fetchnumpy()['prediction_id']
+
+            # TODO: Now actually retrieve the updated results for all_predictions_to_rerun
+            # modified_predicted_test_labels = predicted_test_labels.copy()
+            # llm_input = test['tweet'][all_predictions_to_rerun].tolist()
+            # modified_predictions_diff = numpy.array(wait_llm_call(partial(rag_chain.batch, llm_input), llm_input))
+            #
+            # modified_predicted_test_labels[all_predictions_to_rerun] = modified_predictions_diff
 
             return modified_encoded_train_labels
 
