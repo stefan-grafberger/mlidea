@@ -19,7 +19,7 @@ from mlidea import OperatorType, DagNode, BasicCodeLocation, OperatorContext, Da
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
     get_sorted_parent_nodes
-from monkeypatching._patch_langchain import RunnableSequencePatching
+from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
 
 
 class LabelErrors(ShadowPipeline):
@@ -80,49 +80,10 @@ class LabelErrors(ShadowPipeline):
                 or len(test_data_operators) != 1 or len(test_labels_operators) < 1:
             raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
                                       "pattern!")
-        for score_index, score_operator in enumerate(score_operators):
-            orig_extraction_node = get_intermediate_extraction_node(singleton, score_operator,
-                                                                    f"label-errors-orig-{score_index}")
-            new_dag.add_edge(score_operator, orig_extraction_node, arg_index=0)
+        LabelErrors.add_orig_score_extraction_nodes(new_dag, score_operators)
         self.score_operator_count = len(score_operators)
 
-        def shapley_top_k_func(encoded_train_data, encoded_train_labels, encoded_test_data, encoded_test_labels,
-                               train_fraction_to_consider, test_fraction_to_consider, cleaning_batch_size):
-            indices = numpy.arange(len(encoded_train_labels))
-            numpy.random.shuffle(indices)
-
-            num_values_to_typo = int(len(encoded_train_labels) * train_fraction_to_consider)
-            train_indices_to_consider = indices[:num_values_to_typo]
-            if isinstance(encoded_train_data, (pandas.DataFrame, pandas.Series)):
-                encoded_train_data = encoded_train_data.reset_index(drop=True)
-            if isinstance(encoded_train_labels, (pandas.DataFrame, pandas.Series)):
-                encoded_train_labels = encoded_train_labels.reset_index(drop=True).to_numpy()
-            train_data_sample = encoded_train_data[train_indices_to_consider]
-            train_label_sample = encoded_train_labels[train_indices_to_consider]
-
-            indices = numpy.arange(len(encoded_test_labels))
-            num_values_to_typo = int(len(encoded_test_labels) * test_fraction_to_consider)
-            test_indices_to_consider = indices[:num_values_to_typo]
-            if isinstance(encoded_test_data, (pandas.DataFrame, pandas.Series)):
-                encoded_test_data = encoded_test_data.reset_index(drop=True)
-            if isinstance(encoded_test_labels, (pandas.DataFrame, pandas.Series)):
-                encoded_test_labels = encoded_test_labels.reset_index(drop=True).to_numpy()
-            test_data_sample = encoded_test_data[test_indices_to_consider]
-            test_label_sample = encoded_test_labels[test_indices_to_consider]
-
-            if isinstance(train_data_sample, csr_matrix):
-                train_data_sample = train_data_sample.todense()
-            if isinstance(test_data_sample, csr_matrix):
-                test_data_sample = test_data_sample.todense()
-            shapley_values = LabelErrors._compute_shapley_values(train_data_sample, numpy.squeeze(train_label_sample),
-                                                                 test_data_sample, numpy.squeeze(test_label_sample))
-            df_with_id_and_shapley_value = pandas.DataFrame(
-                {"train_id": train_indices_to_consider, "shapley_value": shapley_values})
-
-            rows_to_fix = df_with_id_and_shapley_value.nsmallest(cleaning_batch_size, "shapley_value")
-            return rows_to_fix
-
-        processing_func = partial(shapley_top_k_func, train_fraction_to_consider=self._train_fraction_to_consider,
+        processing_func = partial(LabelErrors.shapley_top_k_func_ml, train_fraction_to_consider=self._train_fraction_to_consider,
                                   test_fraction_to_consider=self._test_fraction_to_consider,
                                   cleaning_batch_size=self._cleaning_batch_size)
         new_shapley_node = DagNode(singleton.get_next_op_id(),
@@ -139,28 +100,13 @@ class LabelErrors(ShadowPipeline):
         extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node, "label-errors-shapley-values")
         new_dag.add_edge(new_shapley_node, extraction_node, arg_index=0)
 
-        def label_flip_processing_func(encoded_train_labels, shapley_result):
-            unfair_indices = shapley_result['train_id'].to_numpy()
-            if isinstance(encoded_train_labels, (pandas.Series, pandas.DataFrame)):
-                modified_encoded_train_labels = encoded_train_labels.reset_index(drop=True, inplace=False)
-            else:
-                modified_encoded_train_labels = encoded_train_labels.copy()
-            if isinstance(modified_encoded_train_labels, pandas.Series):
-                is_bool = pandas.api.types.is_bool_dtype(modified_encoded_train_labels)
-                modified_encoded_train_labels[unfair_indices] = 1 - modified_encoded_train_labels[unfair_indices]
-                if is_bool:
-                    modified_encoded_train_labels = modified_encoded_train_labels.astype(bool)
-            else:
-                modified_encoded_train_labels[unfair_indices, :] = 1 - modified_encoded_train_labels[unfair_indices, :]
-            return modified_encoded_train_labels
-
         new_label_flip_node = DagNode(singleton.get_next_op_id(),
                                       BasicCodeLocation("Label Errors", None),
                                       OperatorContext(OperatorType.PROJECTION, None),
                                       DagNodeDetails(
                                           f"Flip {self._cleaning_batch_size} most likely incorrect labels", None),
                                       None,
-                                      label_flip_processing_func)
+                                      LabelErrors.label_flip_processing_func_ml)
         new_dag.add_edge(train_labels_operators[0], new_label_flip_node, arg_index=0)
         new_dag.add_edge(extraction_node, new_label_flip_node, arg_index=1)
         new_model_node = copy_node_with_new_id(singleton, model_operators[0])
@@ -170,22 +116,11 @@ class LabelErrors(ShadowPipeline):
         new_dag.add_edge(new_model_node, new_predict_node, arg_index=0)
         new_dag.add_edge(test_data_operators[0], new_predict_node, arg_index=1)
 
-        for score_index, score_operator in enumerate(score_operators):
-            new_score_node = copy_node_with_new_id(singleton, score_operator)
-            new_dag.add_edge(new_predict_node, new_score_node, arg_index=0)
-            new_dag.add_edge(test_labels_operators[0], new_score_node, arg_index=1)
-            parents = get_sorted_parent_nodes(dag, score_operator)[2:]
-            for parent_index, parent in enumerate(parents):
-                # TODO: There might be shadow pipeline edge cases where this does not work without further work
-                new_dag.add_edge(parent, new_score_node, arg_index=parent_index + 2)
-
-            retrain_extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node,
-                                                                       f"label-errors-flip-retrain-{score_index}")
-            new_dag.add_edge(new_score_node, retrain_extraction_node, arg_index=0)
+        LabelErrors.add_new_score_and_score_extraction_nodes(new_dag, new_predict_node, score_operators,
+                                                             test_labels_operators)
         return new_dag
 
     def get_llm_rag_dag(self, dag):
-        # FIXME: This won't work yet
         new_dag = dag.copy()
 
         predict_operators = find_nodes_by_type(dag, OperatorType.PREDICT)
@@ -211,45 +146,13 @@ class LabelErrors(ShadowPipeline):
         train_labels_dict_conversion = list(new_dag.predecessors(train_labels_operators[0]))[0]
         train_labels_before_dict = list(new_dag.predecessors(train_labels_dict_conversion))[0]
 
-        for score_index, score_operator in enumerate(score_operators):
-            orig_extraction_node = get_intermediate_extraction_node(singleton, score_operator,
-                                                                    f"label-errors-orig-{score_index}")
-            new_dag.add_edge(score_operator, orig_extraction_node, arg_index=0)
+        LabelErrors.add_orig_score_extraction_nodes(new_dag, score_operators)
 
-        def shapley_top_k_func(rag_join_result, train_labels_before_dict, encoded_test_data, encoded_test_labels,
-                               train_fraction_to_consider, test_fraction_to_consider, cleaning_batch_size):
-            indices = numpy.arange(len(train_labels_before_dict))
-            numpy.random.shuffle(indices)
-
-            num_values_to_typo = int(len(train_labels_before_dict) * train_fraction_to_consider)
-            train_indices_to_consider = indices[:num_values_to_typo]
-
-            vectorstore = rag_join_result[5]
-            train_data_sample = numpy.array(vectorstore.get(
-                ids=list(map(str, train_indices_to_consider)), include=["embeddings"])['embeddings'])
-            to_label_encode = train_labels_before_dict.iloc[train_indices_to_consider, 0]
-            # FIXME: What should we do provenance-wise in shadow pipelines?
-            to_label_encode._mlinspect_provenance = None
-            train_label_sample = label_encoder_operators[0].processing_func(to_label_encode)
-
-            indices = numpy.arange(len(encoded_test_labels))
-            num_values_to_typo = int(len(encoded_test_labels) * test_fraction_to_consider)
-            test_indices_to_consider = indices[:num_values_to_typo]
-            test_data_sample = numpy.array(vectorstore.embeddings.embed_documents(
-                numpy.array(encoded_test_data)[test_indices_to_consider]))
-            test_label_sample = encoded_test_labels[test_indices_to_consider]
-
-            shapley_values = LabelErrors._compute_shapley_values(train_data_sample, numpy.squeeze(train_label_sample),
-                                                                 test_data_sample, numpy.squeeze(test_label_sample))
-            df_with_id_and_shapley_value = pandas.DataFrame(
-                {"train_id": train_indices_to_consider, "shapley_value": shapley_values})
-
-            rows_to_fix = df_with_id_and_shapley_value.nsmallest(cleaning_batch_size, "shapley_value")
-            return rows_to_fix
-
-        processing_func = partial(shapley_top_k_func, train_fraction_to_consider=self._train_fraction_to_consider,
+        processing_func = partial(LabelErrors.shapley_top_k_func_llm,
+                                  train_fraction_to_consider=self._train_fraction_to_consider,
                                   test_fraction_to_consider=self._test_fraction_to_consider,
-                                  cleaning_batch_size=self._cleaning_batch_size)
+                                  cleaning_batch_size=self._cleaning_batch_size,
+                                  label_encoding_op=label_encoder_operators[0])
         new_shapley_node = DagNode(singleton.get_next_op_id(),
                                    BasicCodeLocation("Label Errors", None),
                                    OperatorContext(OperatorType.GROUP_BY_AGG, None),
@@ -264,74 +167,13 @@ class LabelErrors(ShadowPipeline):
         extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node, "label-errors-shapley-values")
         new_dag.add_edge(new_shapley_node, extraction_node, arg_index=0)
 
-        def label_flip_processing_func(rag_join_result, encoded_train_labels, shapley_result, inputs):
-            mislabeled_indices = shapley_result['train_id']
-            classes = set()
-            class_search_index = 0
-            label_key = None
-            while len(classes) != 2 and class_search_index < len(encoded_train_labels):
-                label_dict_items = list(encoded_train_labels[class_search_index].items())
-                assert len(label_dict_items) == 1
-                label_key, label_value = label_dict_items[0]
-                classes.add(label_value)
-                class_search_index += 1
-            classes = list(classes)
-            diff_encoded_train_labels = numpy.array(encoded_train_labels)[mislabeled_indices]
-            for mislabeled_row in diff_encoded_train_labels:
-                assert label_key is not None
-                current_val = mislabeled_row[label_key]
-                current_val_index = classes.index(current_val)
-                mislabeled_row[label_key] = classes[1 - current_val_index]
-            diff_encoded_train_labels = list(diff_encoded_train_labels)
-
-            # Update the labels in the vectorstore
-            vectorstore = rag_join_result[5]
-            vectorstore_ids = list(map(str, mislabeled_indices))
-            old_entries = vectorstore.get(ids=vectorstore_ids, include=["embeddings", "documents", "metadatas"])
-            documents = old_entries['documents']
-            embeddings = old_entries['embeddings']
-            old_metadata = old_entries['metadatas']
-            vectorstore._collection.update(vectorstore_ids, embeddings, diff_encoded_train_labels, documents)
-            retrieval_index = rag_join_result[6]
-
-            pandas_retrieval_index_df = pandas.DataFrame(retrieval_index,
-                                                         columns=['train_retrieved_1', 'train_retrieved_2',
-                                                                  'train_retrieved_3', 'train_retrieved_4'])
-            pandas_retrieval_index_df['prediction_id'] = list(range(len(rag_join_result[2])))
-            changed_df = shapley_result[['train_id']]
-            all_predictions_to_rerun = duckdb.query("""
-                        SELECT DISTINCT prediction_id
-                        FROM changed_df c JOIN pandas_retrieval_index_df p 
-                        ON c.train_id = train_retrieved_1 
-                        OR c.train_id = train_retrieved_2 
-                        OR c.train_id = train_retrieved_3 
-                        OR c.train_id = train_retrieved_4 
-                    """).fetchnumpy()['prediction_id']
-
-            diff_inputs = list(numpy.array(inputs)[all_predictions_to_rerun])
-            diff_rag_result, diff_retrieval_index = RunnableSequencePatching.execute_rag_join_diff(
-                rag_join_result[7], diff_inputs, vectorstore)
-            # Revert vectorstore changes again
-            vectorstore._collection.update(vectorstore_ids, embeddings, old_metadata, documents)
-
-            new_rag_join_text_result = numpy.array(rag_join_result[2])
-            new_rag_join_text_result[all_predictions_to_rerun] = diff_rag_result
-            new_rag_join_text_result = list(new_rag_join_text_result)
-
-            new_retrieval_index = retrieval_index.copy()
-            new_retrieval_index[all_predictions_to_rerun, :] = diff_retrieval_index
-
-            new_rag_join_result = (rag_join_result[0], rag_join_result[1], new_rag_join_text_result, rag_join_result[3],
-                                   rag_join_result[4], rag_join_result[5], new_retrieval_index, rag_join_result[7])
-            return new_rag_join_result
-
         new_label_flip_node = DagNode(singleton.get_next_op_id(),
                                       BasicCodeLocation("Label Errors", None),
                                       OperatorContext(OperatorType.PROJECTION, None),
                                       DagNodeDetails(
                                           f"Flip {self._cleaning_batch_size} most likely incorrect labels", None),
                                       None,
-                                      label_flip_processing_func)
+                                      LabelErrors.label_flip_processing_func_llm)
         new_dag.add_edge(rag_join_operators[0], new_label_flip_node, arg_index=0)
         new_dag.add_edge(train_labels_operators[0], new_label_flip_node, arg_index=1)
         new_dag.add_edge(extraction_node, new_label_flip_node, arg_index=2)
@@ -339,22 +181,18 @@ class LabelErrors(ShadowPipeline):
 
         new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
         new_dag.add_edge(new_label_flip_node, new_predict_node, arg_index=0)
-        for score_index, score_operator in enumerate(score_operators):
-            new_score_node = copy_node_with_new_id(singleton, score_operator)
-            new_dag.add_edge(new_predict_node, new_score_node, arg_index=0)
-            new_dag.add_edge(test_labels_operators[0], new_score_node, arg_index=1)
-            parents = get_sorted_parent_nodes(dag, score_operator)[2:]
-            for parent_index, parent in enumerate(parents):
-                # TODO: There might be shadow pipeline edge cases where this does not work without further work
-                new_dag.add_edge(parent, new_score_node, arg_index=parent_index + 2)
-
-            retrain_extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node,
-                                                                       f"label-errors-flip-retrain-{score_index}")
-            new_dag.add_edge(new_score_node, retrain_extraction_node, arg_index=0)
+        LabelErrors.add_new_score_and_score_extraction_nodes(new_dag, new_predict_node, score_operators,
+                                                             test_labels_operators)
         return new_dag
 
+    @staticmethod
+    def add_orig_score_extraction_nodes(new_dag, score_operators):
+        for score_index, score_operator in enumerate(score_operators):
+            orig_extraction_node = get_intermediate_extraction_node(singleton, score_operator,
+                                                                    f"label-errors-orig-{score_index}")
+            new_dag.add_edge(score_operator, orig_extraction_node, arg_index=0)
+
     def generate_final_report(self, extracted_plan_results: dict[str, any]) -> any:
-        # result_df = pandas.DataFrame({'todo': []})
         orig_result = []
         for score_index in range(self.score_operator_count):
             orig_result.append(extracted_plan_results[f"label-errors-orig-{score_index}"])
@@ -396,3 +234,167 @@ class LabelErrors(ShadowPipeline):
             result += score / M
 
         return result
+
+    @staticmethod
+    def shapley_top_k_func_llm(rag_join_result, train_labels_before_dict, encoded_test_data, encoded_test_labels,
+                               train_fraction_to_consider, test_fraction_to_consider, cleaning_batch_size,
+                               label_encoding_op):
+        indices = numpy.arange(len(train_labels_before_dict))
+        numpy.random.shuffle(indices)
+
+        num_values_to_typo = int(len(train_labels_before_dict) * train_fraction_to_consider)
+        train_indices_to_consider = indices[:num_values_to_typo]
+
+        vectorstore = rag_join_result[5]
+        train_data_sample = numpy.array(vectorstore.get(
+            ids=list(map(str, train_indices_to_consider)), include=["embeddings"])['embeddings'])
+        to_label_encode = train_labels_before_dict.iloc[train_indices_to_consider, 0]
+        # FIXME: What should we do provenance-wise in shadow pipelines?
+        to_label_encode._mlinspect_provenance = None
+        train_label_sample = label_encoding_op.processing_func(to_label_encode)
+
+        indices = numpy.arange(len(encoded_test_labels))
+        num_values_to_typo = int(len(encoded_test_labels) * test_fraction_to_consider)
+        test_indices_to_consider = indices[:num_values_to_typo]
+        test_data_sample = numpy.array(vectorstore.embeddings.embed_documents(
+            numpy.array(encoded_test_data)[test_indices_to_consider]))
+        test_label_sample = encoded_test_labels[test_indices_to_consider]
+
+        shapley_values = LabelErrors._compute_shapley_values(train_data_sample, numpy.squeeze(train_label_sample),
+                                                             test_data_sample, numpy.squeeze(test_label_sample))
+        df_with_id_and_shapley_value = pandas.DataFrame(
+            {"train_id": train_indices_to_consider, "shapley_value": shapley_values})
+
+        rows_to_fix = df_with_id_and_shapley_value.nsmallest(cleaning_batch_size, "shapley_value")
+        return rows_to_fix
+
+    @staticmethod
+    def shapley_top_k_func_ml(encoded_train_data, encoded_train_labels, encoded_test_data, encoded_test_labels,
+                              train_fraction_to_consider, test_fraction_to_consider, cleaning_batch_size):
+        indices = numpy.arange(len(encoded_train_labels))
+        numpy.random.shuffle(indices)
+
+        num_values_to_typo = int(len(encoded_train_labels) * train_fraction_to_consider)
+        train_indices_to_consider = indices[:num_values_to_typo]
+        if isinstance(encoded_train_data, (pandas.DataFrame, pandas.Series)):
+            encoded_train_data = encoded_train_data.reset_index(drop=True)
+        if isinstance(encoded_train_labels, (pandas.DataFrame, pandas.Series)):
+            encoded_train_labels = encoded_train_labels.reset_index(drop=True).to_numpy()
+        train_data_sample = encoded_train_data[train_indices_to_consider]
+        train_label_sample = encoded_train_labels[train_indices_to_consider]
+
+        indices = numpy.arange(len(encoded_test_labels))
+        num_values_to_typo = int(len(encoded_test_labels) * test_fraction_to_consider)
+        test_indices_to_consider = indices[:num_values_to_typo]
+        if isinstance(encoded_test_data, (pandas.DataFrame, pandas.Series)):
+            encoded_test_data = encoded_test_data.reset_index(drop=True)
+        if isinstance(encoded_test_labels, (pandas.DataFrame, pandas.Series)):
+            encoded_test_labels = encoded_test_labels.reset_index(drop=True).to_numpy()
+        test_data_sample = encoded_test_data[test_indices_to_consider]
+        test_label_sample = encoded_test_labels[test_indices_to_consider]
+
+        if isinstance(train_data_sample, csr_matrix):
+            train_data_sample = train_data_sample.todense()
+        if isinstance(test_data_sample, csr_matrix):
+            test_data_sample = test_data_sample.todense()
+        shapley_values = LabelErrors._compute_shapley_values(train_data_sample, numpy.squeeze(train_label_sample),
+                                                             test_data_sample, numpy.squeeze(test_label_sample))
+        df_with_id_and_shapley_value = pandas.DataFrame(
+            {"train_id": train_indices_to_consider, "shapley_value": shapley_values})
+
+        rows_to_fix = df_with_id_and_shapley_value.nsmallest(cleaning_batch_size, "shapley_value")
+        return rows_to_fix
+
+    @staticmethod
+    def label_flip_processing_func_llm(rag_join_result, encoded_train_labels, shapley_result, inputs):
+        mislabeled_indices = shapley_result['train_id']
+        classes = set()
+        class_search_index = 0
+        label_key = None
+        while len(classes) != 2 and class_search_index < len(encoded_train_labels):
+            label_dict_items = list(encoded_train_labels[class_search_index].items())
+            assert len(label_dict_items) == 1
+            label_key, label_value = label_dict_items[0]
+            classes.add(label_value)
+            class_search_index += 1
+        classes = list(classes)
+        diff_encoded_train_labels = numpy.array(encoded_train_labels)[mislabeled_indices]
+        for mislabeled_row in diff_encoded_train_labels:
+            assert label_key is not None
+            current_val = mislabeled_row[label_key]
+            current_val_index = classes.index(current_val)
+            mislabeled_row[label_key] = classes[1 - current_val_index]
+        diff_encoded_train_labels = list(diff_encoded_train_labels)
+
+        # Update the labels in the vectorstore
+        vectorstore = rag_join_result[5]
+        vectorstore_ids = list(map(str, mislabeled_indices))
+        old_entries = vectorstore.get(ids=vectorstore_ids, include=["embeddings", "documents", "metadatas"])
+        documents = old_entries['documents']
+        embeddings = old_entries['embeddings']
+        old_metadata = old_entries['metadatas']
+        vectorstore._collection.update(vectorstore_ids, embeddings, diff_encoded_train_labels, documents)
+        retrieval_index = rag_join_result[6]
+
+        pandas_retrieval_index_df = pandas.DataFrame(retrieval_index,
+                                                     columns=['train_retrieved_1', 'train_retrieved_2',
+                                                              'train_retrieved_3', 'train_retrieved_4'])
+        pandas_retrieval_index_df['prediction_id'] = list(range(len(rag_join_result[2])))
+        changed_df = shapley_result[['train_id']]
+        all_predictions_to_rerun = duckdb.query("""
+                    SELECT DISTINCT prediction_id
+                    FROM changed_df c JOIN pandas_retrieval_index_df p 
+                    ON c.train_id = train_retrieved_1 
+                    OR c.train_id = train_retrieved_2 
+                    OR c.train_id = train_retrieved_3 
+                    OR c.train_id = train_retrieved_4 
+                """).fetchnumpy()['prediction_id']
+
+        diff_inputs = list(numpy.array(inputs)[all_predictions_to_rerun])
+        diff_rag_result, diff_retrieval_index = RunnableSequencePatching.execute_rag_join_diff(
+            rag_join_result[7], diff_inputs, vectorstore)
+        # Revert vectorstore changes again
+        vectorstore._collection.update(vectorstore_ids, embeddings, old_metadata, documents)
+
+        new_rag_join_text_result = numpy.array(rag_join_result[2])
+        new_rag_join_text_result[all_predictions_to_rerun] = diff_rag_result
+        new_rag_join_text_result = list(new_rag_join_text_result)
+
+        new_retrieval_index = retrieval_index.copy()
+        new_retrieval_index[all_predictions_to_rerun, :] = diff_retrieval_index
+
+        new_rag_join_result = (rag_join_result[0], rag_join_result[1], new_rag_join_text_result, rag_join_result[3],
+                               rag_join_result[4], rag_join_result[5], new_retrieval_index, rag_join_result[7])
+        return new_rag_join_result
+
+    @staticmethod
+    def label_flip_processing_func_ml(encoded_train_labels, shapley_result):
+        unfair_indices = shapley_result['train_id'].to_numpy()
+        if isinstance(encoded_train_labels, (pandas.Series, pandas.DataFrame)):
+            modified_encoded_train_labels = encoded_train_labels.reset_index(drop=True, inplace=False)
+        else:
+            modified_encoded_train_labels = encoded_train_labels.copy()
+        if isinstance(modified_encoded_train_labels, pandas.Series):
+            is_bool = pandas.api.types.is_bool_dtype(modified_encoded_train_labels)
+            modified_encoded_train_labels[unfair_indices] = 1 - modified_encoded_train_labels[unfair_indices]
+            if is_bool:
+                modified_encoded_train_labels = modified_encoded_train_labels.astype(bool)
+        else:
+            modified_encoded_train_labels[unfair_indices, :] = 1 - modified_encoded_train_labels[unfair_indices, :]
+        return modified_encoded_train_labels
+
+    @staticmethod
+    def add_new_score_and_score_extraction_nodes(new_dag, new_predict_node, score_operators,
+                                                 test_labels_operators):
+        for score_index, score_operator in enumerate(score_operators):
+            new_score_node = copy_node_with_new_id(singleton, score_operator)
+            new_dag.add_edge(new_predict_node, new_score_node, arg_index=0)
+            new_dag.add_edge(test_labels_operators[0], new_score_node, arg_index=1)
+            parents = get_sorted_parent_nodes(new_dag, score_operator)[2:]
+            for parent_index, parent in enumerate(parents):
+                # TODO: There might be shadow pipeline edge cases where this does not work without further work
+                new_dag.add_edge(parent, new_score_node, arg_index=parent_index + 2)
+
+            retrain_extraction_node = get_intermediate_extraction_node(singleton, new_score_node,
+                                                                       f"label-errors-flip-retrain-{score_index}")
+            new_dag.add_edge(new_score_node, retrain_extraction_node, arg_index=0)
