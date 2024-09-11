@@ -111,17 +111,31 @@ class DataErrorRobustness(ShadowPipeline):
                                       data_type=data_type,
                                       corruption_fraction=self._corruption_fraction)
             new_corruption_node = DagNode(singleton.get_next_op_id(),
-                                     BasicCodeLocation("Data Errors", None),
-                                     OperatorContext(OperatorType.GROUP_BY_AGG, None),
-                                     DagNodeDetails(
-                                         f"Corrupt {self._corruption_fraction} of {data_type.value} values", None),
-                                     None,
-                                     processing_func)
+                                          BasicCodeLocation("Data Errors", None),
+                                          OperatorContext(OperatorType.PROJECTION_MODIFY, None),
+                                          DagNodeDetails(
+                                              f"Corrupt {self._corruption_fraction} of {data_type.value} values", None),
+                                          None,
+                                          processing_func)
             new_dag.add_edge(data_parent, new_corruption_node, arg_index=0)
 
             extraction_node = get_intermediate_extraction_node(singleton, new_corruption_node,
                                                                "data-errors-corruption")
             new_dag.add_edge(new_corruption_node, extraction_node, arg_index=0)
+
+            new_corruption_diff_node = DagNode(singleton.get_next_op_id(),
+                                               BasicCodeLocation("Data Errors", None),
+                                               OperatorContext(OperatorType.GROUP_BY_AGG, None),
+                                               DagNodeDetails(
+                                                   f"Detect changed indices", None),
+                                               None,
+                                               DataErrorRobustness.corrupt_data_diff_detection)
+            new_dag.add_edge(data_parent, new_corruption_diff_node, arg_index=0)
+            new_dag.add_edge(new_corruption_node, new_corruption_diff_node, arg_index=1)
+
+            extraction_node = get_intermediate_extraction_node(singleton, new_corruption_diff_node,
+                                                               "data-errors-corruption-diff")
+            new_dag.add_edge(new_corruption_diff_node, extraction_node, arg_index=0)
 
             #
             # new_dag.add_edge(train_labels_operators[0], new_shapley_node, arg_index=1)
@@ -227,7 +241,8 @@ class DataErrorRobustness(ShadowPipeline):
         orig_result = []
         for score_index in range(self.score_operator_count):
             orig_result.append(extracted_plan_results[f"label-errors-orig-{score_index}"])
-        corrupted_df, corruption_index = extracted_plan_results["data-errors-corruption"]
+        corrupted_df = extracted_plan_results["data-errors-corruption"]
+        corruption_index = extracted_plan_results["data-errors-corruption-diff"]
         corrupted_sample = corrupted_df.reset_index(drop=True).iloc[corruption_index, :].head(20)
         score_after_corruption = "todo"
         score_after_fixing = "todo"
@@ -318,18 +333,24 @@ class DataErrorRobustness(ShadowPipeline):
                     corrupted_result = BrokenCharacters(column=column, fraction=corruption_fraction).transform(input_df)
                 elif isinstance(input_df, list):
                     pandas_df = pandas.DataFrame({column: input_df})
-                    corrupted_result = BrokenCharacters(column=column, fraction=corruption_fraction).transform(pandas_df)
+                    corrupted_result = BrokenCharacters(column=column, fraction=corruption_fraction).transform(
+                        pandas_df)
                 else:
                     pandas_df = pandas.DataFrame(input_df)
-                    corrupted_result = BrokenCharacters(column=column, fraction=corruption_fraction).transform(pandas_df)
+                    corrupted_result = BrokenCharacters(column=column, fraction=corruption_fraction).transform(
+                        pandas_df)
         elif data_type == DataType.NUM:
             for column in input_df.columns:
                 corrupted_result = Scaling(column=column, fraction=corruption_fraction).transform(input_df)
         else:
             raise NotImplementedError(f"TODO: Add support for datatype {DataType.value}!")
-        corrupt_diff_mask = corrupted_result[column] != input_df[column]
+        return corrupted_result
+
+    @staticmethod
+    def corrupt_data_diff_detection(input_df, corrupted_result):
+        corrupt_diff_mask = corrupted_result != input_df
         changed_indices_corrupt = numpy.where(corrupt_diff_mask)[0]
-        return corrupted_result, changed_indices_corrupt
+        return changed_indices_corrupt
 
     @staticmethod
     def label_flip_processing_func_llm(rag_join_result, encoded_train_labels, shapley_result, inputs):
