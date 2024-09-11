@@ -239,6 +239,7 @@ class LabelErrors(ShadowPipeline):
     def shapley_top_k_func_llm(rag_join_result, train_labels_before_dict, encoded_test_data, encoded_test_labels,
                                train_fraction_to_consider, test_fraction_to_consider, cleaning_batch_size,
                                label_encoding_op):
+        # TODO: Should we propagate provenance here? Might be important for explanations later
         indices = numpy.arange(len(train_labels_before_dict))
         numpy.random.shuffle(indices)
 
@@ -249,7 +250,6 @@ class LabelErrors(ShadowPipeline):
         train_data_sample = numpy.array(vectorstore.get(
             ids=list(map(str, train_indices_to_consider)), include=["embeddings"])['embeddings'])
         to_label_encode = train_labels_before_dict.iloc[train_indices_to_consider, 0]
-        # FIXME: What should we do provenance-wise in shadow pipelines?
         to_label_encode._mlinspect_provenance = None
         train_label_sample = label_encoding_op.processing_func(to_label_encode)
 
@@ -271,6 +271,7 @@ class LabelErrors(ShadowPipeline):
     @staticmethod
     def shapley_top_k_func_ml(encoded_train_data, encoded_train_labels, encoded_test_data, encoded_test_labels,
                               train_fraction_to_consider, test_fraction_to_consider, cleaning_batch_size):
+        # TODO: Should we propagate provenance here? Might be important for explanations later
         indices = numpy.arange(len(encoded_train_labels))
         numpy.random.shuffle(indices)
 
@@ -307,6 +308,7 @@ class LabelErrors(ShadowPipeline):
 
     @staticmethod
     def label_flip_processing_func_llm(rag_join_result, encoded_train_labels, shapley_result, inputs):
+        # TODO: Should we propagate provenance here? Might be important for explanations later
         mislabeled_indices = shapley_result['train_id']
         classes = set()
         class_search_index = 0
@@ -369,6 +371,7 @@ class LabelErrors(ShadowPipeline):
 
     @staticmethod
     def label_flip_processing_func_ml(encoded_train_labels, shapley_result):
+        # TODO: Should we propagate provenance here? Might be important for explanations later
         unfair_indices = shapley_result['train_id'].to_numpy()
         if isinstance(encoded_train_labels, (pandas.Series, pandas.DataFrame)):
             modified_encoded_train_labels = encoded_train_labels.reset_index(drop=True, inplace=False)
