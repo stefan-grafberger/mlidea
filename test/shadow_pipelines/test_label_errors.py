@@ -152,3 +152,22 @@ def test_label_errors_healthcare(tmpdir):
     # TODO: Does not work yet because of multiple score functions
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
+
+
+def test_label_errors_healthcare_fraction(tmpdir):
+    """
+    Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
+    """
+    label_errors = LabelErrors(train_fraction_to_consider=0.2, test_fraction_to_consider=0.5, cleaning_batch_size=25)
+    analysis_result = PipelineAnalyzer \
+        .on_pipeline_from_py_file(HEALTHCARE_PY) \
+        .add_custom_monkey_patching_module(custom_monkeypatching) \
+        .add_shadow_pipeline(label_errors) \
+        .execute()
+
+    report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
+    # assert report.shape == (4, 2)
+    assert "the pipeline metric was" in report
+    # TODO: Does not work yet because of multiple score functions
+
+    visualize_dags_shadow_pipelines(analysis_result, tmpdir)

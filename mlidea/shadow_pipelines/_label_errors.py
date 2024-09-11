@@ -93,12 +93,20 @@ class LabelErrors(ShadowPipeline):
 
             num_values_to_typo = int(len(encoded_train_labels) * train_fraction_to_consider)
             train_indices_to_consider = indices[:num_values_to_typo]
+            if isinstance(encoded_train_data, (pandas.DataFrame, pandas.Series)):
+                encoded_train_data = encoded_train_data.reset_index(drop=True)
+            if isinstance(encoded_train_labels, (pandas.DataFrame, pandas.Series)):
+                encoded_train_labels = encoded_train_labels.reset_index(drop=True).to_numpy()
             train_data_sample = encoded_train_data[train_indices_to_consider]
             train_label_sample = encoded_train_labels[train_indices_to_consider]
 
             indices = numpy.arange(len(encoded_test_labels))
             num_values_to_typo = int(len(encoded_test_labels) * test_fraction_to_consider)
             test_indices_to_consider = indices[:num_values_to_typo]
+            if isinstance(encoded_test_data, (pandas.DataFrame, pandas.Series)):
+                encoded_test_data = encoded_test_data.reset_index(drop=True)
+            if isinstance(encoded_test_labels, (pandas.DataFrame, pandas.Series)):
+                encoded_test_labels = encoded_test_labels.reset_index(drop=True).to_numpy()
             test_data_sample = encoded_test_data[test_indices_to_consider]
             test_label_sample = encoded_test_labels[test_indices_to_consider]
 
@@ -132,9 +140,18 @@ class LabelErrors(ShadowPipeline):
         new_dag.add_edge(new_shapley_node, extraction_node, arg_index=0)
 
         def label_flip_processing_func(encoded_train_labels, shapley_result):
-            unfair_indices = shapley_result['train_id']
-            modified_encoded_train_labels = encoded_train_labels.copy()
-            modified_encoded_train_labels[unfair_indices, :] = 1 - modified_encoded_train_labels[unfair_indices, :]
+            unfair_indices = shapley_result['train_id'].to_numpy()
+            if isinstance(encoded_train_labels, (pandas.Series, pandas.DataFrame)):
+                modified_encoded_train_labels = encoded_train_labels.reset_index(drop=True, inplace=False)
+            else:
+                modified_encoded_train_labels = encoded_train_labels.copy()
+            if isinstance(modified_encoded_train_labels, pandas.Series):
+                is_bool = pandas.api.types.is_bool_dtype(modified_encoded_train_labels)
+                modified_encoded_train_labels[unfair_indices] = 1 - modified_encoded_train_labels[unfair_indices]
+                if is_bool:
+                    modified_encoded_train_labels = modified_encoded_train_labels.astype(bool)
+            else:
+                modified_encoded_train_labels[unfair_indices, :] = 1 - modified_encoded_train_labels[unfair_indices, :]
             return modified_encoded_train_labels
 
         new_label_flip_node = DagNode(singleton.get_next_op_id(),
@@ -154,7 +171,7 @@ class LabelErrors(ShadowPipeline):
         new_dag.add_edge(test_data_operators[0], new_predict_node, arg_index=1)
 
         for score_index, score_operator in enumerate(score_operators):
-            new_score_node = copy_node_with_new_id(singleton, score_operators[0])
+            new_score_node = copy_node_with_new_id(singleton, score_operator)
             new_dag.add_edge(new_predict_node, new_score_node, arg_index=0)
             new_dag.add_edge(test_labels_operators[0], new_score_node, arg_index=1)
             parents = get_sorted_parent_nodes(dag, score_operator)[2:]
@@ -323,7 +340,7 @@ class LabelErrors(ShadowPipeline):
         new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
         new_dag.add_edge(new_label_flip_node, new_predict_node, arg_index=0)
         for score_index, score_operator in enumerate(score_operators):
-            new_score_node = copy_node_with_new_id(singleton, score_operators[0])
+            new_score_node = copy_node_with_new_id(singleton, score_operator)
             new_dag.add_edge(new_predict_node, new_score_node, arg_index=0)
             new_dag.add_edge(test_labels_operators[0], new_score_node, arg_index=1)
             parents = get_sorted_parent_nodes(dag, score_operator)[2:]
