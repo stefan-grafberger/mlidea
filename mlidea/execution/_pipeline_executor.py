@@ -23,7 +23,7 @@ from mlidea.analysis._what_if_analysis import WhatIfAnalysis
 from mlidea.execution._dag_executor import DagExecutor
 from mlidea.optimization._multi_query_optimizer import MultiQueryOptimizer
 from mlidea.optimization._query_optimization_rules import QueryOptimizationRule
-from shadow_pipelines._shadow_pipeline import ShadowPipeline
+from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 
 logging.basicConfig(format='%(asctime)s %(levelname)-5s %(message)s',
                     level=logging.INFO,

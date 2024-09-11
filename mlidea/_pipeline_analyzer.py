@@ -3,11 +3,11 @@ User-facing API for inspecting the pipeline
 """
 from collections.abc import Iterable
 
-from shadow_pipelines._shadow_pipeline import ShadowPipeline
-from .execution._pipeline_executor import singleton, logger
-from ._analysis_results import AnalysisResults, DagExtractionInfo, EstimationResults
-from .analysis._what_if_analysis import WhatIfAnalysis
-from .optimization._query_optimization_rules import QueryOptimizationRule
+from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
+from mlidea.execution._pipeline_executor import singleton, logger
+from mlidea._analysis_results import AnalysisResults, DagExtractionInfo, EstimationResults
+from mlidea.analysis._what_if_analysis import WhatIfAnalysis
+from mlidea.optimization._query_optimization_rules import QueryOptimizationRule
 
 
 class PipelineInspectorBuilder:
