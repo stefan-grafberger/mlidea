@@ -211,3 +211,38 @@ def get_typo_fixer(column):
     warnings.filterwarnings('ignore')
     typo_fixer = FunctionTransformer(fix_typos)
     return typo_fixer
+
+
+def duplicate_descendants(graph, original_node, modified_copy, singleton):
+    # Create a mapping of old nodes to new nodes
+    mapping = {original_node: modified_copy}
+
+    # Get all descendants of the original node (children and their children recursively)
+    descendants = networkx.descendants(graph, original_node)
+
+    # Create a queue to process each node in topological order (to handle dependencies)
+    queue = list(networkx.topological_sort(graph.subgraph(descendants)))
+
+    # Iterate through all descendants and create a duplicate for each using your method
+    for node in queue:
+        if node.operator_info.operator != OperatorType.EXTRACT_RESULT:
+            new_node = copy_node_with_new_id(singleton, node)
+
+            # Store the mapping of original to duplicate
+            mapping[node] = new_node
+
+    # Copy the edges from the original subgraph to the duplicate subgraph, maintaining edge attributes
+    for node in queue:
+        if node.operator_info.operator != OperatorType.EXTRACT_RESULT:
+            new_node = mapping[node]
+
+            # Replicate edges from the original parents to the new duplicate nodes, preserving edge attributes
+            for parent in graph.predecessors(node):
+                if parent in mapping:
+                    edge_data = graph.get_edge_data(parent, node)
+                    graph.add_edge(mapping[parent], new_node, **edge_data)
+                else:
+                    edge_data = graph.get_edge_data(parent, node)
+                    graph.add_edge(parent, new_node, **edge_data)
+
+    return graph

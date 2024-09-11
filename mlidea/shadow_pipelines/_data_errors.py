@@ -23,15 +23,13 @@ import numpy
 import pandas
 from jenga.corruptions.numerical import Scaling
 from jenga.corruptions.text import BrokenCharacters
-from numba import prange, njit
-from scipy.sparse import csr_matrix
 
 from mlidea.execution._pipeline_executor import singleton
 from mlidea.analysis._analysis_utils import find_nodes_by_type
 from mlidea import OperatorType, DagNode, BasicCodeLocation, OperatorContext, DagNodeDetails
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
-    get_sorted_parent_nodes, find_train_or_test_pipeline_part_end, get_typo_adder
+    get_sorted_parent_nodes, find_train_or_test_pipeline_part_end, get_typo_adder, duplicate_descendants
 from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
 
 
@@ -117,11 +115,23 @@ class DataErrorRobustness(ShadowPipeline):
                                               f"Corrupt {self._corruption_fraction} of {data_type.value} values", None),
                                           None,
                                           processing_func)
+
+            duplicate_descendants(new_dag, data_parent, new_corruption_node, singleton)
             new_dag.add_edge(data_parent, new_corruption_node, arg_index=0)
 
             extraction_node = get_intermediate_extraction_node(singleton, new_corruption_node,
                                                                "data-errors-corruption")
             new_dag.add_edge(new_corruption_node, extraction_node, arg_index=0)
+
+            new_score_nodes = [node for node in networkx.descendants(new_dag, new_corruption_node)
+                               if node.operator_info.operator == OperatorType.SCORE]
+            if len(new_score_nodes) < 1:
+                raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
+                                          "pattern!")
+            for score_index, score_operator in enumerate(new_score_nodes):
+                extraction_node = get_intermediate_extraction_node(singleton, score_operator,
+                                                                   f"label-errors-corrupt-{score_index}")
+                new_dag.add_edge(score_operator, extraction_node, arg_index=0)
 
             new_corruption_diff_node = DagNode(singleton.get_next_op_id(),
                                                BasicCodeLocation("Data Errors", None),
@@ -244,47 +254,18 @@ class DataErrorRobustness(ShadowPipeline):
         corrupted_df = extracted_plan_results["data-errors-corruption"]
         corruption_index = extracted_plan_results["data-errors-corruption-diff"]
         corrupted_sample = corrupted_df.reset_index(drop=True).iloc[corruption_index, :].head(20)
-        score_after_corruption = "todo"
+        corrupt_result = []
+        for score_index in range(self.score_operator_count):
+            corrupt_result.append(extracted_plan_results[f"label-errors-corrupt-{score_index}"])
         score_after_fixing = "todo"
         fixed_sample = None
         # flip_result = []
         # for score_index in range(self.score_operator_count):
         #     flip_result.append(extracted_plan_results[f"label-errors-flip-retrain-{score_index}"])
         return (f"The original result was {orig_result}. After corrupting {self._corruption_fraction} of rows, "
-                f"the pipeline metric was {score_after_corruption}, indicating robustness problems. A sample of the corrupted "
+                f"the pipeline metric was {corrupt_result}, indicating robustness problems. A sample of the corrupted "
                 f"rows: {str(corrupted_sample)}. After adding a fix method, the pipeline metric was "
                 f"{score_after_fixing}. A sample of the fixed rows: {str(fixed_sample)}")
-
-    @staticmethod
-    @njit(fastmath=True, parallel=True, cache=True)
-    def _compute_shapley_values(X_train, y_train, X_test, y_test, K=1):
-        # pylint: disable=invalid-name,too-many-locals
-        """Compute approximate shapley values as presented in the DataScope paper. Here, we only do it for the
-        estimator input data though and not for the input data of the surrounding pipeline.
-        """
-        N = len(X_train)
-        M = len(X_test)
-        result = numpy.zeros(N, dtype=numpy.float32)
-
-        for j in prange(M):  # pylint: disable=not-an-iterable
-            score = numpy.zeros(N, dtype=numpy.float32)
-            dist = numpy.zeros(N, dtype=numpy.float32)
-            div_range = numpy.arange(1.0, N)
-            div_min = numpy.minimum(div_range, K)
-            for i in range(N):
-                dist[i] = numpy.sqrt(numpy.sum(numpy.square(X_train[i] - X_test[j])))
-            indices = numpy.argsort(dist)
-            y_sorted = y_train[indices]
-            eq_check = (y_sorted == y_test[j]) * 1.0
-            diff = - 1 / K * (eq_check[1:] - eq_check[:-1])
-            diff /= div_range
-            diff *= div_min
-            score[indices[:-1]] = diff
-            score[indices[-1]] = eq_check[-1] / N
-            score[indices] += numpy.sum(score[indices]) - numpy.cumsum(score[indices])
-            result += score / M
-
-        return result
 
     @staticmethod
     def shapley_top_k_func_llm(rag_join_result, train_labels_before_dict, encoded_test_data, encoded_test_labels,
@@ -344,6 +325,7 @@ class DataErrorRobustness(ShadowPipeline):
                 corrupted_result = Scaling(column=column, fraction=corruption_fraction).transform(input_df)
         else:
             raise NotImplementedError(f"TODO: Add support for datatype {DataType.value}!")
+        corrupted_result._mlinspect_provenance = None
         return corrupted_result
 
     @staticmethod
