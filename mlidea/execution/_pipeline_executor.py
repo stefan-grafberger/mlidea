@@ -168,8 +168,9 @@ class PipelineExecutor:
         #  TODO: Extract this into new functions
         for shadow_pipeline in self.shadow_pipelines:
             shadow_dag = shadow_pipeline.generate_shadow_pipeline_dag(self.analysis_results.original_dag.copy())
-            self.analysis_results.shadow_pipeline_to_dags[shadow_pipeline] = shadow_dag
             DagExecutor(self).execute(shadow_dag, self.use_dfs_exec_strategy)
+            self.analysis_results.shadow_pipeline_to_dags[shadow_pipeline] = filter_shadow_dag(
+                self.analysis_results.original_dag, shadow_dag)
         for shadow_pipeline in self.shadow_pipelines:
             report = shadow_pipeline.generate_final_report(self.labels_to_extracted_plan_results)
             self.analysis_results.shadow_pipelines_to_result_reports[shadow_pipeline] = report
@@ -413,3 +414,22 @@ def get_monkey_patching_patch_sources():
     patch_sources = [monkeypatching]
     patch_sources.extend(singleton.custom_monkey_patching)
     return patch_sources
+
+
+def filter_shadow_dag(orig_dag, shadow_dag):
+    # Step 1: Find nodes that are only in G2 (not in G1)
+    nodes_only_in_shadow = set(shadow_dag.nodes) - set(orig_dag.nodes)
+
+    # Step 2: Find nodes directly connected to nodes only in G2
+    predecessors_of_shadow_only = set()
+    for node in nodes_only_in_shadow:
+        predecessors_of_shadow_only.update(shadow_dag.predecessors(node))
+
+    # Step 3: Determine all nodes to keep (those only in G2 + their neighbors)
+    nodes_to_keep = nodes_only_in_shadow | predecessors_of_shadow_only
+
+    # Step 4: Remove nodes not in the set of nodes to keep from G2
+    nodes_to_remove = set(shadow_dag.nodes) - nodes_to_keep
+    shadow_dag.remove_nodes_from(nodes_to_remove)
+
+    return shadow_dag
