@@ -179,6 +179,9 @@ class LabelErrors(ShadowPipeline):
         new_dag.add_edge(extraction_node, new_label_flip_node, arg_index=2)
         new_dag.add_edge(test_data_operators[0], new_label_flip_node, arg_index=3)
 
+        # FIXME: Rerun predictions only on the diff like in data errors!!!
+
+
         new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
         new_dag.add_edge(new_label_flip_node, new_predict_node, arg_index=0)
         LabelErrors.add_new_score_and_score_extraction_nodes(new_dag, new_predict_node, score_operators,
