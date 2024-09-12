@@ -5,7 +5,7 @@ from example_pipelines import HEALTHCARE_PY, ANHEDONIA_ML_PY, ANHEDONIA_LLM_PY, 
 from example_pipelines.healthcare import custom_monkeypatching
 from mlidea import PipelineAnalyzer
 from mlidea.testing._testing_helper_utils import visualize_dags_shadow_pipelines, get_llm_rag_mini_example_code
-from shadow_pipelines._data_errors import DataErrorRobustness
+from mlidea.shadow_pipelines._data_errors import DataErrorRobustness
 
 
 def test_label_errors_mini_example_with_transformer_processing_multiple_columns(tmpdir):
