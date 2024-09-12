@@ -318,7 +318,6 @@ class DataErrorRobustness(ShadowPipeline):
                 extraction_node = get_intermediate_extraction_node(singleton, score_operator,
                                                                    f"label-errors-corrupt-fix-{score_index}")
                 new_dag.add_edge(score_operator, extraction_node, arg_index=0)
-            # FIXME: This part has a problem: it should work using only the diff and not all data
             # End evaluate
         return new_dag
 
