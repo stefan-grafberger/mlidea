@@ -118,10 +118,6 @@ class DataErrorRobustness(ShadowPipeline):
                                           processing_func)
             new_dag.add_edge(data_parent, new_corruption_node, arg_index=0)
 
-            extraction_node = get_intermediate_extraction_node(singleton, new_corruption_node,
-                                                               "data-errors-corruption")
-            new_dag.add_edge(new_corruption_node, extraction_node, arg_index=0)
-
             duplicate_descendants(dag, new_dag, data_parent, new_corruption_node, singleton)
             new_score_nodes = [node for node in networkx.descendants(new_dag, new_corruption_node)
                                if node.operator_info.operator == OperatorType.SCORE]
@@ -143,11 +139,22 @@ class DataErrorRobustness(ShadowPipeline):
             new_dag.add_edge(data_parent, new_corruption_diff_node, arg_index=0)
             new_dag.add_edge(new_corruption_node, new_corruption_diff_node, arg_index=1)
 
-            extraction_node = get_intermediate_extraction_node(singleton, new_corruption_diff_node,
-                                                               "data-errors-corruption-diff")
-            new_dag.add_edge(new_corruption_diff_node, extraction_node, arg_index=0)
-
             # TODO: WIP. here we should fix the data
+            new_corruption_diff_filter_node = DagNode(singleton.get_next_op_id(),
+                                                      BasicCodeLocation("Data Errors", None),
+                                                      OperatorContext(OperatorType.SELECTION, None),
+                                                      DagNodeDetails(
+                                                          f"Filter for diff only",
+                                                          None),
+                                                      None,
+                                                      DataErrorRobustness.apply_diff_filter)
+            new_dag.add_edge(new_corruption_node, new_corruption_diff_filter_node, arg_index=0)
+            new_dag.add_edge(new_corruption_diff_node, new_corruption_diff_filter_node, arg_index=1)
+
+            extraction_node = get_intermediate_extraction_node(singleton, new_corruption_diff_filter_node,
+                                                               "data-errors-corruption-diff")
+            new_dag.add_edge(new_corruption_diff_filter_node, extraction_node, arg_index=0)
+
             processing_func = partial(DataErrorRobustness.fix_data, data_type=data_type)
             new_fix_node = DagNode(singleton.get_next_op_id(),
                                    BasicCodeLocation("Data Errors", None),
@@ -156,12 +163,32 @@ class DataErrorRobustness(ShadowPipeline):
                                        f"Fix {self._corruption_fraction} of {data_type.value} values", None),
                                    None,
                                    processing_func)
-            new_dag.add_edge(new_corruption_node, new_fix_node, arg_index=0)
-            new_dag.add_edge(new_corruption_diff_node, new_fix_node, arg_index=1)
+            new_dag.add_edge(new_corruption_diff_filter_node, new_fix_node, arg_index=0)
 
             extraction_node = get_intermediate_extraction_node(singleton, new_fix_node,
-                                                               "data-errors-fix")
+                                                               "data-errors-corruption-diff-fix")
             new_dag.add_edge(new_fix_node, extraction_node, arg_index=0)
+
+            new_fix_diff_node = DagNode(singleton.get_next_op_id(),
+                                        BasicCodeLocation("Data Errors", None),
+                                        OperatorContext(OperatorType.GROUP_BY_AGG, None),
+                                        DagNodeDetails(
+                                            f"Detect changed indices from fixing", None),
+                                        None,
+                                        DataErrorRobustness.corrupt_data_diff_detection)
+            new_dag.add_edge(new_corruption_diff_filter_node, new_fix_diff_node, arg_index=0)
+            new_dag.add_edge(new_fix_node, new_fix_diff_node, arg_index=1)
+
+            new_fix_diff_filter_node = DagNode(singleton.get_next_op_id(),
+                                               BasicCodeLocation("Data Errors", None),
+                                               OperatorContext(OperatorType.SELECTION, None),
+                                               DagNodeDetails(
+                                                   f"Filter for diff only",
+                                                   None),
+                                               None,
+                                               DataErrorRobustness.apply_diff_filter)
+            new_dag.add_edge(new_fix_node, new_fix_diff_filter_node, arg_index=0)
+            new_dag.add_edge(new_fix_diff_node, new_fix_diff_filter_node, arg_index=1)
 
             #
             # new_dag.add_edge(train_labels_operators[0], new_shapley_node, arg_index=1)
@@ -189,6 +216,13 @@ class DataErrorRobustness(ShadowPipeline):
             #
             # DataErrorRobustness.add_new_score_and_score_extraction_nodes(new_dag, new_predict_node, score_operators,
             #                                                              test_labels_operators)
+
+            # We need the result without additional info to feed it to the following functions.
+            # But we only want to rerun the diff
+            # But we also need the corrupt_fix_diff_mask to merge the results again with the original test predictions
+            # Maybe return the full result here but have three DAG nodes after: one to compute the diff, one to filter
+            # for the following processing using only the diff, and one to merge the small updated predictions with the
+            # main predictions
         return new_dag
 
     def get_llm_rag_dag(self, dag):
@@ -267,22 +301,19 @@ class DataErrorRobustness(ShadowPipeline):
         orig_result = []
         for score_index in range(self.score_operator_count):
             orig_result.append(extracted_plan_results[f"label-errors-orig-{score_index}"])
-        corrupted_df = extracted_plan_results["data-errors-corruption"]
-        corruption_index = extracted_plan_results["data-errors-corruption-diff"]
-        corrupted_sample = corrupted_df.reset_index(drop=True).iloc[corruption_index, :].head(20)
+        corruption_diff_df_sample = extracted_plan_results["data-errors-corruption-diff"].head(20)
+        corruption_diff_fix_df_sample = extracted_plan_results["data-errors-corruption-diff-fix"].head(20)
         corrupt_result = []
         for score_index in range(self.score_operator_count):
             corrupt_result.append(extracted_plan_results[f"label-errors-corrupt-{score_index}"])
         score_after_fixing = "todo"
-        fixed_df = extracted_plan_results["data-errors-fix"]
-        fixed_sample = None
         # flip_result = []
         # for score_index in range(self.score_operator_count):
         #     flip_result.append(extracted_plan_results[f"label-errors-flip-retrain-{score_index}"])
         return (f"The original result was {orig_result}. After corrupting {self._corruption_fraction} of rows, "
                 f"the pipeline metric was {corrupt_result}, indicating robustness problems. A sample of the corrupted "
-                f"rows: {str(corrupted_sample)}. After adding a fix method, the pipeline metric was "
-                f"{score_after_fixing}. A sample of the fixed rows: {str(fixed_sample)}")
+                f"rows: {str(corruption_diff_df_sample)}. After adding a fix method, the pipeline metric was "
+                f"{score_after_fixing}. A sample of the fixed rows: {str(corruption_diff_fix_df_sample)}")
 
     @staticmethod
     def shapley_top_k_func_llm(rag_join_result, train_labels_before_dict, encoded_test_data, encoded_test_labels,
@@ -346,43 +377,51 @@ class DataErrorRobustness(ShadowPipeline):
         return corrupted_result
 
     @staticmethod
-    def fix_data(input_df, corrupted_index, data_type):
+    def apply_diff_filter(input_df, corrupted_index):
         # TODO
-        corrupted_diff = input_df.iloc[corrupted_index].reset_index(drop=True)
+        if isinstance(input_df, (pandas.DataFrame, pandas.Series)):
+            input_df = input_df.reset_index(drop=True)
+        corrupted_diff = input_df.iloc[corrupted_index]
+        corrupted_diff._mlinspect_provenance = None
+
+        return corrupted_diff
+
+    @staticmethod
+    def fix_data(input_df, data_type):
+        # TODO
         if data_type == DataType.TEXT:
             typo_fixer = get_typo_fixer()
             for column in input_df.columns:
-                fixed_corrupted_diff = typo_fixer.fit_transform(corrupted_diff[[column]])
+                fixed_corrupted = typo_fixer.fit_transform(input_df[[column]])
         elif data_type == DataType.CAT:
             typo_fixer = get_typo_fixer()
             for column in input_df.columns:
                 # TODO: There are also smarter ways to do this
-                fixed_corrupted_diff = typo_fixer.fit_transform(corrupted_diff[[column]])
+                fixed_corrupted = typo_fixer.fit_transform(input_df[[column]])
         elif data_type == DataType.NUM:
             for column in input_df.columns:
-                fixed_corrupted_diff = OutlierCleaner.fit_transform_all(corrupted_diff, detection_strategy='SD',
-                                                                        repair_strategy='mean', column=column)
+                # FIXME: This doesn't work that well because the OutlierCleaner never sees clean rows this way
+                fixed_corrupted = OutlierCleaner.fit_transform_all(input_df, detection_strategy='SD',
+                                                                   repair_strategy='mean', column=column)
         else:
             raise NotImplementedError(f"TODO: Add support for datatype {DataType.value}!")
 
-        fixed_corrupted_diff._mlinspect_provenance = None
+        fixed_corrupted._mlinspect_provenance = None
 
-        # TODO: Maybe do this in a separate function?
-        # We need the result without additional info to feed it to the following functions.
-        # But we only want to rerun the diff
-        # But we also need the corrupt_fix_diff_mask to merge the results again with the original test predictions
-        # Maybe return the full result here but have three DAG nodes after: one to compute the diff, one to filter
-        # for the following processing using only the diff, and one to merge the small updated predictions with the
-        # main predictions
-        # corrupt_fix_diff_mask = fixed_corrupted_diff != corrupted_diff
-        # changed_indices_fix_corrupt = corrupted_index[corrupt_fix_diff_mask]
-        return fixed_corrupted_diff
+        return fixed_corrupted
 
     @staticmethod
     def corrupt_data_diff_detection(input_df, corrupted_result):
-        corrupt_diff_mask = corrupted_result != input_df
-        changed_indices_corrupt = numpy.where(corrupt_diff_mask)[0]  # FIXME This might not fully work, not sure if it looks at all rows
+        corrupt_diff_mask = numpy.any(corrupted_result != input_df, axis=1)
+        changed_indices_corrupt = numpy.where(corrupt_diff_mask)[0]
         return changed_indices_corrupt
+
+    @staticmethod
+    def fix_data_diff_indices_before_corruption(corrupt_diff_df, fixed_corrupt_diff_df, corrupted_diff_index):
+        # TODO: Check if this is really needed and how. Maybe we don't want to compare values again here?
+        corrupt_fix_diff_mask = numpy.all(corrupt_diff_df.values != fixed_corrupt_diff_df.values, axis=1)
+        changed_indices_fix_corrupt = corrupted_diff_index[corrupt_fix_diff_mask]
+        return changed_indices_fix_corrupt
 
     @staticmethod
     def label_flip_processing_func_llm(rag_join_result, encoded_train_labels, shapley_result, inputs):
