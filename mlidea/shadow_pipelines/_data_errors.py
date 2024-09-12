@@ -118,17 +118,6 @@ class DataErrorRobustness(ShadowPipeline):
                                           processing_func)
             new_dag.add_edge(data_parent, new_corruption_node, arg_index=0)
 
-            duplicate_descendants(dag, new_dag, data_parent, new_corruption_node, singleton)
-            new_score_nodes = [node for node in networkx.descendants(new_dag, new_corruption_node)
-                               if node.operator_info.operator == OperatorType.SCORE]
-            if len(new_score_nodes) < 1:
-                raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
-                                          "pattern!")
-            for score_index, score_operator in enumerate(new_score_nodes):
-                extraction_node = get_intermediate_extraction_node(singleton, score_operator,
-                                                                   f"label-errors-corrupt-{score_index}")
-                new_dag.add_edge(score_operator, extraction_node, arg_index=0)
-
             new_corruption_diff_node = DagNode(singleton.get_next_op_id(),
                                                BasicCodeLocation("Data Errors", None),
                                                OperatorContext(OperatorType.GROUP_BY_AGG, None),
@@ -139,7 +128,6 @@ class DataErrorRobustness(ShadowPipeline):
             new_dag.add_edge(data_parent, new_corruption_diff_node, arg_index=0)
             new_dag.add_edge(new_corruption_node, new_corruption_diff_node, arg_index=1)
 
-            # TODO: WIP. here we should fix the data
             new_corruption_diff_filter_node = DagNode(singleton.get_next_op_id(),
                                                       BasicCodeLocation("Data Errors", None),
                                                       OperatorContext(OperatorType.SELECTION, None),
@@ -154,6 +142,67 @@ class DataErrorRobustness(ShadowPipeline):
             extraction_node = get_intermediate_extraction_node(singleton, new_corruption_diff_filter_node,
                                                                "data-errors-corruption-diff")
             new_dag.add_edge(new_corruption_diff_filter_node, extraction_node, arg_index=0)
+
+            # Evaluate with corrupted data
+            old_copied_nodes, new_nodes = duplicate_descendants(dag, new_dag, data_parent,
+                                                                new_corruption_diff_filter_node, singleton)
+            new_score_nodes = [node for node in new_nodes if node.operator_info.operator == OperatorType.SCORE]
+
+            # Now apply filter to all other concatenation inputs
+            concats = [node for node in new_nodes if node.operator_info.operator == OperatorType.CONCATENATION]
+            if len(concats) >= 1:
+                if len(concats) != 1:
+                    raise NotImplementedError(
+                        "Currently, Label Errors only supports pipelines following a very specific "
+                        "pattern!")
+                for concat in concats:
+                    concat_parents = get_sorted_parent_nodes(new_dag, concat)
+                    for concat_parent in concat_parents:
+                        if concat_parent not in new_nodes:
+                            edge_data = new_dag.get_edge_data(concat_parent, concat)
+                            new_dag.remove_edge(concat_parent, concat)
+                            new_concat_parent_filter_node = DagNode(singleton.get_next_op_id(),
+                                                                    BasicCodeLocation("Data Errors", None),
+                                                                    OperatorContext(OperatorType.SELECTION, None),
+                                                                    DagNodeDetails(
+                                                                        f"Filter for diff only",
+                                                                        None),
+                                                                    None,
+                                                                    DataErrorRobustness.apply_diff_filter)
+                            new_dag.add_edge(concat_parent, new_concat_parent_filter_node, arg_index=0)
+                            new_dag.add_edge(new_corruption_diff_node, new_concat_parent_filter_node, arg_index=1)
+                            new_dag.add_edge(new_concat_parent_filter_node, concat, **edge_data)
+            test_score = [node for node in new_nodes
+                          if node.operator_info.operator == OperatorType.SCORE][0]
+            test_predict = [node for node in new_nodes
+                            if node.operator_info.operator == OperatorType.PREDICT][0]
+            old_predict = [node for node in old_copied_nodes
+                           if node.operator_info.operator == OperatorType.PREDICT][0]
+            edge_data = new_dag.get_edge_data(test_predict, test_score)
+            new_dag.remove_edge(test_predict, test_score)
+
+            new_predict_diff_update_node = DagNode(singleton.get_next_op_id(),
+                                                   BasicCodeLocation("Data Errors", None),
+                                                   OperatorContext(OperatorType.SELECTION, None),
+                                                   DagNodeDetails(
+                                                       f"Merge diff with old predictions",
+                                                       None),
+                                                   None,
+                                                   DataErrorRobustness.update_prediction_diff)
+            new_dag.add_edge(old_predict, new_predict_diff_update_node, arg_index=0)
+            new_dag.add_edge(test_predict, new_predict_diff_update_node, arg_index=1)
+            new_dag.add_edge(new_corruption_diff_node, new_predict_diff_update_node, arg_index=2)
+            new_dag.add_edge(new_predict_diff_update_node, test_score, **edge_data)
+
+            if len(new_score_nodes) < 1:
+                raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
+                                          "pattern!")
+            for score_index, score_operator in enumerate(new_score_nodes):
+                extraction_node = get_intermediate_extraction_node(singleton, score_operator,
+                                                                   f"label-errors-corrupt-{score_index}")
+                new_dag.add_edge(score_operator, extraction_node, arg_index=0)
+            # FIXME: This part has a problem: it should work using only the diff and not all data
+            # End evaluate
 
             processing_func = partial(DataErrorRobustness.fix_data, data_type=data_type)
             new_fix_node = DagNode(singleton.get_next_op_id(),
@@ -385,6 +434,12 @@ class DataErrorRobustness(ShadowPipeline):
         corrupted_diff._mlinspect_provenance = None
 
         return corrupted_diff
+
+    @staticmethod
+    def update_prediction_diff(old_predictions, prediction_diff, prediction_index):
+        updated_predictions = old_predictions.copy()
+        updated_predictions[prediction_index] = prediction_diff
+        return updated_predictions
 
     @staticmethod
     def fix_data(input_df, data_type):

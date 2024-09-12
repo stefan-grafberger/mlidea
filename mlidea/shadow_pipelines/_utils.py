@@ -222,7 +222,6 @@ def duplicate_descendants(original_dag, new_dag, original_node, modified_copy, s
 
     # Create a queue to process each node in topological order (to handle dependencies)
     queue = list(networkx.topological_sort(original_dag.subgraph(descendants)))
-
     # Iterate through all descendants and create a duplicate for each using your method
     for node in queue:
         if node.operator_info.operator != OperatorType.EXTRACT_RESULT:
@@ -245,4 +244,4 @@ def duplicate_descendants(original_dag, new_dag, original_node, modified_copy, s
                     edge_data = original_dag.get_edge_data(parent, node)
                     new_dag.add_edge(parent, new_node, **edge_data)
 
-    return new_dag
+    return set(mapping.keys()), set(mapping.values())
