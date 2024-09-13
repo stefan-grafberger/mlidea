@@ -8,7 +8,7 @@ from mlidea.testing._testing_helper_utils import visualize_dags_shadow_pipelines
 from mlidea.shadow_pipelines._data_errors import DataErrorRobustness
 
 
-def test_label_errors_mini_example_with_transformer_processing_multiple_columns(tmpdir):
+def test_data_errors_mini_example_with_transformer_processing_multiple_columns(tmpdir):
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
     """
@@ -48,7 +48,7 @@ def test_label_errors_mini_example_with_transformer_processing_multiple_columns(
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
 
-def test_label_errors_mini_example_llm_rag(tmpdir):
+def test_data_errors_mini_example_llm_rag(tmpdir):
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
     """
@@ -67,7 +67,7 @@ def test_label_errors_mini_example_llm_rag(tmpdir):
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
 
-def test_label_errors_compas(tmpdir):
+def test_data_errors_compas(tmpdir):
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
     """
@@ -84,7 +84,7 @@ def test_label_errors_compas(tmpdir):
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
 
-def test_label_errors_anhedonia_ml(tmpdir):
+def test_data_errors_anhedonia_ml(tmpdir):
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
     """
@@ -101,7 +101,7 @@ def test_label_errors_anhedonia_ml(tmpdir):
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
 
-def test_label_errors_anhedonia_llm(tmpdir):
+def test_data_errors_anhedonia_llm(tmpdir):
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
     """
@@ -118,7 +118,7 @@ def test_label_errors_anhedonia_llm(tmpdir):
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
 
-def test_label_errors_adult_complex(tmpdir):
+def test_data_errors_adult_complex(tmpdir):
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
     """
@@ -135,7 +135,7 @@ def test_label_errors_adult_complex(tmpdir):
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
 
-def test_label_errors_healthcare(tmpdir):
+def test_data_errors_healthcare(tmpdir):
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
     """
@@ -154,7 +154,7 @@ def test_label_errors_healthcare(tmpdir):
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
 
-def test_label_errors_healthcare_fraction(tmpdir):
+def test_data_errors_healthcare_fraction(tmpdir):
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
     """
