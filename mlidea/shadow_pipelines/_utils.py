@@ -1,4 +1,5 @@
 import warnings
+from functools import partial
 
 import duckdb
 import networkx
@@ -6,6 +7,7 @@ import numpy
 from autocorrect import Speller
 from sklearn.preprocessing import FunctionTransformer
 
+from mlidea.instrumentation._operator_types import ConditionalResult
 from mlidea import DagNode, OperatorContext, OperatorType, DagNodeDetails
 
 
@@ -245,3 +247,23 @@ def duplicate_descendants(original_dag, new_dag, original_node, modified_copy, s
                     new_dag.add_edge(parent, new_node, **edge_data)
 
     return set(mapping.keys()), set(mapping.values())
+
+
+def get_conditional_stop_node(singleton, condition_func, description, parent_node):
+    def check_condition(condition_func, *inputs):
+        condition_bool = condition_func(*inputs)
+        if condition_bool is True:
+            result = ConditionalResult.CONTINUE_EXECUTION
+        else:
+            result = ConditionalResult.STOP_EXECUTION
+        return result
+
+    processing_func = partial(check_condition, condition_func=condition_func)
+
+    new_extraction_node = DagNode(singleton.get_next_op_id(),
+                                  parent_node.code_location,
+                                  OperatorContext(OperatorType.EXTRACT_RESULT, None),
+                                  DagNodeDetails(description, parent_node.details.columns),
+                                  None,
+                                  processing_func)
+    return new_extraction_node
