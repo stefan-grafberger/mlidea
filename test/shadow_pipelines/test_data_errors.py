@@ -8,7 +8,7 @@ from mlidea.testing._testing_helper_utils import visualize_dags_shadow_pipelines
 from mlidea.shadow_pipelines._data_errors import DataErrorRobustness
 
 
-def test_data_errors_mini_example_with_transformer_processing_multiple_columns(tmpdir):
+def test_data_errors_mini_example_with_transformer_processing_multiple_columns_no_fix_trigger(tmpdir):
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
     """

@@ -520,22 +520,32 @@ class DataErrorRobustness(ShadowPipeline):
     @staticmethod
     def corrupt_data(input_df, data_type, corruption_fraction):
         if data_type == DataType.TEXT:
-            for column in input_df.columns:
-                corrupted_result = get_typo_adder(column).fit_transform(input_df)
+            if isinstance(input_df, pandas.DataFrame):
+                for column in input_df.columns:
+                    corrupted_result = get_typo_adder(column).fit_transform(input_df)
+            elif isinstance(input_df, pandas.Series):
+                pandas_df = pandas.DataFrame({input_df.name: input_df})
+                corrupted_result = get_typo_adder(input_df.name).fit_transform(pandas_df)
+                corrupted_result = corrupted_result[input_df.name]
+            else:
+                raise NotImplementedError("TODO")
         elif data_type == DataType.CAT:
-            for column in input_df.columns:
                 # TODO: Broken Characters is pretty slow, maybe do not use it
                 """Corrupt broken characters that may be in a pandas df, but may also be in a different format"""
                 if isinstance(input_df, pandas.DataFrame):
-                    corrupted_result = BrokenCharacters(column=column, fraction=corruption_fraction).transform(input_df)
+                    for column in input_df.columns:
+                        corrupted_result = BrokenCharacters(column=column, fraction=corruption_fraction).transform(input_df)
                 elif isinstance(input_df, list):
-                    pandas_df = pandas.DataFrame({column: input_df})
-                    corrupted_result = BrokenCharacters(column=column, fraction=corruption_fraction).transform(
+                    pandas_df = pandas.DataFrame({"column": input_df})
+                    corrupted_result = BrokenCharacters(column="column", fraction=corruption_fraction).transform(
                         pandas_df)
-                else:
+                elif isinstance(input_df, numpy.ndarray):
                     pandas_df = pandas.DataFrame(input_df)
-                    corrupted_result = BrokenCharacters(column=column, fraction=corruption_fraction).transform(
-                        pandas_df)
+                    for column in pandas_df.columns:
+                        corrupted_result = BrokenCharacters(column=column, fraction=corruption_fraction).transform(
+                            pandas_df)
+                else:
+                    raise NotImplementedError("TODO")
         elif data_type == DataType.NUM:
             for column in input_df.columns:
                 corrupted_result = Scaling(column=column, fraction=corruption_fraction).transform(input_df)
@@ -553,7 +563,10 @@ class DataErrorRobustness(ShadowPipeline):
             corrupted_diff = input_df.iloc[corrupted_index]
         else:
             corrupted_diff = input_df[corrupted_index]
+        if isinstance(corrupted_diff, (pandas.Series, pandas.DataFrame)):
+            corrupted_diff = corrupted_diff.reset_index(drop=True)
         corrupted_diff._mlinspect_provenance = None
+
 
         return corrupted_diff
 
@@ -592,13 +605,19 @@ class DataErrorRobustness(ShadowPipeline):
 
     @staticmethod
     def corrupt_data_diff_detection(input_df, corrupted_result):
-        corrupt_diff_mask = numpy.any(corrupted_result != input_df, axis=1)
+        if isinstance(input_df, pandas.Series):
+            corrupt_diff_mask = (corrupted_result != input_df).to_numpy()
+        else:
+            corrupt_diff_mask = numpy.any(corrupted_result != input_df, axis=1)
         changed_indices_corrupt = numpy.where(corrupt_diff_mask)[0]
         return changed_indices_corrupt
 
     @staticmethod
     def fix_data_diff_detection_mask_only(input_df, corrupted_result):
-        corrupt_diff_mask = numpy.any(corrupted_result != input_df, axis=1)
+        if isinstance(input_df, pandas.Series):
+            corrupt_diff_mask = (corrupted_result != input_df).to_numpy()
+        else:
+            corrupt_diff_mask = numpy.any(corrupted_result != input_df, axis=1)
         return corrupt_diff_mask
 
     @staticmethod
@@ -608,6 +627,8 @@ class DataErrorRobustness(ShadowPipeline):
 
     @staticmethod
     def fix_data_diff_indices_before_corruption(corrupted_diff_index, corrupt_fix_diff_mask):
+        if isinstance(corrupted_diff_index, (pandas.Series, pandas.DataFrame)):
+            corrupted_diff_index = corrupted_diff_index.reset_index(drop=True)
         changed_indices_fix_corrupt = corrupted_diff_index[corrupt_fix_diff_mask]
         return changed_indices_fix_corrupt
 
@@ -729,4 +750,15 @@ class DataErrorRobustness(ShadowPipeline):
                 if transformer_desc in transformer.details.description:
                     data_parent = get_sorted_parent_nodes(dag, transformer)[1]
                     data_parent_and_data_type.append((data_parent, transformer, data_type))
+
+        # A simple heuristic for now to detect embedding operations in FunctionTransformers in pipelines like
+        #  anhedonia_ml
+        function_transformers = [node for node in nodes_to_search if
+                                node.operator_info.operator == OperatorType.TRANSFORMER
+                                and "Function Transformer: transform" in node.details.description]
+        for function_transformer in function_transformers:
+            data_parent = get_sorted_parent_nodes(dag, function_transformer)[1]
+            if (data_parent.details.optimizer_info.shape[1] == 1 and
+                    function_transformer.details.optimizer_info.shape[1] >= 100):
+                data_parent_and_data_type.append((data_parent, transformer, DataType.TEXT))
         return data_parent_and_data_type
