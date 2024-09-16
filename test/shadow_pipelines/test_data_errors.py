@@ -35,7 +35,7 @@ def test_data_errors_mini_example_with_transformer_processing_multiple_columns(t
         assert test_score == 1.0
         """)
 
-    data_errors = DataErrorRobustness(corruption_fraction=0.5)
+    data_errors = DataErrorRobustness(corruption_fraction=0.5, corruption_significant_relative_threshold=0.)
     analysis_result = PipelineAnalyzer \
         .on_pipeline_from_string(test_code) \
         .add_shadow_pipeline(data_errors) \
@@ -44,6 +44,48 @@ def test_data_errors_mini_example_with_transformer_processing_multiple_columns(t
     report = analysis_result.shadow_pipelines_to_result_reports[data_errors]
     # assert report.shape == (4, 2)
     assert "the pipeline metric was" in report
+    assert "Fortunately, " in report
+
+    visualize_dags_shadow_pipelines(analysis_result, tmpdir)
+
+
+def test_data_errors_mini_example_with_transformer_processing_multiple_columns_guaranteed_fix_trigger(tmpdir):
+    """
+    Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
+    """
+    test_code = cleandoc("""
+        import pandas as pd
+        from sklearn.preprocessing import label_binarize, StandardScaler
+        from sklearn.tree import DecisionTreeClassifier
+        import numpy as np
+
+        df = pd.DataFrame({'A': [0, 0, 0, 0], 'B': [0, 1, 3, 4], 'target': ['no', 'no', 'yes', 'yes']})
+
+        standard_scaler = StandardScaler()
+        train = standard_scaler.fit_transform(df[['A', 'B']])
+        target = label_binarize(df['target'], classes=['no', 'yes'])
+
+        clf = DecisionTreeClassifier()
+        clf = clf.fit(train, target)
+
+        test_df = pd.DataFrame({'A': [0, 0, 0, 0], 'B':  [4, 3, 4, 3], 
+            'sensitive': ["cat_a", "cat_b", "cat_a", "cat_b"], 'target': ['yes', 'yes', 'yes', 'yes']})
+        test_data = standard_scaler.transform(test_df[['A', 'B']])
+        test_labels = label_binarize(test_df['target'], classes=['no', 'yes'])
+        test_score = clf.score(test_data, test_labels)
+        assert test_score == 1.0
+        """)
+
+    data_errors = DataErrorRobustness(corruption_fraction=0.5, corruption_significant_relative_threshold=1.0)
+    analysis_result = PipelineAnalyzer \
+        .on_pipeline_from_string(test_code) \
+        .add_shadow_pipeline(data_errors) \
+        .execute()
+
+    report = analysis_result.shadow_pipelines_to_result_reports[data_errors]
+    # assert report.shape == (4, 2)
+    assert "the pipeline metric was" in report
+    assert "Fortunately, " not in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 

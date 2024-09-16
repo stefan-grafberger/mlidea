@@ -61,10 +61,11 @@ class DataErrorRobustness(ShadowPipeline):
     def check_rebuilding_necessary(self, extracted_plan_results: dict[str, any]) -> any:
         return False
 
-    def __init__(self, corruption_fraction=.1):
+    def __init__(self, corruption_fraction=.1, corruption_significant_relative_threshold=0.99):
         self._corruption_fraction = corruption_fraction
-        self._shadow_pipeline_id = (corruption_fraction,)
+        self._shadow_pipeline_id = (corruption_fraction, corruption_significant_relative_threshold)
         self.score_operator_count = 0
+        self._corruption_significant_relative_threshold = corruption_significant_relative_threshold
 
     @property
     def shadow_pipeline_id(self):
@@ -204,6 +205,29 @@ class DataErrorRobustness(ShadowPipeline):
                 extraction_node = get_intermediate_extraction_node(singleton, score_operator,
                                                                    f"label-errors-corrupt-{score_index}")
                 new_dag.add_edge(score_operator, extraction_node, arg_index=0)
+
+            def condition_corruption_significant_function(corruption_significant_relative_threshold, *scores):
+                # This function compares all scores of the original pipeline and the corrupted pipeline
+                # So the number of scores in both pipeline variants should be equal
+                assert len(scores) % 2 == 0
+                number_of_scores_each = int(len(scores) / 2)
+                scores_different_enough = False
+                for score_index in range(number_of_scores_each):
+                    if (scores[score_index] * corruption_significant_relative_threshold >=
+                            scores[score_index + number_of_scores_each]):
+                        scores_different_enough = True
+                return scores_different_enough
+            condition_processing_func = partial(condition_corruption_significant_function,
+                                      self._corruption_significant_relative_threshold)
+            conditional_corruption_significant_node = get_conditional_stop_node(
+                singleton, condition_processing_func, "data-errors-corruption-significant",
+                "Check if fix function made changes", new_score_nodes[0])
+            for score_index, score_operator in enumerate(score_operators):
+                new_dag.add_edge(score_operator, conditional_corruption_significant_node,
+                                 arg_index=score_index)
+            for score_index, score_operator in enumerate(new_score_nodes):
+                new_dag.add_edge(score_operator, conditional_corruption_significant_node,
+                                 arg_index=score_index + self.score_operator_count)
             # End evaluate
 
             if data_type == DataType.TEXT:
@@ -220,6 +244,7 @@ class DataErrorRobustness(ShadowPipeline):
                                    None,
                                    processing_func)
             new_dag.add_edge(fix_input_node, new_fix_node, arg_index=0)
+            new_dag.add_edge(conditional_corruption_significant_node, new_fix_node, arg_index=1)
 
             if data_type == DataType.TEXT:
                 fix_node_to_extract = new_fix_node
@@ -431,21 +456,27 @@ class DataErrorRobustness(ShadowPipeline):
         for score_index in range(self.score_operator_count):
             orig_result.append(extracted_plan_results[f"label-errors-orig-{score_index}"])
         corruption_diff_df_sample = extracted_plan_results["data-errors-corruption-diff"].head(20)
-        corruption_diff_fix_df = extracted_plan_results["data-errors-corruption-diff-fix"]
-        if isinstance(corruption_diff_fix_df, (pandas.DataFrame, pandas.Series)):
-            corruption_diff_fix_df_sample = corruption_diff_fix_df.head(20)
-        else:
-            corruption_diff_fix_df_sample = corruption_diff_fix_df[:20, :]
         corrupt_result = []
         for score_index in range(self.score_operator_count):
             corrupt_result.append(extracted_plan_results[f"label-errors-corrupt-{score_index}"])
-        score_after_fixing = []
-        for score_index in range(self.score_operator_count):
-            score_after_fixing.append(extracted_plan_results[f"label-errors-corrupt-fix-{score_index}"])
         report = (f"The original result was {orig_result}. After corrupting {self._corruption_fraction} of rows, "
                   f"the pipeline metric was {corrupt_result}, indicating robustness problems. A sample of the corrupted "
                   f"rows: {str(corruption_diff_df_sample)}. ")
-        if extracted_plan_results["data-errors-corruption-diff-fix-not-empty"] is True:
+
+        if extracted_plan_results["data-errors-corruption-significant"] is True:
+            corruption_diff_fix_df = extracted_plan_results["data-errors-corruption-diff-fix"]
+            if isinstance(corruption_diff_fix_df, (pandas.DataFrame, pandas.Series)):
+                corruption_diff_fix_df_sample = corruption_diff_fix_df.head(20)
+            else:
+                corruption_diff_fix_df_sample = corruption_diff_fix_df[:20, :]
+            score_after_fixing = []
+            for score_index in range(self.score_operator_count):
+                score_after_fixing.append(extracted_plan_results[f"label-errors-corrupt-fix-{score_index}"])
+        else:
+            report += ("Fortunately, corruption function was not able to significantly affect the performance beyond "
+                       "the configured acceptable threshold.")
+        if (extracted_plan_results["data-errors-corruption-significant"] is True and
+                extracted_plan_results["data-errors-corruption-diff-fix-not-empty"] is True):
             report += (f"After adding a fix method, the pipeline metric was "
                        f"{score_after_fixing}. A sample of the fixed rows: {str(corruption_diff_fix_df_sample)}")
         else:
