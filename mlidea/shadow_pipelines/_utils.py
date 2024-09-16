@@ -249,20 +249,21 @@ def duplicate_descendants(original_dag, new_dag, original_node, modified_copy, s
     return set(mapping.keys()), set(mapping.values())
 
 
-def get_conditional_stop_node(singleton, condition_func, description, parent_node):
-    def check_condition(condition_func, *inputs):
-        condition_bool = condition_func(*inputs)
+def get_conditional_stop_node(singleton, condition_func, label, description, parent_node):
+    def check_condition(bound_condition_func, bound_label, *inputs):
+        condition_bool = bound_condition_func(*inputs)
         if condition_bool is True:
             result = ConditionalResult.CONTINUE_EXECUTION
         else:
             result = ConditionalResult.STOP_EXECUTION
+        singleton.labels_to_extracted_plan_results[bound_label] = condition_bool
         return result
 
-    processing_func = partial(check_condition, condition_func=condition_func)
+    processing_func = partial(check_condition, condition_func, label)
 
     new_extraction_node = DagNode(singleton.get_next_op_id(),
                                   parent_node.code_location,
-                                  OperatorContext(OperatorType.EXTRACT_RESULT, None),
+                                  OperatorContext(OperatorType.CONDITIONAL_STOP, None),
                                   DagNodeDetails(description, parent_node.details.columns),
                                   None,
                                   processing_func)

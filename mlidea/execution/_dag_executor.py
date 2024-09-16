@@ -45,10 +45,13 @@ class DagExecutor:
                         # A ConditionalResult.CONTINUE should never be propagated further, and can only occur directly
                         #  from conditional nodes. However, conditional nodes are always the input node with the
                         #  highest arg_index, the last argument of some other node
-                        assert input_index == -1
+                        assert input_index == len(inputs) - 1
                         inputs = inputs[:-1]
             if stop_signal_received is False:
                 executable_processing_func = partial(current_node.processing_func, *inputs)
+                optimizer_info, result_df = capture_optimizer_info(executable_processing_func)
+            elif current_node.operator_info.operator == OperatorType.EXTRACT_RESULT:
+                executable_processing_func = partial(current_node.processing_func, ConditionalResult.STOP_EXECUTION)
                 optimizer_info, result_df = capture_optimizer_info(executable_processing_func)
             else:
                 optimizer_info = OptimizerInfo(None, None, None)

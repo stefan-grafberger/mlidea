@@ -31,7 +31,8 @@ from mlidea.analysis._analysis_utils import find_nodes_by_type
 from mlidea import OperatorType, DagNode, BasicCodeLocation, OperatorContext, DagNodeDetails
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
-    get_sorted_parent_nodes, find_train_or_test_pipeline_part_end, get_typo_adder, duplicate_descendants, get_typo_fixer
+    get_sorted_parent_nodes, find_train_or_test_pipeline_part_end, get_typo_adder, duplicate_descendants, \
+    get_typo_fixer, get_conditional_stop_node
 from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
 from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
 
@@ -257,6 +258,12 @@ class DataErrorRobustness(ShadowPipeline):
                                                 DataErrorRobustness.fix_data_mask_to_indices)
             new_dag.add_edge(new_fix_diff_mask_node, new_fix_diff_indices_node, arg_index=0)
 
+            condition_fix_function = lambda np_array: len(np_array) != 0
+            conditional_fixes_changed_something_node = get_conditional_stop_node(
+                singleton, condition_fix_function, "data-errors-corruption-diff-fix-not-empty",
+                "Check if fix function made changes", new_fix_diff_indices_node)
+            new_dag.add_edge(new_fix_diff_indices_node, conditional_fixes_changed_something_node, arg_index=0)
+
             new_fix_diff_filter_node = DagNode(singleton.get_next_op_id(),
                                                BasicCodeLocation("Data Errors", None),
                                                OperatorContext(OperatorType.SELECTION, None),
@@ -267,6 +274,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                DataErrorRobustness.apply_diff_filter)
             new_dag.add_edge(new_fix_node, new_fix_diff_filter_node, arg_index=0)
             new_dag.add_edge(new_fix_diff_indices_node, new_fix_diff_filter_node, arg_index=1)
+            new_dag.add_edge(conditional_fixes_changed_something_node, new_fix_diff_filter_node, arg_index=2)
 
             # Evaluate with corrupted data
             old_copied_nodes, new_nodes = duplicate_descendants(dag, new_dag, data_parent,
@@ -333,6 +341,7 @@ class DataErrorRobustness(ShadowPipeline):
             new_dag.add_edge(old_predict, new_predict_diff_update_node, arg_index=0)
             new_dag.add_edge(test_predict, new_predict_diff_update_node, arg_index=1)
             new_dag.add_edge(prediction_filter_index_node, new_predict_diff_update_node, arg_index=2)
+            new_dag.add_edge(conditional_fixes_changed_something_node, new_predict_diff_update_node, arg_index=3)
             new_dag.add_edge(new_predict_diff_update_node, test_score, **edge_data)
 
             if len(new_score_nodes) < 1:
@@ -433,10 +442,15 @@ class DataErrorRobustness(ShadowPipeline):
         score_after_fixing = []
         for score_index in range(self.score_operator_count):
             score_after_fixing.append(extracted_plan_results[f"label-errors-corrupt-fix-{score_index}"])
-        return (f"The original result was {orig_result}. After corrupting {self._corruption_fraction} of rows, "
-                f"the pipeline metric was {corrupt_result}, indicating robustness problems. A sample of the corrupted "
-                f"rows: {str(corruption_diff_df_sample)}. After adding a fix method, the pipeline metric was "
-                f"{score_after_fixing}. A sample of the fixed rows: {str(corruption_diff_fix_df_sample)}")
+        report = (f"The original result was {orig_result}. After corrupting {self._corruption_fraction} of rows, "
+                  f"the pipeline metric was {corrupt_result}, indicating robustness problems. A sample of the corrupted "
+                  f"rows: {str(corruption_diff_df_sample)}. ")
+        if extracted_plan_results["data-errors-corruption-diff-fix-not-empty"] is True:
+            report += (f"After adding a fix method, the pipeline metric was "
+                       f"{score_after_fixing}. A sample of the fixed rows: {str(corruption_diff_fix_df_sample)}")
+        else:
+            report += "Unfortunately, the fix method was not able to automatically address the corrupted rows."
+        return report
 
     @staticmethod
     def shapley_top_k_func_llm(rag_join_result, train_labels_before_dict, encoded_test_data, encoded_test_labels,
