@@ -185,7 +185,7 @@ class DataErrorRobustness(ShadowPipeline):
             edge_data = new_dag.get_edge_data(test_predict, test_score)
             new_dag.remove_edge(test_predict, test_score)
 
-            new_predict_diff_update_node = DagNode(singleton.get_next_op_id(),
+            new_corrupt_predict_diff_update_node = DagNode(singleton.get_next_op_id(),
                                                    BasicCodeLocation("Data Errors", None),
                                                    OperatorContext(OperatorType.SELECTION, None),
                                                    DagNodeDetails(
@@ -193,10 +193,10 @@ class DataErrorRobustness(ShadowPipeline):
                                                        None),
                                                    None,
                                                    DataErrorRobustness.update_prediction_diff)
-            new_dag.add_edge(old_predict, new_predict_diff_update_node, arg_index=0)
-            new_dag.add_edge(test_predict, new_predict_diff_update_node, arg_index=1)
-            new_dag.add_edge(new_corruption_diff_node, new_predict_diff_update_node, arg_index=2)
-            new_dag.add_edge(new_predict_diff_update_node, test_score, **edge_data)
+            new_dag.add_edge(old_predict, new_corrupt_predict_diff_update_node, arg_index=0)
+            new_dag.add_edge(test_predict, new_corrupt_predict_diff_update_node, arg_index=1)
+            new_dag.add_edge(new_corruption_diff_node, new_corrupt_predict_diff_update_node, arg_index=2)
+            new_dag.add_edge(new_corrupt_predict_diff_update_node, test_score, **edge_data)
 
             if len(new_score_nodes) < 1:
                 raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
@@ -328,14 +328,12 @@ class DataErrorRobustness(ShadowPipeline):
                                                                     None,
                                                                     DataErrorRobustness.apply_diff_filter)
                             new_dag.add_edge(concat_parent, new_concat_parent_filter_node, arg_index=0)
-                            new_dag.add_edge(new_corruption_diff_node, new_concat_parent_filter_node, arg_index=1)
+                            new_dag.add_edge(new_fix_diff_indices_node, new_concat_parent_filter_node, arg_index=1)
                             new_dag.add_edge(new_concat_parent_filter_node, concat, **edge_data)
             test_score = [node for node in new_nodes
                           if node.operator_info.operator == OperatorType.SCORE][0]
             test_predict = [node for node in new_nodes
                             if node.operator_info.operator == OperatorType.PREDICT][0]
-            old_predict = [node for node in old_copied_nodes
-                           if node.operator_info.operator == OperatorType.PREDICT][0]
             edge_data = new_dag.get_edge_data(test_predict, test_score)
             new_dag.remove_edge(test_predict, test_score)
 
@@ -355,7 +353,7 @@ class DataErrorRobustness(ShadowPipeline):
             else:
                 prediction_filter_index_node = new_fix_diff_indices_node
 
-            new_predict_diff_update_node = DagNode(singleton.get_next_op_id(),
+            new_fix_predict_diff_update_node = DagNode(singleton.get_next_op_id(),
                                                    BasicCodeLocation("Data Errors", None),
                                                    OperatorContext(OperatorType.SELECTION, None),
                                                    DagNodeDetails(
@@ -363,11 +361,11 @@ class DataErrorRobustness(ShadowPipeline):
                                                        None),
                                                    None,
                                                    DataErrorRobustness.update_prediction_diff)
-            new_dag.add_edge(old_predict, new_predict_diff_update_node, arg_index=0)
-            new_dag.add_edge(test_predict, new_predict_diff_update_node, arg_index=1)
-            new_dag.add_edge(prediction_filter_index_node, new_predict_diff_update_node, arg_index=2)
-            new_dag.add_edge(conditional_fixes_changed_something_node, new_predict_diff_update_node, arg_index=3)
-            new_dag.add_edge(new_predict_diff_update_node, test_score, **edge_data)
+            new_dag.add_edge(new_corrupt_predict_diff_update_node, new_fix_predict_diff_update_node, arg_index=0)
+            new_dag.add_edge(test_predict, new_fix_predict_diff_update_node, arg_index=1)
+            new_dag.add_edge(prediction_filter_index_node, new_fix_predict_diff_update_node, arg_index=2)
+            new_dag.add_edge(conditional_fixes_changed_something_node, new_fix_predict_diff_update_node, arg_index=3)
+            new_dag.add_edge(new_fix_predict_diff_update_node, test_score, **edge_data)
 
             if len(new_score_nodes) < 1:
                 raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
@@ -479,7 +477,7 @@ class DataErrorRobustness(ShadowPipeline):
                 extracted_plan_results["data-errors-corruption-diff-fix-not-empty"] is True):
             report += (f"After adding a fix method, the pipeline metric was "
                        f"{score_after_fixing}. A sample of the fixed rows: {str(corruption_diff_fix_df_sample)}")
-        else:
+        elif extracted_plan_results["data-errors-corruption-significant"] is True:
             report += "Unfortunately, the fix method was not able to automatically address the corrupted rows."
         return report
 
@@ -566,7 +564,6 @@ class DataErrorRobustness(ShadowPipeline):
         if isinstance(corrupted_diff, (pandas.Series, pandas.DataFrame)):
             corrupted_diff = corrupted_diff.reset_index(drop=True)
         corrupted_diff._mlinspect_provenance = None
-
 
         return corrupted_diff
 
