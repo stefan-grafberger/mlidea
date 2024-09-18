@@ -535,10 +535,12 @@ class DataErrorRobustness(ShadowPipeline):
             if isinstance(corrupted_result, pandas.DataFrame):
                 for column in corrupted_result.columns:
                     corrupted_result = get_typo_adder(column).fit_transform(corrupted_result)
+                    print("test")
             elif isinstance(corrupted_result, pandas.Series):
                 pandas_df = pandas.DataFrame(corrupted_result)
                 corrupted_result = get_typo_adder(corrupted_result.name).fit_transform(pandas_df)
                 corrupted_result = corrupted_result.iloc[:, 0]
+                print("test")
             else:
                 raise NotImplementedError("TODO")
         elif data_type == DataType.CAT:
@@ -549,8 +551,8 @@ class DataErrorRobustness(ShadowPipeline):
                     corrupted_result = MissingValues(column=column, fraction=corruption_fraction, na_value="0"
                                                      ).transform(corrupted_result)
             elif isinstance(corrupted_result, list):
-                pandas_df = pandas.DataFrame({"column": corrupted_result})
-                corrupted_result =  MissingValues(column="column", fraction=corruption_fraction, na_value="0"
+                corrupted_result = pandas.DataFrame({"column": corrupted_result})
+                corrupted_result = MissingValues(column="column", fraction=corruption_fraction, na_value="0"
                                                      ).transform(corrupted_result)
             elif isinstance(corrupted_result, numpy.ndarray):
                 corrupted_result = pandas.DataFrame(corrupted_result)
@@ -619,7 +621,7 @@ class DataErrorRobustness(ShadowPipeline):
             #  ALso, this might not perform any changes. In these cases, the shadow pipeline shouldn't crash
             for column in fixed_corrupted.columns:
                 is_int = fixed_corrupted[column].dtype == int
-                fixed_corrupted = OutlierCleaner.fit_transform_all(fixed_corrupted, detection_strategy='IF',
+                fixed_corrupted = OutlierCleaner.fit_transform_all(fixed_corrupted, detection_strategy='IQR',
                                                                    repair_strategy='mean', column=column)
                 if is_int:
                     fixed_corrupted[column] = fixed_corrupted[column].astype(int)
