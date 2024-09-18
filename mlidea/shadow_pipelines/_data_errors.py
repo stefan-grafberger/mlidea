@@ -21,8 +21,11 @@ import duckdb
 import networkx
 import numpy
 import pandas
+from fairlearn.metrics import MetricFrame
+from jenga.corruptions.generic import MissingValues
 from jenga.corruptions.numerical import Scaling
 from jenga.corruptions.text import BrokenCharacters
+from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import MinMaxScaler
 
 from mlidea.analysis._cleaning_methods import OutlierCleaner
@@ -65,6 +68,7 @@ class DataErrorRobustness(ShadowPipeline):
         self._corruption_fraction = corruption_fraction
         self._shadow_pipeline_id = (corruption_fraction, corruption_significant_relative_threshold)
         self.score_operator_count = 0
+        self.transformer_inputs_to_check_count = 0
         self._corruption_significant_relative_threshold = corruption_significant_relative_threshold
 
     @property
@@ -108,8 +112,9 @@ class DataErrorRobustness(ShadowPipeline):
         self.score_operator_count = len(score_operators)
 
         data_parent_transformer_and_data_type = DataErrorRobustness._get_transformer_operators_to_test(dag)
+        self.transformer_inputs_to_check_count = len(data_parent_transformer_and_data_type)
 
-        for data_parent, transformer, data_type, in data_parent_transformer_and_data_type:
+        for data_type_index, (data_parent, transformer, data_type) in enumerate(data_parent_transformer_and_data_type):
             processing_func = partial(DataErrorRobustness.corrupt_data,
                                       data_type=data_type,
                                       corruption_fraction=self._corruption_fraction)
@@ -132,6 +137,12 @@ class DataErrorRobustness(ShadowPipeline):
             new_dag.add_edge(data_parent, new_corruption_diff_node, arg_index=0)
             new_dag.add_edge(new_corruption_node, new_corruption_diff_node, arg_index=1)
 
+            condition_corrupt_function = lambda np_array: len(np_array) != 0
+            conditional_corruption_made_changes_node = get_conditional_stop_node(
+                singleton, condition_corrupt_function, f"data-errors-corruption-made-changes-{data_type_index}",
+                "Check if corrupt function made changes", new_corruption_diff_node)
+            new_dag.add_edge(new_corruption_diff_node, conditional_corruption_made_changes_node, arg_index=1)
+
             new_corruption_diff_filter_node = DagNode(singleton.get_next_op_id(),
                                                       BasicCodeLocation("Data Errors", None),
                                                       OperatorContext(OperatorType.SELECTION, None),
@@ -142,15 +153,15 @@ class DataErrorRobustness(ShadowPipeline):
                                                       DataErrorRobustness.apply_diff_filter)
             new_dag.add_edge(new_corruption_node, new_corruption_diff_filter_node, arg_index=0)
             new_dag.add_edge(new_corruption_diff_node, new_corruption_diff_filter_node, arg_index=1)
+            new_dag.add_edge(conditional_corruption_made_changes_node, new_corruption_diff_filter_node, arg_index=2)
 
             extraction_node = get_intermediate_extraction_node(singleton, new_corruption_diff_filter_node,
-                                                               "data-errors-corruption-diff")
+                                                               f"data-errors-corruption-diff-{data_type_index}")
             new_dag.add_edge(new_corruption_diff_filter_node, extraction_node, arg_index=0)
 
             # Evaluate with corrupted data
-            old_copied_nodes, new_nodes = duplicate_descendants(dag, new_dag, data_parent,
-                                                                new_corruption_diff_filter_node, singleton)
-            new_score_nodes = [node for node in new_nodes if node.operator_info.operator == OperatorType.SCORE]
+            old_copied_nodes, new_nodes, new_score_nodes = duplicate_descendants(
+                dag, new_dag, data_parent, new_corruption_diff_filter_node, singleton)
 
             # Now apply filter to all other concatenation inputs
             concats = [node for node in new_nodes if node.operator_info.operator == OperatorType.CONCATENATION]
@@ -175,52 +186,44 @@ class DataErrorRobustness(ShadowPipeline):
                                                                     DataErrorRobustness.apply_diff_filter)
                             new_dag.add_edge(concat_parent, new_concat_parent_filter_node, arg_index=0)
                             new_dag.add_edge(new_corruption_diff_node, new_concat_parent_filter_node, arg_index=1)
+                            new_dag.add_edge(conditional_corruption_made_changes_node, new_concat_parent_filter_node,
+                                             arg_index=2)
                             new_dag.add_edge(new_concat_parent_filter_node, concat, **edge_data)
-            test_score = [node for node in new_nodes
-                          if node.operator_info.operator == OperatorType.SCORE][0]
             test_predict = [node for node in new_nodes
                             if node.operator_info.operator == OperatorType.PREDICT][0]
             old_predict = [node for node in old_copied_nodes
                            if node.operator_info.operator == OperatorType.PREDICT][0]
-            edge_data = new_dag.get_edge_data(test_predict, test_score)
-            new_dag.remove_edge(test_predict, test_score)
 
             new_corrupt_predict_diff_update_node = DagNode(singleton.get_next_op_id(),
-                                                   BasicCodeLocation("Data Errors", None),
-                                                   OperatorContext(OperatorType.SELECTION, None),
-                                                   DagNodeDetails(
-                                                       f"Merge corruption diff with old predictions",
-                                                       None),
-                                                   None,
-                                                   DataErrorRobustness.update_prediction_diff)
+                                                           BasicCodeLocation("Data Errors", None),
+                                                           OperatorContext(OperatorType.SELECTION, None),
+                                                           DagNodeDetails(
+                                                               f"Merge corruption diff with old predictions",
+                                                               None),
+                                                           None,
+                                                           DataErrorRobustness.update_prediction_diff)
             new_dag.add_edge(old_predict, new_corrupt_predict_diff_update_node, arg_index=0)
             new_dag.add_edge(test_predict, new_corrupt_predict_diff_update_node, arg_index=1)
             new_dag.add_edge(new_corruption_diff_node, new_corrupt_predict_diff_update_node, arg_index=2)
-            new_dag.add_edge(new_corrupt_predict_diff_update_node, test_score, **edge_data)
+            new_dag.add_edge(conditional_corruption_made_changes_node, new_corrupt_predict_diff_update_node,
+                             arg_index=3)
 
             if len(new_score_nodes) < 1:
                 raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
                                           "pattern!")
             for score_index, score_operator in enumerate(new_score_nodes):
+                edge_data = new_dag.get_edge_data(test_predict, score_operator)
+                new_dag.remove_edge(test_predict, score_operator)
+                new_dag.add_edge(new_corrupt_predict_diff_update_node, score_operator, **edge_data)
+
                 extraction_node = get_intermediate_extraction_node(singleton, score_operator,
-                                                                   f"label-errors-corrupt-{score_index}")
+                                                                   f"data-errors-corrupt-{score_index}-{data_type_index}")
                 new_dag.add_edge(score_operator, extraction_node, arg_index=0)
 
-            def condition_corruption_significant_function(corruption_significant_relative_threshold, *scores):
-                # This function compares all scores of the original pipeline and the corrupted pipeline
-                # So the number of scores in both pipeline variants should be equal
-                assert len(scores) % 2 == 0
-                number_of_scores_each = int(len(scores) / 2)
-                scores_different_enough = False
-                for score_index in range(number_of_scores_each):
-                    if (scores[score_index] * corruption_significant_relative_threshold >=
-                            scores[score_index + number_of_scores_each]):
-                        scores_different_enough = True
-                return scores_different_enough
-            condition_processing_func = partial(condition_corruption_significant_function,
-                                      self._corruption_significant_relative_threshold)
+            condition_processing_func = partial(DataErrorRobustness.condition_corruption_significant_function,
+                                                self._corruption_significant_relative_threshold)
             conditional_corruption_significant_node = get_conditional_stop_node(
-                singleton, condition_processing_func, "data-errors-corruption-significant",
+                singleton, condition_processing_func, f"data-errors-corruption-significant-{data_type_index}",
                 "Check if fix function made changes", new_score_nodes[0])
             for score_index, score_operator in enumerate(score_operators):
                 new_dag.add_edge(score_operator, conditional_corruption_significant_node,
@@ -259,9 +262,11 @@ class DataErrorRobustness(ShadowPipeline):
                                                                      DataErrorRobustness.apply_diff_filter)
                 new_dag.add_edge(new_fix_node, new_fix_with_corruption_change_filter_node, arg_index=0)
                 new_dag.add_edge(new_corruption_diff_node, new_fix_with_corruption_change_filter_node, arg_index=1)
+                new_dag.add_edge(conditional_corruption_made_changes_node, new_fix_with_corruption_change_filter_node,
+                                 arg_index=2)
                 fix_node_to_extract = new_fix_with_corruption_change_filter_node
             extraction_node = get_intermediate_extraction_node(singleton, new_fix_node,
-                                                               "data-errors-corruption-diff-fix")
+                                                               f"data-errors-corruption-diff-fix-{data_type_index}")
             new_dag.add_edge(fix_node_to_extract, extraction_node, arg_index=0)
 
             new_fix_diff_mask_node = DagNode(singleton.get_next_op_id(),
@@ -285,7 +290,7 @@ class DataErrorRobustness(ShadowPipeline):
 
             condition_fix_function = lambda np_array: len(np_array) != 0
             conditional_fixes_changed_something_node = get_conditional_stop_node(
-                singleton, condition_fix_function, "data-errors-corruption-diff-fix-not-empty",
+                singleton, condition_fix_function, f"data-errors-corruption-diff-fix-not-empty-{data_type_index}",
                 "Check if fix function made changes", new_fix_diff_indices_node)
             new_dag.add_edge(new_fix_diff_indices_node, conditional_fixes_changed_something_node, arg_index=0)
 
@@ -301,10 +306,9 @@ class DataErrorRobustness(ShadowPipeline):
             new_dag.add_edge(new_fix_diff_indices_node, new_fix_diff_filter_node, arg_index=1)
             new_dag.add_edge(conditional_fixes_changed_something_node, new_fix_diff_filter_node, arg_index=2)
 
-            # Evaluate with corrupted data
-            old_copied_nodes, new_nodes = duplicate_descendants(dag, new_dag, data_parent,
-                                                                new_fix_diff_filter_node, singleton)
-            new_score_nodes = [node for node in new_nodes if node.operator_info.operator == OperatorType.SCORE]
+            # Evaluate with fixed data
+            old_copied_nodes, new_nodes, new_score_nodes = duplicate_descendants(
+                dag, new_dag, data_parent, new_fix_diff_filter_node, singleton)
 
             # Now apply filter to all other concatenation inputs
             concats = [node for node in new_nodes if node.operator_info.operator == OperatorType.CONCATENATION]
@@ -330,12 +334,8 @@ class DataErrorRobustness(ShadowPipeline):
                             new_dag.add_edge(concat_parent, new_concat_parent_filter_node, arg_index=0)
                             new_dag.add_edge(new_fix_diff_indices_node, new_concat_parent_filter_node, arg_index=1)
                             new_dag.add_edge(new_concat_parent_filter_node, concat, **edge_data)
-            test_score = [node for node in new_nodes
-                          if node.operator_info.operator == OperatorType.SCORE][0]
             test_predict = [node for node in new_nodes
                             if node.operator_info.operator == OperatorType.PREDICT][0]
-            edge_data = new_dag.get_edge_data(test_predict, test_score)
-            new_dag.remove_edge(test_predict, test_score)
 
             if data_type == DataType.TEXT:
                 new_indices_before_corruption_node = DagNode(singleton.get_next_op_id(),
@@ -348,31 +348,36 @@ class DataErrorRobustness(ShadowPipeline):
                                                              DataErrorRobustness.fix_data_diff_indices_before_corruption)
                 new_dag.add_edge(new_corruption_diff_node, new_indices_before_corruption_node, arg_index=0)
                 new_dag.add_edge(new_fix_diff_mask_node, new_indices_before_corruption_node, arg_index=1)
+                new_dag.add_edge(conditional_corruption_made_changes_node, new_indices_before_corruption_node,
+                                 arg_index=2)
 
                 prediction_filter_index_node = new_indices_before_corruption_node
             else:
                 prediction_filter_index_node = new_fix_diff_indices_node
 
             new_fix_predict_diff_update_node = DagNode(singleton.get_next_op_id(),
-                                                   BasicCodeLocation("Data Errors", None),
-                                                   OperatorContext(OperatorType.SELECTION, None),
-                                                   DagNodeDetails(
-                                                       f"Merge fix diff with old predictions",
-                                                       None),
-                                                   None,
-                                                   DataErrorRobustness.update_prediction_diff)
+                                                       BasicCodeLocation("Data Errors", None),
+                                                       OperatorContext(OperatorType.SELECTION, None),
+                                                       DagNodeDetails(
+                                                           f"Merge fix diff with old predictions",
+                                                           None),
+                                                       None,
+                                                       DataErrorRobustness.update_prediction_diff)
             new_dag.add_edge(new_corrupt_predict_diff_update_node, new_fix_predict_diff_update_node, arg_index=0)
             new_dag.add_edge(test_predict, new_fix_predict_diff_update_node, arg_index=1)
             new_dag.add_edge(prediction_filter_index_node, new_fix_predict_diff_update_node, arg_index=2)
             new_dag.add_edge(conditional_fixes_changed_something_node, new_fix_predict_diff_update_node, arg_index=3)
-            new_dag.add_edge(new_fix_predict_diff_update_node, test_score, **edge_data)
 
             if len(new_score_nodes) < 1:
                 raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
                                           "pattern!")
             for score_index, score_operator in enumerate(new_score_nodes):
+                edge_data = new_dag.get_edge_data(test_predict, score_operator)
+                new_dag.remove_edge(test_predict, score_operator)
+                new_dag.add_edge(new_fix_predict_diff_update_node, score_operator, **edge_data)
+
                 extraction_node = get_intermediate_extraction_node(singleton, score_operator,
-                                                                   f"label-errors-corrupt-fix-{score_index}")
+                                                                   f"data-errors-corrupt-fix-{score_index}-{data_type_index}")
                 new_dag.add_edge(score_operator, extraction_node, arg_index=0)
             # End evaluate
         return new_dag
@@ -453,32 +458,40 @@ class DataErrorRobustness(ShadowPipeline):
         orig_result = []
         for score_index in range(self.score_operator_count):
             orig_result.append(extracted_plan_results[f"label-errors-orig-{score_index}"])
-        corruption_diff_df_sample = extracted_plan_results["data-errors-corruption-diff"].head(20)
-        corrupt_result = []
-        for score_index in range(self.score_operator_count):
-            corrupt_result.append(extracted_plan_results[f"label-errors-corrupt-{score_index}"])
-        report = (f"The original result was {orig_result}. After corrupting {self._corruption_fraction} of rows, "
-                  f"the pipeline metric was {corrupt_result}, indicating robustness problems. A sample of the corrupted "
-                  f"rows: {str(corruption_diff_df_sample)}. ")
-
-        if extracted_plan_results["data-errors-corruption-significant"] is True:
-            corruption_diff_fix_df = extracted_plan_results["data-errors-corruption-diff-fix"]
-            if isinstance(corruption_diff_fix_df, (pandas.DataFrame, pandas.Series)):
-                corruption_diff_fix_df_sample = corruption_diff_fix_df.head(20)
+        report = ""
+        for transformer_index in range(self.transformer_inputs_to_check_count):
+            report += (f"Issue {transformer_index}\n-\n")
+            if extracted_plan_results[f"data-errors-corruption-made-changes-{transformer_index}"] is False:
+                report += "The corruption function did not make any changes."
             else:
-                corruption_diff_fix_df_sample = corruption_diff_fix_df[:20, :]
-            score_after_fixing = []
-            for score_index in range(self.score_operator_count):
-                score_after_fixing.append(extracted_plan_results[f"label-errors-corrupt-fix-{score_index}"])
-        else:
-            report += ("Fortunately, corruption function was not able to significantly affect the performance beyond "
-                       "the configured acceptable threshold.")
-        if (extracted_plan_results["data-errors-corruption-significant"] is True and
-                extracted_plan_results["data-errors-corruption-diff-fix-not-empty"] is True):
-            report += (f"After adding a fix method, the pipeline metric was "
-                       f"{score_after_fixing}. A sample of the fixed rows: {str(corruption_diff_fix_df_sample)}")
-        elif extracted_plan_results["data-errors-corruption-significant"] is True:
-            report += "Unfortunately, the fix method was not able to automatically address the corrupted rows."
+                corruption_diff_df_sample = extracted_plan_results[f"data-errors-corruption-diff-{transformer_index}"].head(20)
+                corrupt_result = []
+                for score_index in range(self.score_operator_count):
+                    corrupt_result.append(extracted_plan_results[f"data-errors-corrupt-{score_index}-{transformer_index}"])
+                report += (f"The original result was {orig_result}. After corrupting {self._corruption_fraction} of rows, "
+                           f"the pipeline metric was {corrupt_result}, indicating robustness problems. A sample of the corrupted "
+                           f"rows: {str(corruption_diff_df_sample)}. ")
+
+                if extracted_plan_results[f"data-errors-corruption-significant-{transformer_index}"] is True:
+                    corruption_diff_fix_df = extracted_plan_results[f"data-errors-corruption-diff-fix-{transformer_index}"]
+                    if isinstance(corruption_diff_fix_df, (pandas.DataFrame, pandas.Series)):
+                        corruption_diff_fix_df_sample = corruption_diff_fix_df.head(20)
+                    else:
+                        corruption_diff_fix_df_sample = corruption_diff_fix_df[:20, :]
+                    score_after_fixing = []
+                    for score_index in range(self.score_operator_count):
+                        score_after_fixing.append(extracted_plan_results[f"data-errors-corrupt-fix-{score_index}-{transformer_index}"])
+                else:
+                    report += (
+                        "Fortunately, corruption function was not able to significantly affect the performance beyond "
+                        "the configured acceptable threshold.")
+                if (extracted_plan_results[f"data-errors-corruption-significant-{transformer_index}"] is True and
+                        extracted_plan_results[f"data-errors-corruption-diff-fix-not-empty-{transformer_index}"] is True):
+                    report += (f"After adding a fix method, the pipeline metric was "
+                               f"{score_after_fixing}. A sample of the fixed rows: {str(corruption_diff_fix_df_sample)}")
+                elif extracted_plan_results[f"data-errors-corruption-significant-{transformer_index}"] is True:
+                    report += "Unfortunately, the fix method was not able to automatically address the corrupted rows."
+            report += "\n"
         return report
 
     @staticmethod
@@ -517,36 +530,38 @@ class DataErrorRobustness(ShadowPipeline):
 
     @staticmethod
     def corrupt_data(input_df, data_type, corruption_fraction):
+        corrupted_result = input_df
         if data_type == DataType.TEXT:
-            if isinstance(input_df, pandas.DataFrame):
-                for column in input_df.columns:
-                    corrupted_result = get_typo_adder(column).fit_transform(input_df)
-            elif isinstance(input_df, pandas.Series):
-                pandas_df = pandas.DataFrame({input_df.name: input_df})
-                corrupted_result = get_typo_adder(input_df.name).fit_transform(pandas_df)
-                corrupted_result = corrupted_result[input_df.name]
+            if isinstance(corrupted_result, pandas.DataFrame):
+                for column in corrupted_result.columns:
+                    corrupted_result = get_typo_adder(column).fit_transform(corrupted_result)
+            elif isinstance(corrupted_result, pandas.Series):
+                pandas_df = pandas.DataFrame(corrupted_result)
+                corrupted_result = get_typo_adder(corrupted_result.name).fit_transform(pandas_df)
+                corrupted_result = corrupted_result.iloc[:, 0]
             else:
                 raise NotImplementedError("TODO")
         elif data_type == DataType.CAT:
-                # TODO: Broken Characters is pretty slow, maybe do not use it
-                """Corrupt broken characters that may be in a pandas df, but may also be in a different format"""
-                if isinstance(input_df, pandas.DataFrame):
-                    for column in input_df.columns:
-                        corrupted_result = BrokenCharacters(column=column, fraction=corruption_fraction).transform(input_df)
-                elif isinstance(input_df, list):
-                    pandas_df = pandas.DataFrame({"column": input_df})
-                    corrupted_result = BrokenCharacters(column="column", fraction=corruption_fraction).transform(
-                        pandas_df)
-                elif isinstance(input_df, numpy.ndarray):
-                    pandas_df = pandas.DataFrame(input_df)
-                    for column in pandas_df.columns:
-                        corrupted_result = BrokenCharacters(column=column, fraction=corruption_fraction).transform(
-                            pandas_df)
-                else:
-                    raise NotImplementedError("TODO")
+            # TODO: Broken Characters is pretty slow, maybe do not use it
+            """Corrupt broken characters that may be in a pandas df, but may also be in a different format"""
+            if isinstance(corrupted_result, pandas.DataFrame):
+                for column in corrupted_result.columns:
+                    corrupted_result = MissingValues(column=column, fraction=corruption_fraction, na_value="0"
+                                                     ).transform(corrupted_result)
+            elif isinstance(corrupted_result, list):
+                pandas_df = pandas.DataFrame({"column": corrupted_result})
+                corrupted_result =  MissingValues(column="column", fraction=corruption_fraction, na_value="0"
+                                                     ).transform(corrupted_result)
+            elif isinstance(corrupted_result, numpy.ndarray):
+                corrupted_result = pandas.DataFrame(corrupted_result)
+                for column in corrupted_result.columns:
+                    corrupted_result = MissingValues(column=column, fraction=corruption_fraction, na_value="0"
+                                                     ).transform(corrupted_result)
+            else:
+                raise NotImplementedError("TODO")
         elif data_type == DataType.NUM:
-            for column in input_df.columns:
-                corrupted_result = Scaling(column=column, fraction=corruption_fraction).transform(input_df)
+            for column in corrupted_result.columns:
+                corrupted_result = Scaling(column=column, fraction=corruption_fraction).transform(corrupted_result)
         else:
             raise NotImplementedError(f"TODO: Add support for datatype {DataType.value}!")
         corrupted_result._mlinspect_provenance = None
@@ -576,21 +591,38 @@ class DataErrorRobustness(ShadowPipeline):
     @staticmethod
     def fix_data(input_df, data_type):
         # TODO
+        fixed_corrupted = input_df
         if data_type == DataType.TEXT:
-            typo_fixer = get_typo_fixer()
-            for column in input_df.columns:
-                fixed_corrupted = typo_fixer.fit_transform(input_df[[column]])
+            if isinstance(fixed_corrupted, pandas.Series):
+                fixed_corrupted = pandas.DataFrame(fixed_corrupted)
+                was_series = True
+            else:
+                was_series = False
+            for column in fixed_corrupted.columns:
+                if fixed_corrupted[column].dtype == object:
+                    typo_fixer = get_typo_fixer(column)
+                    fixed_corrupted = typo_fixer.fit_transform(fixed_corrupted)
+            if was_series is True:
+                fixed_corrupted = fixed_corrupted[column]
         elif data_type == DataType.CAT:
-            typo_fixer = get_typo_fixer()
-            for column in input_df.columns:
+            fixed_corrupted = input_df
+            for column in fixed_corrupted.columns:
                 # TODO: There are also smarter ways to do this
-                fixed_corrupted = typo_fixer.fit_transform(input_df[[column]])
+                # This should always be the case if the conditional nodes didn't already abort the execution
+                assert len(fixed_corrupted[column]) != 0
+                if (fixed_corrupted[column].dtype == object and not isinstance(fixed_corrupted[column][0], bool) and
+                        not isinstance(input_df[column][0], int)):
+                    fixed_corrupted = SimpleImputer(strategy="most_frequent", copy=True, missing_values="0"
+                                                    ).fit_transform(fixed_corrupted)
         elif data_type == DataType.NUM:
             # FIXME: This doesn't work that well because the OutlierCleaner never sees clean rows this way
             #  ALso, this might not perform any changes. In these cases, the shadow pipeline shouldn't crash
-            for column in input_df.columns:
-                fixed_corrupted = OutlierCleaner.fit_transform_all(input_df, detection_strategy='IF',
+            for column in fixed_corrupted.columns:
+                is_int = fixed_corrupted[column].dtype == int
+                fixed_corrupted = OutlierCleaner.fit_transform_all(fixed_corrupted, detection_strategy='IF',
                                                                    repair_strategy='mean', column=column)
+                if is_int:
+                    fixed_corrupted[column] = fixed_corrupted[column].astype(int)
             # fixed_corrupted = MinMaxScaler(feature_range=(0, 10)).fit_transform(input_df)
         else:
             raise NotImplementedError(f"TODO: Add support for datatype {DataType.value}!")
@@ -751,11 +783,30 @@ class DataErrorRobustness(ShadowPipeline):
         # A simple heuristic for now to detect embedding operations in FunctionTransformers in pipelines like
         #  anhedonia_ml
         function_transformers = [node for node in nodes_to_search if
-                                node.operator_info.operator == OperatorType.TRANSFORMER
-                                and "Function Transformer: transform" in node.details.description]
+                                 node.operator_info.operator == OperatorType.TRANSFORMER
+                                 and "Function Transformer: transform" in node.details.description]
         for function_transformer in function_transformers:
             data_parent = get_sorted_parent_nodes(dag, function_transformer)[1]
             if (data_parent.details.optimizer_info.shape[1] == 1 and
                     function_transformer.details.optimizer_info.shape[1] >= 100):
                 data_parent_and_data_type.append((data_parent, transformer, DataType.TEXT))
         return data_parent_and_data_type
+
+    @staticmethod
+    def condition_corruption_significant_function(corruption_significant_relative_threshold, *scores):
+        # This function compares all scores of the original pipeline and the corrupted pipeline
+        # So the number of scores in both pipeline variants should be equal
+        assert len(scores) % 2 == 0
+        number_of_scores_each = int(len(scores) / 2)
+        scores_different_enough = False
+        for score_index in range(number_of_scores_each):
+            # TODO: More sophisticated handling of FairLearn MetricFrames
+            if ((isinstance(scores[score_index], float) and scores[
+                score_index] * corruption_significant_relative_threshold >=
+                 scores[score_index + number_of_scores_each]) or
+                    (isinstance(scores[score_index], MetricFrame) and
+                     scores[score_index].overall * corruption_significant_relative_threshold >=
+                     scores[score_index + number_of_scores_each].overall)
+            ):
+                scores_different_enough = True
+        return scores_different_enough

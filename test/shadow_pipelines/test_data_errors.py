@@ -113,7 +113,7 @@ def test_data_errors_compas(tmpdir):
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
     """
-    data_errors = DataErrorRobustness()
+    data_errors = DataErrorRobustness(corruption_significant_relative_threshold=1.0)
     analysis_result = PipelineAnalyzer \
         .on_pipeline_from_py_file(COMPAS_PY) \
         .add_shadow_pipeline(data_errors) \
@@ -130,7 +130,7 @@ def test_data_errors_anhedonia_ml(tmpdir):
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
     """
-    data_errors = DataErrorRobustness()
+    data_errors = DataErrorRobustness(corruption_significant_relative_threshold=1.0)
     analysis_result = PipelineAnalyzer \
         .on_pipeline_from_py_file(ANHEDONIA_ML_PY) \
         .add_shadow_pipeline(data_errors) \
@@ -164,7 +164,7 @@ def test_data_errors_adult_complex(tmpdir):
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
     """
-    data_errors = DataErrorRobustness()
+    data_errors = DataErrorRobustness(corruption_significant_relative_threshold=1.0, corruption_fraction=0.4)
     analysis_result = PipelineAnalyzer \
         .on_pipeline_from_py_file(ADULT_COMPLEX_PY) \
         .add_shadow_pipeline(data_errors) \
@@ -181,7 +181,7 @@ def test_data_errors_healthcare(tmpdir):
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
     """
-    data_errors = DataErrorRobustness()
+    data_errors = DataErrorRobustness(corruption_significant_relative_threshold=1.0)
     analysis_result = PipelineAnalyzer \
         .on_pipeline_from_py_file(HEALTHCARE_PY) \
         .add_custom_monkey_patching_module(custom_monkeypatching) \
@@ -200,7 +200,7 @@ def test_data_errors_healthcare_fraction(tmpdir):
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
     """
-    data_errors = DataErrorRobustness(corruption_fraction=0.3)
+    data_errors = DataErrorRobustness(corruption_fraction=0.3, corruption_significant_relative_threshold=1.0)
     analysis_result = PipelineAnalyzer \
         .on_pipeline_from_py_file(HEALTHCARE_PY) \
         .add_custom_monkey_patching_module(custom_monkeypatching) \

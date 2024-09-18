@@ -204,14 +204,15 @@ def get_typo_fixer(column):
     # typo_fixer = FunctionTransformer(fix_typos)
     spell = Speller()
 
-    def fix_typos(df):
+    def fix_typos(bound_column, df):
         # df['tweet'] = df['tweet'].map(lambda txt: str(TextBlob(txt).correct()))
-        df[column] = df[column].map(lambda txt: spell(txt))
+        df[bound_column] = df[column].map(lambda txt: spell(txt))
         # TODO: This spellchecker is much faster. However, I am not entirely sure how good it is
         return df
 
+    processing_func = partial(fix_typos, column)
     warnings.filterwarnings('ignore')
-    typo_fixer = FunctionTransformer(fix_typos)
+    typo_fixer = FunctionTransformer(processing_func)
     return typo_fixer
 
 
@@ -246,7 +247,11 @@ def duplicate_descendants(original_dag, new_dag, original_node, modified_copy, s
                     edge_data = original_dag.get_edge_data(parent, node)
                     new_dag.add_edge(parent, new_node, **edge_data)
 
-    return set(mapping.keys()), set(mapping.values())
+    ordered_new_scores = [new_node for _, new_node in
+                          sorted(list(mapping.items()), key=lambda old_new_tuple: old_new_tuple[0].node_id)
+                          if new_node.operator_info.operator == OperatorType.SCORE]
+
+    return set(mapping.keys()), set(mapping.values()), ordered_new_scores
 
 
 def get_conditional_stop_node(singleton, condition_func, label, description, parent_node):
