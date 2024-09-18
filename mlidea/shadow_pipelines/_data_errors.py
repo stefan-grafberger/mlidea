@@ -530,17 +530,15 @@ class DataErrorRobustness(ShadowPipeline):
 
     @staticmethod
     def corrupt_data(input_df, data_type, corruption_fraction):
-        corrupted_result = input_df
+        corrupted_result = input_df.copy()
         if data_type == DataType.TEXT:
             if isinstance(corrupted_result, pandas.DataFrame):
                 for column in corrupted_result.columns:
-                    corrupted_result = get_typo_adder(column).fit_transform(corrupted_result)
-                    print("test")
+                    corrupted_result = get_typo_adder(column, corruption_fraction).fit_transform(corrupted_result)
             elif isinstance(corrupted_result, pandas.Series):
                 pandas_df = pandas.DataFrame(corrupted_result)
-                corrupted_result = get_typo_adder(corrupted_result.name).fit_transform(pandas_df)
+                corrupted_result = get_typo_adder(corrupted_result.name, corruption_fraction).fit_transform(pandas_df)
                 corrupted_result = corrupted_result.iloc[:, 0]
-                print("test")
             else:
                 raise NotImplementedError("TODO")
         elif data_type == DataType.CAT:
@@ -592,8 +590,7 @@ class DataErrorRobustness(ShadowPipeline):
 
     @staticmethod
     def fix_data(input_df, data_type):
-        # TODO
-        fixed_corrupted = input_df
+        fixed_corrupted = input_df.copy()
         if data_type == DataType.TEXT:
             if isinstance(fixed_corrupted, pandas.Series):
                 fixed_corrupted = pandas.DataFrame(fixed_corrupted)
@@ -636,6 +633,10 @@ class DataErrorRobustness(ShadowPipeline):
 
     @staticmethod
     def corrupt_data_diff_detection(input_df, corrupted_result):
+        if isinstance(input_df, (pandas.Series, pandas.DataFrame)):
+            input_df = input_df.reset_index(drop=True)
+        if isinstance(corrupted_result, (pandas.Series, pandas.DataFrame)):
+            corrupted_result = corrupted_result.reset_index(drop=True)
         if isinstance(input_df, pandas.Series):
             corrupt_diff_mask = (corrupted_result != input_df).to_numpy()
         else:
@@ -645,6 +646,10 @@ class DataErrorRobustness(ShadowPipeline):
 
     @staticmethod
     def fix_data_diff_detection_mask_only(input_df, corrupted_result):
+        if isinstance(input_df, (pandas.Series, pandas.DataFrame)):
+            input_df = input_df.reset_index(drop=True)
+        if isinstance(corrupted_result, (pandas.Series, pandas.DataFrame)):
+            corrupted_result = corrupted_result.reset_index(drop=True)
         if isinstance(input_df, pandas.Series):
             corrupt_diff_mask = (corrupted_result != input_df).to_numpy()
         else:

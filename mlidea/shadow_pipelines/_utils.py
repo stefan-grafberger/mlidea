@@ -82,11 +82,13 @@ def find_train_or_test_pipeline_part_end(dag, train_not_test):
             search_start_node = search_start_nodes[0]
     return search_start_node
 
-def add_typos(column, df):
+
+def add_typos(column, fraction_to_typo, df):
     indices = numpy.arange(len(df))
     numpy.random.shuffle(indices)
     num_values_to_typo = int(len(df) * fraction_to_typo)
     indices_to_typo = indices[:num_values_to_typo]
+    df = df.reset_index(drop=True)
     # df.loc[indices_to_typo, 'tweet'] = df.loc[indices_to_typo, 'tweet'].apply(lambda txt: typo_augmenter.augment(txt)[0])
     data_to_corrupt = df[[column]].iloc[indices_to_typo]
     data_to_corrupt['row_id'] = list(range(data_to_corrupt.shape[0]))
@@ -167,11 +169,11 @@ def add_typos(column, df):
     df[column].iloc[indices_to_typo] = corrupted_data
     return df
 
-def get_typo_adder(column):
-    fraction_to_typo = 0.1
+
+def get_typo_adder(column, fraction_to_typo):
 
     warnings.filterwarnings('ignore')
-    processing_func = partial(column, add_typos)
+    processing_func = partial(add_typos, column, fraction_to_typo)
     typo_adder = FunctionTransformer(processing_func)
 
     # typo_transformation = WordSwapQWERTY(random_one=False)
