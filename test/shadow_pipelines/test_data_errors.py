@@ -96,7 +96,7 @@ def test_data_errors_mini_example_llm_rag(tmpdir):
     """
     test_code = get_llm_rag_mini_example_code()
 
-    data_errors = DataErrorRobustness()
+    data_errors = DataErrorRobustness(corruption_fraction=1.)
     analysis_result = PipelineAnalyzer \
         .on_pipeline_from_string(test_code) \
         .add_shadow_pipeline(data_errors) \

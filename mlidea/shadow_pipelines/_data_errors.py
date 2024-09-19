@@ -392,59 +392,235 @@ class DataErrorRobustness(ShadowPipeline):
         train_labels_operators = find_nodes_by_type(dag, OperatorType.TRAIN_LABELS)
         test_data_operators = find_nodes_by_type(dag, OperatorType.TEST_DATA)
         test_labels_operators = find_nodes_by_type(dag, OperatorType.TEST_LABELS)
-
         if len(predict_operators) != 1 or len(score_operators) < 1 or len(rag_join_operators) != 1 \
                 or len(train_data_operators) != 1 or len(train_labels_operators) != 1 \
                 or len(test_data_operators) != 1 or len(test_labels_operators) < 1:
             raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
                                       "pattern!")
-        label_encoder_operators = list(new_dag.predecessors(test_labels_operators[0]))
-        if len(label_encoder_operators) != 1 or "label_binarize" not in label_encoder_operators[0].details.description:
+        DataErrorRobustness.add_orig_score_extraction_nodes(new_dag, score_operators)
+        self.score_operator_count = len(score_operators)
+        self.transformer_inputs_to_check_count = 1
+
+        data_parent = test_data_operators[0]
+        data_type = DataType.TEXT
+
+        processing_func = partial(DataErrorRobustness.corrupt_data,
+                                  data_type=data_type,
+                                  corruption_fraction=self._corruption_fraction)
+        new_corruption_node = DagNode(singleton.get_next_op_id(),
+                                      BasicCodeLocation("Data Errors", None),
+                                      OperatorContext(OperatorType.PROJECTION_MODIFY, None),
+                                      DagNodeDetails(
+                                          f"Corrupt {self._corruption_fraction} of {data_type.value} values", None),
+                                      None,
+                                      processing_func)
+        new_dag.add_edge(data_parent, new_corruption_node, arg_index=0)
+
+        new_corruption_diff_node = DagNode(singleton.get_next_op_id(),
+                                           BasicCodeLocation("Data Errors", None),
+                                           OperatorContext(OperatorType.GROUP_BY_AGG, None),
+                                           DagNodeDetails(
+                                               f"Detect changed indices from corrupting", None),
+                                           None,
+                                           DataErrorRobustness.corrupt_data_diff_detection)
+        new_dag.add_edge(data_parent, new_corruption_diff_node, arg_index=0)
+        new_dag.add_edge(new_corruption_node, new_corruption_diff_node, arg_index=1)
+
+        condition_corrupt_function = lambda np_array: len(np_array) != 0
+        conditional_corruption_made_changes_node = get_conditional_stop_node(
+            singleton, condition_corrupt_function, f"data-errors-corruption-made-changes-0",
+            "Check if corrupt function made changes", new_corruption_diff_node)
+        new_dag.add_edge(new_corruption_diff_node, conditional_corruption_made_changes_node, arg_index=1)
+
+        new_corruption_diff_filter_node = DagNode(singleton.get_next_op_id(),
+                                                  BasicCodeLocation("Data Errors", None),
+                                                  OperatorContext(OperatorType.SELECTION, None),
+                                                  DagNodeDetails(
+                                                      f"Filter for diff only",
+                                                      None),
+                                                  None,
+                                                  DataErrorRobustness.apply_diff_filter)
+        new_dag.add_edge(new_corruption_node, new_corruption_diff_filter_node, arg_index=0)
+        new_dag.add_edge(new_corruption_diff_node, new_corruption_diff_filter_node, arg_index=1)
+        new_dag.add_edge(conditional_corruption_made_changes_node, new_corruption_diff_filter_node, arg_index=2)
+
+        extraction_node = get_intermediate_extraction_node(singleton, new_corruption_diff_filter_node,
+                                                           f"data-errors-corruption-diff-0")
+        new_dag.add_edge(new_corruption_diff_filter_node, extraction_node, arg_index=0)
+
+        # Evaluate with corrupted data
+        old_copied_nodes, new_nodes, new_score_nodes = duplicate_descendants(
+            dag, new_dag, data_parent, new_corruption_diff_filter_node, singleton)
+
+        # Now apply filter to all other concatenation inputs
+        concats = [node for node in new_nodes if node.operator_info.operator == OperatorType.CONCATENATION]
+        test_predict = [node for node in new_nodes
+                        if node.operator_info.operator == OperatorType.PREDICT][0]
+        old_predict = [node for node in old_copied_nodes
+                       if node.operator_info.operator == OperatorType.PREDICT][0]
+
+        new_corrupt_predict_diff_update_node = DagNode(singleton.get_next_op_id(),
+                                                       BasicCodeLocation("Data Errors", None),
+                                                       OperatorContext(OperatorType.SELECTION, None),
+                                                       DagNodeDetails(
+                                                           f"Merge corruption diff with old predictions",
+                                                           None),
+                                                       None,
+                                                       DataErrorRobustness.update_prediction_diff)
+        new_dag.add_edge(old_predict, new_corrupt_predict_diff_update_node, arg_index=0)
+        new_dag.add_edge(test_predict, new_corrupt_predict_diff_update_node, arg_index=1)
+        new_dag.add_edge(new_corruption_diff_node, new_corrupt_predict_diff_update_node, arg_index=2)
+        new_dag.add_edge(conditional_corruption_made_changes_node, new_corrupt_predict_diff_update_node,
+                         arg_index=3)
+
+        if len(new_score_nodes) < 1:
             raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
                                       "pattern!")
+        for score_index, score_operator in enumerate(new_score_nodes):
+            edge_data = new_dag.get_edge_data(test_predict, score_operator)
+            new_dag.remove_edge(test_predict, score_operator)
+            new_dag.add_edge(new_corrupt_predict_diff_update_node, score_operator, **edge_data)
 
-        self.score_operator_count = len(score_operators)
+            extraction_node = get_intermediate_extraction_node(singleton, score_operator,
+                                                               f"data-errors-corrupt-{score_index}-0")
+            new_dag.add_edge(score_operator, extraction_node, arg_index=0)
 
-        train_labels_dict_conversion = list(new_dag.predecessors(train_labels_operators[0]))[0]
-        train_labels_before_dict = list(new_dag.predecessors(train_labels_dict_conversion))[0]
+        condition_processing_func = partial(DataErrorRobustness.condition_corruption_significant_function,
+                                            self._corruption_significant_relative_threshold)
+        conditional_corruption_significant_node = get_conditional_stop_node(
+            singleton, condition_processing_func, f"data-errors-corruption-significant-0",
+            "Check if fix function made changes", new_score_nodes[0])
+        for score_index, score_operator in enumerate(score_operators):
+            new_dag.add_edge(score_operator, conditional_corruption_significant_node,
+                             arg_index=score_index)
+        for score_index, score_operator in enumerate(new_score_nodes):
+            new_dag.add_edge(score_operator, conditional_corruption_significant_node,
+                             arg_index=score_index + self.score_operator_count)
+        # End evaluate
 
-        DataErrorRobustness.add_orig_score_extraction_nodes(new_dag, score_operators)
+        if data_type == DataType.TEXT:
+            fix_input_node = new_corruption_diff_filter_node
+        else:
+            fix_input_node = new_corruption_node
 
-        processing_func = partial(DataErrorRobustness.shapley_top_k_func_llm,
-                                  train_fraction_to_consider=self._train_fraction_to_consider,
-                                  test_fraction_to_consider=self._test_fraction_to_consider,
-                                  cleaning_batch_size=self._cleaning_batch_size,
-                                  label_encoding_op=label_encoder_operators[0])
-        new_shapley_node = DagNode(singleton.get_next_op_id(),
-                                   BasicCodeLocation("Label Errors", None),
-                                   OperatorContext(OperatorType.GROUP_BY_AGG, None),
-                                   DagNodeDetails(
-                                       f"Top {self._cleaning_batch_size} Shapley values", None),
-                                   None,
-                                   processing_func)
-        new_dag.add_edge(rag_join_operators[0], new_shapley_node, arg_index=0)
-        new_dag.add_edge(train_labels_before_dict, new_shapley_node, arg_index=1)
-        new_dag.add_edge(test_data_operators[0], new_shapley_node, arg_index=2)
-        new_dag.add_edge(test_labels_operators[0], new_shapley_node, arg_index=3)
-        extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node, "label-errors-shapley-values")
-        new_dag.add_edge(new_shapley_node, extraction_node, arg_index=0)
+        processing_func = partial(DataErrorRobustness.fix_data, data_type=data_type)
+        new_fix_node = DagNode(singleton.get_next_op_id(),
+                               BasicCodeLocation("Data Errors", None),
+                               OperatorContext(OperatorType.PROJECTION_MODIFY, None),
+                               DagNodeDetails(
+                                   f"Fix {self._corruption_fraction} of {data_type.value} values", None),
+                               None,
+                               processing_func)
+        new_dag.add_edge(fix_input_node, new_fix_node, arg_index=0)
+        new_dag.add_edge(conditional_corruption_significant_node, new_fix_node, arg_index=1)
 
-        new_label_flip_node = DagNode(singleton.get_next_op_id(),
-                                      BasicCodeLocation("Label Errors", None),
-                                      OperatorContext(OperatorType.PROJECTION, None),
-                                      DagNodeDetails(
-                                          f"Flip {self._cleaning_batch_size} most likely incorrect labels", None),
-                                      None,
-                                      DataErrorRobustness.label_flip_processing_func_llm)
-        new_dag.add_edge(rag_join_operators[0], new_label_flip_node, arg_index=0)
-        new_dag.add_edge(train_labels_operators[0], new_label_flip_node, arg_index=1)
-        new_dag.add_edge(extraction_node, new_label_flip_node, arg_index=2)
-        new_dag.add_edge(test_data_operators[0], new_label_flip_node, arg_index=3)
+        if data_type == DataType.TEXT:
+            fix_node_to_extract = new_fix_node
+        else:
+            new_fix_with_corruption_change_filter_node = DagNode(singleton.get_next_op_id(),
+                                                                 BasicCodeLocation("Data Errors", None),
+                                                                 OperatorContext(OperatorType.SELECTION, None),
+                                                                 DagNodeDetails(
+                                                                     f"Filter for diff only",
+                                                                     None),
+                                                                 None,
+                                                                 DataErrorRobustness.apply_diff_filter)
+            new_dag.add_edge(new_fix_node, new_fix_with_corruption_change_filter_node, arg_index=0)
+            new_dag.add_edge(new_corruption_diff_node, new_fix_with_corruption_change_filter_node, arg_index=1)
+            new_dag.add_edge(conditional_corruption_made_changes_node, new_fix_with_corruption_change_filter_node,
+                             arg_index=2)
+            fix_node_to_extract = new_fix_with_corruption_change_filter_node
+        extraction_node = get_intermediate_extraction_node(singleton, new_fix_node,
+                                                           f"data-errors-corruption-diff-fix-0")
+        new_dag.add_edge(fix_node_to_extract, extraction_node, arg_index=0)
 
-        new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
-        new_dag.add_edge(new_label_flip_node, new_predict_node, arg_index=0)
-        DataErrorRobustness.add_new_score_and_score_extraction_nodes(new_dag, new_predict_node, score_operators,
-                                                                     test_labels_operators)
+        new_fix_diff_mask_node = DagNode(singleton.get_next_op_id(),
+                                         BasicCodeLocation("Data Errors", None),
+                                         OperatorContext(OperatorType.PROJECTION_MODIFY, None),
+                                         DagNodeDetails(
+                                             f"Compute change mask from fixing", None),
+                                         None,
+                                         DataErrorRobustness.fix_data_diff_detection_mask_only)
+        new_dag.add_edge(fix_input_node, new_fix_diff_mask_node, arg_index=0)
+        new_dag.add_edge(new_fix_node, new_fix_diff_mask_node, arg_index=1)
+
+        new_fix_diff_indices_node = DagNode(singleton.get_next_op_id(),
+                                            BasicCodeLocation("Data Errors", None),
+                                            OperatorContext(OperatorType.GROUP_BY_AGG, None),
+                                            DagNodeDetails(
+                                                f"Compute changed indices from fixing", None),
+                                            None,
+                                            DataErrorRobustness.fix_data_mask_to_indices)
+        new_dag.add_edge(new_fix_diff_mask_node, new_fix_diff_indices_node, arg_index=0)
+
+        condition_fix_function = lambda np_array: len(np_array) != 0
+        conditional_fixes_changed_something_node = get_conditional_stop_node(
+            singleton, condition_fix_function, f"data-errors-corruption-diff-fix-not-empty-0",
+            "Check if fix function made changes", new_fix_diff_indices_node)
+        new_dag.add_edge(new_fix_diff_indices_node, conditional_fixes_changed_something_node, arg_index=0)
+
+        new_fix_diff_filter_node = DagNode(singleton.get_next_op_id(),
+                                           BasicCodeLocation("Data Errors", None),
+                                           OperatorContext(OperatorType.SELECTION, None),
+                                           DagNodeDetails(
+                                               f"Filter for diff only",
+                                               None),
+                                           None,
+                                           DataErrorRobustness.apply_diff_filter)
+        new_dag.add_edge(new_fix_node, new_fix_diff_filter_node, arg_index=0)
+        new_dag.add_edge(new_fix_diff_indices_node, new_fix_diff_filter_node, arg_index=1)
+        new_dag.add_edge(conditional_fixes_changed_something_node, new_fix_diff_filter_node, arg_index=2)
+
+        # Evaluate with fixed data
+        old_copied_nodes, new_nodes, new_score_nodes = duplicate_descendants(
+            dag, new_dag, data_parent, new_fix_diff_filter_node, singleton)
+
+        test_predict = [node for node in new_nodes
+                        if node.operator_info.operator == OperatorType.PREDICT][0]
+
+        if data_type == DataType.TEXT:
+            new_indices_before_corruption_node = DagNode(singleton.get_next_op_id(),
+                                                         BasicCodeLocation("Data Errors", None),
+                                                         OperatorContext(OperatorType.SELECTION, None),
+                                                         DagNodeDetails(
+                                                             f"Compute indices relative to before corrupting and fixing",
+                                                             None),
+                                                         None,
+                                                         DataErrorRobustness.fix_data_diff_indices_before_corruption)
+            new_dag.add_edge(new_corruption_diff_node, new_indices_before_corruption_node, arg_index=0)
+            new_dag.add_edge(new_fix_diff_mask_node, new_indices_before_corruption_node, arg_index=1)
+            new_dag.add_edge(conditional_corruption_made_changes_node, new_indices_before_corruption_node,
+                             arg_index=2)
+
+            prediction_filter_index_node = new_indices_before_corruption_node
+        else:
+            prediction_filter_index_node = new_fix_diff_indices_node
+
+        new_fix_predict_diff_update_node = DagNode(singleton.get_next_op_id(),
+                                                   BasicCodeLocation("Data Errors", None),
+                                                   OperatorContext(OperatorType.SELECTION, None),
+                                                   DagNodeDetails(
+                                                       f"Merge fix diff with old predictions",
+                                                       None),
+                                                   None,
+                                                   DataErrorRobustness.update_prediction_diff)
+        new_dag.add_edge(new_corrupt_predict_diff_update_node, new_fix_predict_diff_update_node, arg_index=0)
+        new_dag.add_edge(test_predict, new_fix_predict_diff_update_node, arg_index=1)
+        new_dag.add_edge(prediction_filter_index_node, new_fix_predict_diff_update_node, arg_index=2)
+        new_dag.add_edge(conditional_fixes_changed_something_node, new_fix_predict_diff_update_node, arg_index=3)
+
+        if len(new_score_nodes) < 1:
+            raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
+                                      "pattern!")
+        for score_index, score_operator in enumerate(new_score_nodes):
+            edge_data = new_dag.get_edge_data(test_predict, score_operator)
+            new_dag.remove_edge(test_predict, score_operator)
+            new_dag.add_edge(new_fix_predict_diff_update_node, score_operator, **edge_data)
+
+            extraction_node = get_intermediate_extraction_node(singleton, score_operator,
+                                                               f"data-errors-corrupt-fix-{score_index}-0")
+            new_dag.add_edge(score_operator, extraction_node, arg_index=0)
+        # End evaluate
         return new_dag
 
     @staticmethod
@@ -495,40 +671,6 @@ class DataErrorRobustness(ShadowPipeline):
         return report
 
     @staticmethod
-    def shapley_top_k_func_llm(rag_join_result, train_labels_before_dict, encoded_test_data, encoded_test_labels,
-                               train_fraction_to_consider, test_fraction_to_consider, cleaning_batch_size,
-                               label_encoding_op):
-        # TODO: Should we propagate provenance here? Might be important for explanations later
-        indices = numpy.arange(len(train_labels_before_dict))
-        numpy.random.shuffle(indices)
-
-        num_values_to_typo = int(len(train_labels_before_dict) * train_fraction_to_consider)
-        train_indices_to_consider = indices[:num_values_to_typo]
-
-        vectorstore = rag_join_result[5]
-        train_data_sample = numpy.array(vectorstore.get(
-            ids=list(map(str, train_indices_to_consider)), include=["embeddings"])['embeddings'])
-        to_label_encode = train_labels_before_dict.iloc[train_indices_to_consider, 0]
-        to_label_encode._mlinspect_provenance = None
-        train_label_sample = label_encoding_op.processing_func(to_label_encode)
-
-        indices = numpy.arange(len(encoded_test_labels))
-        num_values_to_typo = int(len(encoded_test_labels) * test_fraction_to_consider)
-        test_indices_to_consider = indices[:num_values_to_typo]
-        test_data_sample = numpy.array(vectorstore.embeddings.embed_documents(
-            numpy.array(encoded_test_data)[test_indices_to_consider]))
-        test_label_sample = encoded_test_labels[test_indices_to_consider]
-
-        shapley_values = DataErrorRobustness._compute_shapley_values(train_data_sample,
-                                                                     numpy.squeeze(train_label_sample),
-                                                                     test_data_sample, numpy.squeeze(test_label_sample))
-        df_with_id_and_shapley_value = pandas.DataFrame(
-            {"train_id": train_indices_to_consider, "shapley_value": shapley_values})
-
-        rows_to_fix = df_with_id_and_shapley_value.nsmallest(cleaning_batch_size, "shapley_value")
-        return rows_to_fix
-
-    @staticmethod
     def corrupt_data(input_df, data_type, corruption_fraction):
         corrupted_result = input_df.copy()
         if data_type == DataType.TEXT:
@@ -536,9 +678,13 @@ class DataErrorRobustness(ShadowPipeline):
                 for column in corrupted_result.columns:
                     corrupted_result = get_typo_adder(column, corruption_fraction).fit_transform(corrupted_result)
             elif isinstance(corrupted_result, pandas.Series):
-                pandas_df = pandas.DataFrame(corrupted_result)
-                corrupted_result = get_typo_adder(corrupted_result.name, corruption_fraction).fit_transform(pandas_df)
+                corrupted_result = pandas.DataFrame(corrupted_result)
+                corrupted_result = get_typo_adder(corrupted_result.name, corruption_fraction).fit_transform(corrupted_result)
                 corrupted_result = corrupted_result.iloc[:, 0]
+            elif isinstance(corrupted_result, list):
+                corrupted_result = pandas.DataFrame({"text": corrupted_result})
+                corrupted_result = get_typo_adder("text", corruption_fraction).fit_transform(corrupted_result)
+                corrupted_result = corrupted_result["text"].to_list()
             else:
                 raise NotImplementedError("TODO")
         elif data_type == DataType.CAT:
@@ -564,6 +710,7 @@ class DataErrorRobustness(ShadowPipeline):
                 corrupted_result = Scaling(column=column, fraction=corruption_fraction).transform(corrupted_result)
         else:
             raise NotImplementedError(f"TODO: Add support for datatype {DataType.value}!")
+        corrupted_result = wrap_in_mlinspect_array_if_necessary(corrupted_result)
         corrupted_result._mlinspect_provenance = None
         return corrupted_result
 
@@ -574,10 +721,13 @@ class DataErrorRobustness(ShadowPipeline):
             input_df = input_df.reset_index(drop=True)
         if isinstance(input_df, (pandas.DataFrame, pandas.Series)):
             corrupted_diff = input_df.iloc[corrupted_index]
+        elif isinstance(input_df, list):
+            corrupted_diff = numpy.array(input_df)[corrupted_index]
         else:
             corrupted_diff = input_df[corrupted_index]
         if isinstance(corrupted_diff, (pandas.Series, pandas.DataFrame)):
             corrupted_diff = corrupted_diff.reset_index(drop=True)
+        corrupted_diff = wrap_in_mlinspect_array_if_necessary(corrupted_diff)
         corrupted_diff._mlinspect_provenance = None
 
         return corrupted_diff
@@ -639,6 +789,8 @@ class DataErrorRobustness(ShadowPipeline):
             corrupted_result = corrupted_result.reset_index(drop=True)
         if isinstance(input_df, pandas.Series):
             corrupt_diff_mask = (corrupted_result != input_df).to_numpy()
+        elif isinstance(input_df, list):
+            corrupt_diff_mask = numpy.array(corrupted_result) != numpy.array(input_df)
         else:
             corrupt_diff_mask = numpy.any(corrupted_result != input_df, axis=1)
         changed_indices_corrupt = numpy.where(corrupt_diff_mask)[0]
@@ -730,23 +882,6 @@ class DataErrorRobustness(ShadowPipeline):
         new_rag_join_result = (rag_join_result[0], rag_join_result[1], new_rag_join_text_result, rag_join_result[3],
                                rag_join_result[4], rag_join_result[5], new_retrieval_index, rag_join_result[7])
         return new_rag_join_result
-
-    @staticmethod
-    def label_flip_processing_func_ml(encoded_train_labels, shapley_result):
-        # TODO: Should we propagate provenance here? Might be important for explanations later
-        unfair_indices = shapley_result['train_id'].to_numpy()
-        if isinstance(encoded_train_labels, (pandas.Series, pandas.DataFrame)):
-            modified_encoded_train_labels = encoded_train_labels.reset_index(drop=True, inplace=False)
-        else:
-            modified_encoded_train_labels = encoded_train_labels.copy()
-        if isinstance(modified_encoded_train_labels, pandas.Series):
-            is_bool = pandas.api.types.is_bool_dtype(modified_encoded_train_labels)
-            modified_encoded_train_labels[unfair_indices] = 1 - modified_encoded_train_labels[unfair_indices]
-            if is_bool:
-                modified_encoded_train_labels = modified_encoded_train_labels.astype(bool)
-        else:
-            modified_encoded_train_labels[unfair_indices, :] = 1 - modified_encoded_train_labels[unfair_indices, :]
-        return modified_encoded_train_labels
 
     @staticmethod
     def add_new_score_and_score_extraction_nodes(new_dag, new_predict_node, score_operators,
