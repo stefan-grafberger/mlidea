@@ -479,15 +479,14 @@ class DataErrorRobustness(ShadowPipeline):
         new_dag.add_edge(conditional_corruption_made_changes_node, new_corrupt_predict_diff_update_node,
                          arg_index=3)
 
-        if len(new_score_nodes) < 1:
-            raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
-                                      "pattern!")
-        # TODO: Also duplicate score nodes
-        for score_index, score_operator in enumerate(new_score_nodes):
-            edge_data = new_dag.get_edge_data(test_predict, score_operator)
-            new_dag.remove_edge(test_predict, score_operator)
-            new_dag.add_edge(new_corrupt_predict_diff_update_node, score_operator, **edge_data)
-
+        new_score_nodes = []
+        for score_index, score_operator in enumerate(score_operators):
+            new_score_node = copy_node_with_new_id(singleton, score_operator)
+            new_score_nodes.append(new_score_node)
+            new_dag.add_edge(new_corrupt_predict_diff_update_node, new_score_node, arg_index=0)
+            for parent in get_sorted_parent_nodes(dag, score_operator)[1:]:
+                edge_data = new_dag.get_edge_data(parent, score_operator)
+                new_dag.add_edge(parent, new_score_node, **edge_data)
             extraction_node = get_intermediate_extraction_node(singleton, score_operator,
                                                                f"data-errors-corrupt-{score_index}-0")
             new_dag.add_edge(score_operator, extraction_node, arg_index=0)
@@ -605,14 +604,12 @@ class DataErrorRobustness(ShadowPipeline):
         new_dag.add_edge(prediction_filter_index_node, new_fix_predict_diff_update_node, arg_index=2)
         new_dag.add_edge(conditional_fixes_changed_something_node, new_fix_predict_diff_update_node, arg_index=3)
 
-        if len(new_score_nodes) < 1:
-            raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
-                                      "pattern!")
-        for score_index, score_operator in enumerate(new_score_nodes):
-            edge_data = new_dag.get_edge_data(test_predict, score_operator)
-            new_dag.remove_edge(test_predict, score_operator)
-            new_dag.add_edge(new_fix_predict_diff_update_node, score_operator, **edge_data)
-
+        for score_index, score_operator in enumerate(score_operators):
+            new_score_node = copy_node_with_new_id(singleton, score_operator)
+            new_dag.add_edge(new_fix_predict_diff_update_node, new_score_node, arg_index=0)
+            for parent in get_sorted_parent_nodes(dag, score_operator)[1:]:
+                edge_data = new_dag.get_edge_data(parent, score_operator)
+                new_dag.add_edge(parent, new_score_node, **edge_data)
             extraction_node = get_intermediate_extraction_node(singleton, score_operator,
                                                                f"data-errors-corrupt-fix-{score_index}-0")
             new_dag.add_edge(score_operator, extraction_node, arg_index=0)
