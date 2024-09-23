@@ -311,7 +311,6 @@ class LabelErrors(ShadowPipeline):
 
     @staticmethod
     def label_flip_processing_func_llm(rag_join_result, encoded_train_labels, shapley_result, inputs):
-        # TODO: Should we propagate provenance here? Might be important for explanations later
         mislabeled_indices = shapley_result['train_id']
         classes = set()
         class_search_index = 0
@@ -368,8 +367,9 @@ class LabelErrors(ShadowPipeline):
         new_retrieval_index = retrieval_index.copy()
         new_retrieval_index[all_predictions_to_rerun, :] = diff_retrieval_index
 
+        # TODO: Should we propagate provenance here? Might be important for explanations later
         new_rag_join_result = (rag_join_result[0], rag_join_result[1], new_rag_join_text_result, rag_join_result[3],
-                               rag_join_result[4], rag_join_result[5], new_retrieval_index, rag_join_result[7])
+                               None, rag_join_result[5], new_retrieval_index, rag_join_result[7])
         return new_rag_join_result
 
     @staticmethod

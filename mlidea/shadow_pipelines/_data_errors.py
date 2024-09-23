@@ -454,8 +454,7 @@ class DataErrorRobustness(ShadowPipeline):
         new_rag_join_update_node = DagNode(singleton.get_next_op_id(),
                                            BasicCodeLocation("Data Errors", None),
                                            OperatorContext(OperatorType.RAG_JOIN, None),
-                                           DagNodeDetails(
-                                               f"Flip {self._cleaning_batch_size} most likely incorrect labels", None),
+                                           DagNodeDetails("RAG join for test set diff", None),
                                            None,
                                            DataErrorRobustness.rag_join_update)
         new_dag.add_edge(rag_join_operators[0], new_rag_join_update_node, arg_index=0)
@@ -566,8 +565,7 @@ class DataErrorRobustness(ShadowPipeline):
         new_rag_join_update_node = DagNode(singleton.get_next_op_id(),
                                            BasicCodeLocation("Data Errors", None),
                                            OperatorContext(OperatorType.RAG_JOIN, None),
-                                           DagNodeDetails(
-                                               f"Flip {self._cleaning_batch_size} most likely incorrect labels", None),
+                                           DagNodeDetails("RAG join for test set diff", None),
                                            None,
                                            DataErrorRobustness.rag_join_update)
         new_dag.add_edge(rag_join_operators[0], new_rag_join_update_node, arg_index=0)
@@ -633,8 +631,16 @@ class DataErrorRobustness(ShadowPipeline):
             if extracted_plan_results[f"data-errors-corruption-made-changes-{transformer_index}"] is False:
                 report += "The corruption function did not make any changes."
             else:
-                corruption_diff_df_sample = extracted_plan_results[
-                    f"data-errors-corruption-diff-{transformer_index}"].head(20)
+                corruption_diff_df = extracted_plan_results[
+                    f"data-errors-corruption-diff-{transformer_index}"]
+                if isinstance(corruption_diff_df, (pandas.DataFrame, pandas.Series)):
+                    corruption_diff_df_sample = corruption_diff_df.head(20)
+                elif isinstance(corruption_diff_df, numpy.ndarray) and corruption_diff_df.ndim == 1:
+                    corruption_diff_df_sample = corruption_diff_df[:20]
+                elif isinstance(corruption_diff_df, numpy.ndarray) and corruption_diff_df.ndim == 2:
+                    corruption_diff_df_sample = corruption_diff_df[:20, :]
+                else:
+                    raise NotImplementedError("TODO")
                 corrupt_result = []
                 for score_index in range(self.score_operator_count):
                     corrupt_result.append(
@@ -649,8 +655,14 @@ class DataErrorRobustness(ShadowPipeline):
                         f"data-errors-corruption-diff-fix-{transformer_index}"]
                     if isinstance(corruption_diff_fix_df, (pandas.DataFrame, pandas.Series)):
                         corruption_diff_fix_df_sample = corruption_diff_fix_df.head(20)
-                    else:
+                    elif (isinstance(corruption_diff_fix_df, numpy.ndarray) and
+                          corruption_diff_fix_df.ndim == 2):
                         corruption_diff_fix_df_sample = corruption_diff_fix_df[:20, :]
+                    elif (isinstance(corruption_diff_fix_df, numpy.ndarray) and
+                          corruption_diff_fix_df.ndim == 1):
+                        corruption_diff_fix_df_sample = corruption_diff_fix_df[:20]
+                    else:
+                        raise NotImplementedError("TODO")
                     score_after_fixing = []
                     for score_index in range(self.score_operator_count):
                         score_after_fixing.append(
@@ -678,7 +690,7 @@ class DataErrorRobustness(ShadowPipeline):
                     corrupted_result = get_typo_adder(column, corruption_fraction).fit_transform(corrupted_result)
             elif isinstance(corrupted_result, pandas.Series):
                 corrupted_result = pandas.DataFrame(corrupted_result)
-                corrupted_result = get_typo_adder(corrupted_result.name, corruption_fraction).fit_transform(
+                corrupted_result = get_typo_adder(list(corrupted_result.columns)[0], corruption_fraction).fit_transform(
                     corrupted_result)
                 corrupted_result = corrupted_result.iloc[:, 0]
             elif isinstance(corrupted_result, list):
@@ -734,7 +746,7 @@ class DataErrorRobustness(ShadowPipeline):
 
     @staticmethod
     def update_prediction_diff(old_predictions, prediction_diff, prediction_index):
-        updated_predictions = old_predictions.copy()
+        updated_predictions = numpy.array(old_predictions.copy())
         updated_predictions[prediction_index] = prediction_diff
         return updated_predictions
 
@@ -742,17 +754,22 @@ class DataErrorRobustness(ShadowPipeline):
     def fix_data(input_df, data_type):
         fixed_corrupted = input_df.copy()
         if data_type == DataType.TEXT:
+            was_series = False
+            was_numpy = False
             if isinstance(fixed_corrupted, pandas.Series):
                 fixed_corrupted = pandas.DataFrame(fixed_corrupted)
                 was_series = True
-            else:
-                was_series = False
+            elif isinstance(fixed_corrupted, numpy.ndarray):
+                fixed_corrupted = pandas.DataFrame({"column": fixed_corrupted})
+                was_numpy = True
             for column in fixed_corrupted.columns:
                 if fixed_corrupted[column].dtype == object:
                     typo_fixer = get_typo_fixer(column)
                     fixed_corrupted = typo_fixer.fit_transform(fixed_corrupted)
             if was_series is True:
                 fixed_corrupted = fixed_corrupted[column]
+            elif was_numpy is True:
+                fixed_corrupted = fixed_corrupted["column"].to_numpy()
         elif data_type == DataType.CAT:
             fixed_corrupted = input_df
             for column in fixed_corrupted.columns:
@@ -804,8 +821,10 @@ class DataErrorRobustness(ShadowPipeline):
             corrupted_result = corrupted_result.reset_index(drop=True)
         if isinstance(input_df, pandas.Series):
             corrupt_diff_mask = (corrupted_result != input_df).to_numpy()
-        else:
+        elif len(input_df.shape) == 2:
             corrupt_diff_mask = numpy.any(corrupted_result != input_df, axis=1)
+        else:
+            corrupt_diff_mask = corrupted_result != input_df
         return corrupt_diff_mask
 
     @staticmethod
@@ -821,67 +840,23 @@ class DataErrorRobustness(ShadowPipeline):
         return changed_indices_fix_corrupt
 
     @staticmethod
-    def rag_join_update(rag_join_result, encoded_train_labels, shapley_result, inputs):
-        # FIXME: This function is still old copied code and does not accomplish what it is supposed to do
-        # TODO: Should we propagate provenance here? Might be important for explanations later
-        mislabeled_indices = shapley_result['train_id']
-        classes = set()
-        class_search_index = 0
-        label_key = None
-        while len(classes) != 2 and class_search_index < len(encoded_train_labels):
-            label_dict_items = list(encoded_train_labels[class_search_index].items())
-            assert len(label_dict_items) == 1
-            label_key, label_value = label_dict_items[0]
-            classes.add(label_value)
-            class_search_index += 1
-        classes = list(classes)
-        diff_encoded_train_labels = numpy.array(encoded_train_labels)[mislabeled_indices]
-        for mislabeled_row in diff_encoded_train_labels:
-            assert label_key is not None
-            current_val = mislabeled_row[label_key]
-            current_val_index = classes.index(current_val)
-            mislabeled_row[label_key] = classes[1 - current_val_index]
-        diff_encoded_train_labels = list(diff_encoded_train_labels)
-
-        # Update the labels in the vectorstore
+    def rag_join_update(rag_join_result, inputs):
         vectorstore = rag_join_result[5]
-        vectorstore_ids = list(map(str, mislabeled_indices))
-        old_entries = vectorstore.get(ids=vectorstore_ids, include=["embeddings", "documents", "metadatas"])
-        documents = old_entries['documents']
-        embeddings = old_entries['embeddings']
-        old_metadata = old_entries['metadatas']
-        vectorstore._collection.update(vectorstore_ids, embeddings, diff_encoded_train_labels, documents)
         retrieval_index = rag_join_result[6]
 
         pandas_retrieval_index_df = pandas.DataFrame(retrieval_index,
                                                      columns=['train_retrieved_1', 'train_retrieved_2',
                                                               'train_retrieved_3', 'train_retrieved_4'])
         pandas_retrieval_index_df['prediction_id'] = list(range(len(rag_join_result[2])))
-        changed_df = shapley_result[['train_id']]
-        all_predictions_to_rerun = duckdb.query("""
-                    SELECT DISTINCT prediction_id
-                    FROM changed_df c JOIN pandas_retrieval_index_df p 
-                    ON c.train_id = train_retrieved_1 
-                    OR c.train_id = train_retrieved_2 
-                    OR c.train_id = train_retrieved_3 
-                    OR c.train_id = train_retrieved_4 
-                """).fetchnumpy()['prediction_id']
+        diff_inputs = list(numpy.array(inputs))
 
-        diff_inputs = list(numpy.array(inputs)[all_predictions_to_rerun])
         diff_rag_result, diff_retrieval_index = RunnableSequencePatching.execute_rag_join_diff(
             rag_join_result[7], diff_inputs, vectorstore)
-        # Revert vectorstore changes again
-        vectorstore._collection.update(vectorstore_ids, embeddings, old_metadata, documents)
+        new_rag_join_text_result = list(diff_rag_result)
 
-        new_rag_join_text_result = numpy.array(rag_join_result[2])
-        new_rag_join_text_result[all_predictions_to_rerun] = diff_rag_result
-        new_rag_join_text_result = list(new_rag_join_text_result)
-
-        new_retrieval_index = retrieval_index.copy()
-        new_retrieval_index[all_predictions_to_rerun, :] = diff_retrieval_index
-
-        new_rag_join_result = (rag_join_result[0], rag_join_result[1], new_rag_join_text_result, rag_join_result[3],
-                               rag_join_result[4], rag_join_result[5], new_retrieval_index, rag_join_result[7])
+        # TODO: Should we propagate provenance here? Might be important for explanations later
+        new_rag_join_result = (rag_join_result[0], rag_join_result[1], new_rag_join_text_result, list(inputs),
+                               None, rag_join_result[5], diff_retrieval_index, rag_join_result[7])
         return new_rag_join_result
 
     @staticmethod
