@@ -12,6 +12,7 @@ import numpy
 import pandas
 from numba import prange, njit
 from scipy.sparse import csr_matrix
+from sklearn.linear_model import SGDClassifier
 
 from mlidea.execution._pipeline_executor import singleton
 from mlidea.analysis._analysis_utils import find_nodes_by_type
@@ -37,8 +38,6 @@ class LabelErrors(ShadowPipeline):
         self._test_fraction_to_consider = test_fraction_to_consider
         self._proxy_model = proxy_model
         self._cleaning_batch_size = cleaning_batch_size
-        if proxy_model is True:
-            raise NotImplementedError("TODO")
         self._shadow_pipeline_id = (
             train_fraction_to_consider, test_fraction_to_consider, proxy_model, cleaning_batch_size)
         self.score_operator_count = 0
@@ -83,7 +82,8 @@ class LabelErrors(ShadowPipeline):
         LabelErrors.add_orig_score_extraction_nodes(new_dag, score_operators)
         self.score_operator_count = len(score_operators)
 
-        processing_func = partial(LabelErrors.shapley_top_k_func_ml, train_fraction_to_consider=self._train_fraction_to_consider,
+        processing_func = partial(LabelErrors.shapley_top_k_func_ml,
+                                  train_fraction_to_consider=self._train_fraction_to_consider,
                                   test_fraction_to_consider=self._test_fraction_to_consider,
                                   cleaning_batch_size=self._cleaning_batch_size)
         new_shapley_node = DagNode(singleton.get_next_op_id(),
@@ -109,18 +109,34 @@ class LabelErrors(ShadowPipeline):
                                       LabelErrors.label_flip_processing_func_ml)
         new_dag.add_edge(train_labels_operators[0], new_label_flip_node, arg_index=0)
         new_dag.add_edge(extraction_node, new_label_flip_node, arg_index=1)
-        new_model_node = copy_node_with_new_id(singleton, model_operators[0])
+
+        if self._proxy_model is True:
+            new_model_node = LabelErrors.get_proxy_model_node(singleton, model_operators[0])
+            new_dag.add_edge(train_data_operators[0], new_model_node, arg_index=0)
+            new_dag.add_edge(train_labels_operators[0], new_model_node, arg_index=1)
+            new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
+            new_dag.add_edge(new_model_node, new_predict_node, arg_index=0)
+            new_dag.add_edge(test_data_operators[0], new_predict_node, arg_index=1)
+            LabelErrors.add_new_score_and_score_extraction_nodes(new_dag, new_predict_node, score_operators,
+                                                                 test_labels_operators, "label-errors-proxy")
+
+        if self._proxy_model is False:
+            new_model_node = copy_node_with_new_id(singleton, model_operators[0])
+        else:
+            new_model_node = LabelErrors.get_proxy_model_node(singleton, model_operators[0])
         new_dag.add_edge(train_data_operators[0], new_model_node, arg_index=0)
         new_dag.add_edge(new_label_flip_node, new_model_node, arg_index=1)
         new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
         new_dag.add_edge(new_model_node, new_predict_node, arg_index=0)
         new_dag.add_edge(test_data_operators[0], new_predict_node, arg_index=1)
-
         LabelErrors.add_new_score_and_score_extraction_nodes(new_dag, new_predict_node, score_operators,
-                                                             test_labels_operators)
+                                                             test_labels_operators, "label-errors-flip-retrain")
+
         return new_dag
 
     def get_llm_rag_dag(self, dag):
+        if self._proxy_model is True:
+            raise ValueError("Proxy model is not supported for LLM pipelines!")
         new_dag = dag.copy()
 
         predict_operators = find_nodes_by_type(dag, OperatorType.PREDICT)
@@ -181,11 +197,10 @@ class LabelErrors(ShadowPipeline):
 
         # FIXME: Rerun predictions only on the diff like in data errors!!!
 
-
         new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
         new_dag.add_edge(new_label_flip_node, new_predict_node, arg_index=0)
         LabelErrors.add_new_score_and_score_extraction_nodes(new_dag, new_predict_node, score_operators,
-                                                             test_labels_operators)
+                                                             test_labels_operators, "label-errors-flip-retrain")
         return new_dag
 
     @staticmethod
@@ -196,16 +211,28 @@ class LabelErrors(ShadowPipeline):
             new_dag.add_edge(score_operator, orig_extraction_node, arg_index=0)
 
     def generate_final_report(self, extracted_plan_results: dict[str, any]) -> any:
+        report = ""
         orig_result = []
         for score_index in range(self.score_operator_count):
             orig_result.append(extracted_plan_results[f"label-errors-orig-{score_index}"])
+        report += f"The original result was {orig_result}.\n"
+        if self._proxy_model is True:
+            # FIXME: This needs the proxy results and we also need to mark the proxy results with a separate label
+            proxy_result = []
+            for score_index in range(self.score_operator_count):
+                proxy_result.append(extracted_plan_results[f"label-errors-proxy-{score_index}"])
+            report += f"The proxy result was {proxy_result}.\n"
         shapley_values = extracted_plan_results["label-errors-shapley-values"]
         flip_result = []
         for score_index in range(self.score_operator_count):
             flip_result.append(extracted_plan_results[f"label-errors-flip-retrain-{score_index}"])
-        return (f"The original result was {orig_result}. After flipping the top {self._cleaning_batch_size} most "
-                f"likely incorrect row labels, the pipeline metric was {flip_result}. The shapley values of the "
-                f"most likely mislabeled rows: {str(shapley_values)}.")
+        report += (f"After flipping the top {self._cleaning_batch_size} most "
+                   f"likely incorrect row labels, the pipeline metric was {flip_result}")
+        if self._proxy_model is True:
+            report += " (with the proxy model)"
+        report += (f". The shapley values of the "
+                   f"most likely mislabeled rows: {str(shapley_values)}.")
+        return report
 
     @staticmethod
     @njit(fastmath=True, parallel=True, cache=True)
@@ -391,7 +418,7 @@ class LabelErrors(ShadowPipeline):
 
     @staticmethod
     def add_new_score_and_score_extraction_nodes(new_dag, new_predict_node, score_operators,
-                                                 test_labels_operators):
+                                                 test_labels_operators, label_prefix):
         for score_index, score_operator in enumerate(score_operators):
             new_score_node = copy_node_with_new_id(singleton, score_operator)
             new_dag.add_edge(new_predict_node, new_score_node, arg_index=0)
@@ -402,5 +429,26 @@ class LabelErrors(ShadowPipeline):
                 new_dag.add_edge(parent, new_score_node, arg_index=parent_index + 2)
 
             retrain_extraction_node = get_intermediate_extraction_node(singleton, new_score_node,
-                                                                       f"label-errors-flip-retrain-{score_index}")
+                                                                       f"{label_prefix}-{score_index}")
             new_dag.add_edge(new_score_node, retrain_extraction_node, arg_index=0)
+
+    @staticmethod
+    def get_proxy_model_node(singleton, old_estimator_node):
+        model_function = partial(SGDClassifier, loss='log_loss', max_iter=30, n_jobs=1)
+        new_processing_func = partial(LabelErrors.fit_model_variant, make_classifier_func=model_function)
+        new_description = f"Fast proxy model"
+        new_estimator_node = DagNode(singleton.get_next_op_id(),
+                                     old_estimator_node.code_location,
+                                     old_estimator_node.operator_info,
+                                     DagNodeDetails(new_description, old_estimator_node.details.columns,
+                                                    old_estimator_node.details.optimizer_info),
+                                     old_estimator_node.optional_code_info,
+                                     new_processing_func)
+        return new_estimator_node
+
+    @staticmethod
+    def fit_model_variant(train_data, train_labels, make_classifier_func):
+        """Create the classifier and fit it"""
+        estimator = make_classifier_func()
+        estimator.fit(train_data, train_labels)
+        return estimator
