@@ -2,8 +2,7 @@ from inspect import cleandoc
 
 import pytest
 
-from example_pipelines import HEALTHCARE_PY, ANHEDONIA_ML_PY, ANHEDONIA_LLM_PY, ADULT_COMPLEX_PY, ADULT_SIMPLE_PY, \
-    COMPAS_PY
+from example_pipelines import HEALTHCARE_PY, ANHEDONIA_ML_PY, ANHEDONIA_LLM_PY, ADULT_COMPLEX_PY, COMPAS_PY
 from example_pipelines.healthcare import custom_monkeypatching
 from mlidea import PipelineAnalyzer
 from mlidea.shadow_pipelines._label_errors import LabelErrors
