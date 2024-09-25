@@ -17,7 +17,8 @@ def test_slices_mini_example_with_transformer_processing_multiple_columns(tmpdir
         from sklearn.tree import DecisionTreeClassifier
         import numpy as np
 
-        df = pd.DataFrame({'A': [0, 0, 0, 0], 'B': [0, 1, 3, 4], 'target': ['no', 'no', 'yes', 'yes']})
+        df = pd.DataFrame({'A': [0, 0, 0, 0], 'B': [0, 1, 3, 4], 'race': ['cat_a', 'cat_a', 'cat_a', 'cat_b'], 
+                           'target': ['no', 'no', 'yes', 'yes']})
 
         standard_scaler = StandardScaler()
         train = standard_scaler.fit_transform(df[['A', 'B']])
@@ -27,7 +28,7 @@ def test_slices_mini_example_with_transformer_processing_multiple_columns(tmpdir
         clf = clf.fit(train, target)
 
         test_df = pd.DataFrame({'A': [0, 0, 0, 0], 'B':  [4, 3, 4, 3], 
-            'sensitive': ["cat_a", "cat_b", "cat_a", "cat_b"], 'target': ['yes', 'yes', 'yes', 'yes']})
+            'race': ["cat_a", "cat_b", "cat_a", "cat_b"], 'target': ['yes', 'yes', 'yes', 'yes']})
         test_data = standard_scaler.transform(test_df[['A', 'B']])
         test_labels = label_binarize(test_df['target'], classes=['no', 'yes'])
         test_score = clf.score(test_data, test_labels)

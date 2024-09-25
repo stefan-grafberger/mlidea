@@ -256,6 +256,17 @@ def duplicate_descendants(original_dag, new_dag, original_node, modified_copy, s
     return set(mapping.keys()), set(mapping.values()), ordered_new_scores
 
 
+def filter_estimator_transformer_edges(parent, child):
+    """Filter edges that are not relevant to the actual data flow but only to estimator/transformer state"""
+    is_transformer_edge = ((parent.operator_info.operator == OperatorType.TRANSFORMER
+                            and ": fit_transform" in parent.details.description
+                            and child.operator_info.operator == OperatorType.TRANSFORMER
+                            and ": transform" in child.details.description) or
+                           (parent.operator_info.operator == OperatorType.ESTIMATOR
+                            and child.operator_info.operator == OperatorType.PREDICT))
+    return not is_transformer_edge
+
+
 def get_conditional_stop_node(singleton, condition_func, label, description, parent_node):
     def check_condition(bound_condition_func, bound_label, *inputs):
         condition_bool = bound_condition_func(*inputs)

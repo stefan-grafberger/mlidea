@@ -6,6 +6,15 @@
 #  provenance. maybe we need to add basic provenance support first? or not!! this filter can be computed using
 #  the unfeaturised state of the data by relying on the order not changing. then we can just compute a mask and
 #  apply it to the unfeaturised data.
+from collections import defaultdict
+# First locate test data
+# then look at provenance and find out which source tables to look at
+# then look at those source tables and find all operators in-between the two operators
+# then also get all source table columns and look for potentially sensitive columns
+# then filter source tables with provenance connection to source tables with potentially sensitive columns
+# then look
+# for each of those, apply projections first to the relevant columns
+
 
 from enum import Enum
 from functools import partial
@@ -28,7 +37,7 @@ from mlidea import OperatorType, DagNode, BasicCodeLocation, OperatorContext, Da
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
     get_sorted_parent_nodes, find_train_or_test_pipeline_part_end, get_typo_adder, duplicate_descendants, \
-    get_typo_fixer, get_conditional_stop_node
+    get_typo_fixer, get_conditional_stop_node, filter_estimator_transformer_edges
 from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
 from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
 
@@ -72,10 +81,17 @@ class FairnessSlices(ShadowPipeline):
     def simple_name(self):
         return "data_errors"
 
+    @staticmethod
+    def is_column_sensitive(column_name):
+        # TODO: There are many different ways to do this to explore in the future, e.g., using LLMs
+        return column_name in {"race", "gender", "age", "lang", "country", "sex"}
+
     def generate_shadow_pipeline_dag(self, dag: networkx.DiGraph) -> networkx.DiGraph:
         # pylint: disable=too-many-locals,too-many-statements
         # TODO: Maybe it would be better to delete all unrelated DAG nodes here that are not specifically mentioned
         #  below. But this only works once intermediate resutl caching is implemented
+
+        data_sources_concat, data_sources_prov_join = self.get_data_sources_to_sensitive_columns(dag)
 
         rag_join_operators = find_nodes_by_type(dag, OperatorType.RAG_JOIN)
 
@@ -606,6 +622,30 @@ class FairnessSlices(ShadowPipeline):
             new_dag.add_edge(score_operator, extraction_node, arg_index=0)
         # End evaluate
         return new_dag
+
+    @staticmethod
+    def get_data_sources_to_sensitive_columns(dag):
+        data_sources_to_columns = defaultdict(list)
+        data_sources = find_nodes_by_type(dag, OperatorType.DATA_SOURCE)
+        for data_source in data_sources:
+            for column_name in data_source.details.columns:
+                if FairnessSlices.is_column_sensitive(column_name) is True:
+                    data_sources_to_columns[data_source].append(column_name)
+        test_data_operators = find_nodes_by_type(dag, OperatorType.TEST_DATA)
+        dag_to_consider = networkx.subgraph_view(dag, filter_edge=filter_estimator_transformer_edges)
+        data_sources_concat = {}
+        data_sources_prov_join = {}
+        for data_source, columns in list(data_sources_to_columns.items()):
+            paths = list(networkx.all_simple_paths(dag_to_consider, source=data_source, target=test_data_operators[0]))
+            if len(paths) != 0:
+                nodes_in_paths = set(node for path in paths for node in path)
+                if len([node for node in nodes_in_paths if
+                        node.operator_info.operator in {OperatorType.SELECTION, OperatorType.JOIN}]) == 0:
+                    data_sources_concat[data_source] = columns
+                else:
+                    data_sources_prov_join[data_source] = columns
+
+        return data_sources_concat, data_sources_prov_join
 
     @staticmethod
     def add_orig_score_extraction_nodes(new_dag, score_operators):
