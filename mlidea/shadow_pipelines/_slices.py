@@ -29,6 +29,7 @@ from jenga.corruptions.numerical import Scaling
 from jenga.corruptions.text import BrokenCharacters
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import MinMaxScaler
+from sliceline import Slicefinder
 
 from mlidea.analysis._cleaning_methods import OutlierCleaner
 from mlidea.execution._pipeline_executor import singleton
@@ -66,12 +67,12 @@ class FairnessSlices(ShadowPipeline):
     def check_rebuilding_necessary(self, extracted_plan_results: dict[str, any]) -> any:
         return False
 
-    def __init__(self, corruption_fraction=.1, corruption_significant_relative_threshold=0.99):
-        self._corruption_fraction = corruption_fraction
-        self._shadow_pipeline_id = (corruption_fraction, corruption_significant_relative_threshold)
+    def __init__(self, additional_column_names=None):
+        if additional_column_names is None:
+            additional_column_names = []
+        self._additional_column_names = additional_column_names
+        self._shadow_pipeline_id = (tuple(additional_column_names),)
         self.score_operator_count = 0
-        self.transformer_inputs_to_check_count = 0
-        self._corruption_significant_relative_threshold = corruption_significant_relative_threshold
 
     @property
     def shadow_pipeline_id(self):
@@ -82,27 +83,28 @@ class FairnessSlices(ShadowPipeline):
         return "data_errors"
 
     @staticmethod
-    def is_column_sensitive(column_name):
+    def is_column_sensitive(column_name, additional_column_names):
         # TODO: There are many different ways to do this to explore in the future, e.g., using LLMs
-        return column_name in {"race", "gender", "age", "lang", "country", "sex"}
+        return column_name in {"race", "gender", "age", "lang", "country", "sex"}.union(additional_column_names)
 
     def generate_shadow_pipeline_dag(self, dag: networkx.DiGraph) -> networkx.DiGraph:
         # pylint: disable=too-many-locals,too-many-statements
         # TODO: Maybe it would be better to delete all unrelated DAG nodes here that are not specifically mentioned
         #  below. But this only works once intermediate resutl caching is implemented
 
-        data_sources_concat, data_sources_prov_join = self.get_data_sources_to_sensitive_columns(dag)
+        data_sources_concat, data_sources_prov_join = FairnessSlices.get_data_sources_to_sensitive_columns(
+            dag, self._additional_column_names)
 
         rag_join_operators = find_nodes_by_type(dag, OperatorType.RAG_JOIN)
 
         if len(rag_join_operators) == 0:
-            new_dag = self.get_traditional_ml_dag(dag)
+            new_dag = self.get_traditional_ml_dag(dag, data_sources_concat, data_sources_prov_join)
         else:
-            new_dag = self.get_llm_rag_dag(dag)
+            new_dag = self.get_llm_rag_dag(dag, data_sources_concat, data_sources_prov_join)
 
         return new_dag
 
-    def get_traditional_ml_dag(self, dag):
+    def get_traditional_ml_dag(self, dag, data_sources_concat, data_sources_prov_join):
         new_dag = dag.copy()
 
         predict_operators = find_nodes_by_type(dag, OperatorType.PREDICT)
@@ -120,278 +122,336 @@ class FairnessSlices(ShadowPipeline):
         FairnessSlices.add_orig_score_extraction_nodes(new_dag, score_operators)
         self.score_operator_count = len(score_operators)
 
-        data_parent_transformer_and_data_type = FairnessSlices._get_transformer_operators_to_test(dag)
-        self.transformer_inputs_to_check_count = len(data_parent_transformer_and_data_type)
+        if len(data_sources_concat) == 0 and len(data_sources_prov_join) == 0:
+            return new_dag
 
-        for data_type_index, (data_parent, transformer, data_type) in enumerate(data_parent_transformer_and_data_type):
-            processing_func = partial(FairnessSlices.corrupt_data,
-                                      data_type=data_type,
-                                      corruption_fraction=self._corruption_fraction)
-            new_corruption_node = DagNode(singleton.get_next_op_id(),
-                                          BasicCodeLocation("Data Errors", None),
-                                          OperatorContext(OperatorType.PROJECTION_MODIFY, None),
-                                          DagNodeDetails(
-                                              f"Corrupt {self._corruption_fraction} of {data_type.value} values", None),
-                                          None,
-                                          processing_func)
-            new_dag.add_edge(data_parent, new_corruption_node, arg_index=0)
+        def concat_processing_func(*inputs):
+            # TODO: What if not all inputs are pandas dfs?
+            result = pandas.concat(inputs, axis=1)
+            result = wrap_in_mlinspect_array_if_necessary(result)
+            # Not sure if this might be necessary at some point
+            # result._mlinspect_provenance = ...
+            return result
 
-            new_corruption_diff_node = DagNode(singleton.get_next_op_id(),
-                                               BasicCodeLocation("Data Errors", None),
-                                               OperatorContext(OperatorType.GROUP_BY_AGG, None),
-                                               DagNodeDetails(
-                                                   f"Detect changed indices from corrupting", None),
-                                               None,
-                                               FairnessSlices.corrupt_data_diff_detection)
-            new_dag.add_edge(data_parent, new_corruption_diff_node, arg_index=0)
-            new_dag.add_edge(new_corruption_node, new_corruption_diff_node, arg_index=1)
+        concat_node = DagNode(singleton.get_next_op_id(),
+                              BasicCodeLocation("Data Errors", None),
+                              OperatorContext(OperatorType.CONCATENATION, None),
+                              DagNodeDetails(
+                                  f"Concat sensitive attributes", None),
+                              None,
+                              concat_processing_func)
 
-            condition_corrupt_function = lambda np_array: len(np_array) != 0
-            conditional_corruption_made_changes_node = get_conditional_stop_node(
-                singleton, condition_corrupt_function, f"data-errors-corruption-made-changes-{data_type_index}",
-                "Check if corrupt function made changes", new_corruption_diff_node)
-            new_dag.add_edge(new_corruption_diff_node, conditional_corruption_made_changes_node, arg_index=1)
+        for data_source, column_names in data_sources_concat.items():
+            def projection_processing_func(column_names, *inputs):
+                # TODO: What if not all inputs are pandas dfs?
+                result = inputs[0][column_names]
+                result = wrap_in_mlinspect_array_if_necessary(result)
+                # Not sure if this might be necessary at some point
+                # result._mlinspect_provenance = ...
+                return result
 
-            new_corruption_diff_filter_node = DagNode(singleton.get_next_op_id(),
-                                                      BasicCodeLocation("Data Errors", None),
-                                                      OperatorContext(OperatorType.SELECTION, None),
-                                                      DagNodeDetails(
-                                                          f"Filter for diff only",
-                                                          None),
-                                                      None,
-                                                      FairnessSlices.apply_diff_filter)
-            new_dag.add_edge(new_corruption_node, new_corruption_diff_filter_node, arg_index=0)
-            new_dag.add_edge(new_corruption_diff_node, new_corruption_diff_filter_node, arg_index=1)
-            new_dag.add_edge(conditional_corruption_made_changes_node, new_corruption_diff_filter_node, arg_index=2)
+            projection_processing_func = partial(projection_processing_func, column_names)
 
-            extraction_node = get_intermediate_extraction_node(singleton, new_corruption_diff_filter_node,
-                                                               f"data-errors-corruption-diff-{data_type_index}")
-            new_dag.add_edge(new_corruption_diff_filter_node, extraction_node, arg_index=0)
+            projection_node = DagNode(singleton.get_next_op_id(),
+                                      BasicCodeLocation("Fairness Slices", None),
+                                      OperatorContext(OperatorType.PROJECTION, None),
+                                      DagNodeDetails(
+                                          f"Concat sensitive attributes", None),
+                                      None,
+                                      projection_processing_func)
+            new_dag.add_edge(data_source, projection_node, arg_index=0)
+            new_dag.add_edge(projection_node, concat_node, arg_index=0)
 
-            # Evaluate with corrupted data
-            old_copied_nodes, new_nodes, new_score_nodes = duplicate_descendants(
-                dag, new_dag, data_parent, new_corruption_diff_filter_node, singleton)
+        # TODO: The prov join version where all need a projection and join before connecting it to the concat
 
-            # Now apply filter to all other concatenation inputs
-            concats = [node for node in new_nodes if node.operator_info.operator == OperatorType.CONCATENATION]
-            if len(concats) >= 1:
-                if len(concats) != 1:
-                    raise NotImplementedError(
-                        "Currently, Label Errors only supports pipelines following a very specific "
-                        "pattern!")
-                for concat in concats:
-                    concat_parents = get_sorted_parent_nodes(new_dag, concat)
-                    for concat_parent in concat_parents:
-                        if concat_parent not in new_nodes:
-                            edge_data = new_dag.get_edge_data(concat_parent, concat)
-                            new_dag.remove_edge(concat_parent, concat)
-                            new_concat_parent_filter_node = DagNode(singleton.get_next_op_id(),
-                                                                    BasicCodeLocation("Data Errors", None),
-                                                                    OperatorContext(OperatorType.SELECTION, None),
-                                                                    DagNodeDetails(
-                                                                        f"Filter for diff only",
-                                                                        None),
-                                                                    None,
-                                                                    FairnessSlices.apply_diff_filter)
-                            new_dag.add_edge(concat_parent, new_concat_parent_filter_node, arg_index=0)
-                            new_dag.add_edge(new_corruption_diff_node, new_concat_parent_filter_node, arg_index=1)
-                            new_dag.add_edge(conditional_corruption_made_changes_node, new_concat_parent_filter_node,
-                                             arg_index=2)
-                            new_dag.add_edge(new_concat_parent_filter_node, concat, **edge_data)
-            test_predict = [node for node in new_nodes
-                            if node.operator_info.operator == OperatorType.PREDICT][0]
-            old_predict = [node for node in old_copied_nodes
-                           if node.operator_info.operator == OperatorType.PREDICT][0]
+        new_slice_finder_node = DagNode(singleton.get_next_op_id(),
+                                        BasicCodeLocation("Fairness Slices", None),
+                                        OperatorContext(OperatorType.GROUP_BY_AGG, None),
+                                        DagNodeDetails(
+                                            f"Run Slice Finder", None),
+                                        None,
+                                        FairnessSlices.get_slice_finder_mask_and_slice)
+        new_dag.add_edge(concat_node, new_slice_finder_node, arg_index=0)
+        new_dag.add_edge(test_labels_operators[0], new_slice_finder_node, arg_index=1)
+        new_dag.add_edge(predict_operators[0], new_slice_finder_node, arg_index=2)
+        extraction_node = get_intermediate_extraction_node(singleton, new_slice_finder_node,
+                                                           "fairness-slices-slice-line-result")
+        new_dag.add_edge(new_slice_finder_node, extraction_node, arg_index=0)
 
-            new_corrupt_predict_diff_update_node = DagNode(singleton.get_next_op_id(),
-                                                           BasicCodeLocation("Data Errors", None),
-                                                           OperatorContext(OperatorType.SELECTION, None),
-                                                           DagNodeDetails(
-                                                               f"Merge corruption diff with old predictions",
-                                                               None),
-                                                           None,
-                                                           FairnessSlices.update_prediction_diff)
-            new_dag.add_edge(old_predict, new_corrupt_predict_diff_update_node, arg_index=0)
-            new_dag.add_edge(test_predict, new_corrupt_predict_diff_update_node, arg_index=1)
-            new_dag.add_edge(new_corruption_diff_node, new_corrupt_predict_diff_update_node, arg_index=2)
-            new_dag.add_edge(conditional_corruption_made_changes_node, new_corrupt_predict_diff_update_node,
-                             arg_index=3)
+        # The first step is to concat the test
 
-            if len(new_score_nodes) < 1:
-                raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
-                                          "pattern!")
-            for score_index, score_operator in enumerate(new_score_nodes):
-                edge_data = new_dag.get_edge_data(test_predict, score_operator)
-                new_dag.remove_edge(test_predict, score_operator)
-                new_dag.add_edge(new_corrupt_predict_diff_update_node, score_operator, **edge_data)
-
-                extraction_node = get_intermediate_extraction_node(singleton, score_operator,
-                                                                   f"data-errors-corrupt-{score_index}-{data_type_index}")
-                new_dag.add_edge(score_operator, extraction_node, arg_index=0)
-
-            condition_processing_func = partial(FairnessSlices.condition_corruption_significant_function,
-                                                self._corruption_significant_relative_threshold)
-            conditional_corruption_significant_node = get_conditional_stop_node(
-                singleton, condition_processing_func, f"data-errors-corruption-significant-{data_type_index}",
-                "Check if fix function made changes", new_score_nodes[0])
-            for score_index, score_operator in enumerate(score_operators):
-                new_dag.add_edge(score_operator, conditional_corruption_significant_node,
-                                 arg_index=score_index)
-            for score_index, score_operator in enumerate(new_score_nodes):
-                new_dag.add_edge(score_operator, conditional_corruption_significant_node,
-                                 arg_index=score_index + self.score_operator_count)
-            # End evaluate
-
-            if data_type == DataType.TEXT:
-                fix_input_node = new_corruption_diff_filter_node
-            else:
-                fix_input_node = new_corruption_node
-
-            processing_func = partial(FairnessSlices.fix_data, data_type=data_type)
-            new_fix_node = DagNode(singleton.get_next_op_id(),
-                                   BasicCodeLocation("Data Errors", None),
-                                   OperatorContext(OperatorType.PROJECTION_MODIFY, None),
-                                   DagNodeDetails(
-                                       f"Fix {self._corruption_fraction} of {data_type.value} values", None),
-                                   None,
-                                   processing_func)
-            new_dag.add_edge(fix_input_node, new_fix_node, arg_index=0)
-            new_dag.add_edge(conditional_corruption_significant_node, new_fix_node, arg_index=1)
-
-            if data_type == DataType.TEXT:
-                fix_node_to_extract = new_fix_node
-            else:
-                new_fix_with_corruption_change_filter_node = DagNode(singleton.get_next_op_id(),
-                                                                     BasicCodeLocation("Data Errors", None),
-                                                                     OperatorContext(OperatorType.SELECTION, None),
-                                                                     DagNodeDetails(
-                                                                         f"Filter for diff only",
-                                                                         None),
-                                                                     None,
-                                                                     FairnessSlices.apply_diff_filter)
-                new_dag.add_edge(new_fix_node, new_fix_with_corruption_change_filter_node, arg_index=0)
-                new_dag.add_edge(new_corruption_diff_node, new_fix_with_corruption_change_filter_node, arg_index=1)
-                new_dag.add_edge(conditional_corruption_made_changes_node, new_fix_with_corruption_change_filter_node,
-                                 arg_index=2)
-                fix_node_to_extract = new_fix_with_corruption_change_filter_node
-            extraction_node = get_intermediate_extraction_node(singleton, new_fix_node,
-                                                               f"data-errors-corruption-diff-fix-{data_type_index}")
-            new_dag.add_edge(fix_node_to_extract, extraction_node, arg_index=0)
-
-            new_fix_diff_mask_node = DagNode(singleton.get_next_op_id(),
-                                             BasicCodeLocation("Data Errors", None),
-                                             OperatorContext(OperatorType.PROJECTION_MODIFY, None),
-                                             DagNodeDetails(
-                                                 f"Compute change mask from fixing", None),
-                                             None,
-                                             FairnessSlices.fix_data_diff_detection_mask_only)
-            new_dag.add_edge(fix_input_node, new_fix_diff_mask_node, arg_index=0)
-            new_dag.add_edge(new_fix_node, new_fix_diff_mask_node, arg_index=1)
-
-            new_fix_diff_indices_node = DagNode(singleton.get_next_op_id(),
-                                                BasicCodeLocation("Data Errors", None),
-                                                OperatorContext(OperatorType.GROUP_BY_AGG, None),
-                                                DagNodeDetails(
-                                                    f"Compute changed indices from fixing", None),
-                                                None,
-                                                FairnessSlices.fix_data_mask_to_indices)
-            new_dag.add_edge(new_fix_diff_mask_node, new_fix_diff_indices_node, arg_index=0)
-
-            condition_fix_function = lambda np_array: len(np_array) != 0
-            conditional_fixes_changed_something_node = get_conditional_stop_node(
-                singleton, condition_fix_function, f"data-errors-corruption-diff-fix-not-empty-{data_type_index}",
-                "Check if fix function made changes", new_fix_diff_indices_node)
-            new_dag.add_edge(new_fix_diff_indices_node, conditional_fixes_changed_something_node, arg_index=0)
-
-            new_fix_diff_filter_node = DagNode(singleton.get_next_op_id(),
-                                               BasicCodeLocation("Data Errors", None),
-                                               OperatorContext(OperatorType.SELECTION, None),
-                                               DagNodeDetails(
-                                                   f"Filter for diff only",
-                                                   None),
-                                               None,
-                                               FairnessSlices.apply_diff_filter)
-            new_dag.add_edge(new_fix_node, new_fix_diff_filter_node, arg_index=0)
-            new_dag.add_edge(new_fix_diff_indices_node, new_fix_diff_filter_node, arg_index=1)
-            new_dag.add_edge(conditional_fixes_changed_something_node, new_fix_diff_filter_node, arg_index=2)
-
-            # Evaluate with fixed data
-            old_copied_nodes, new_nodes, new_score_nodes = duplicate_descendants(
-                dag, new_dag, data_parent, new_fix_diff_filter_node, singleton)
-
-            # Now apply filter to all other concatenation inputs
-            concats = [node for node in new_nodes if node.operator_info.operator == OperatorType.CONCATENATION]
-            if len(concats) >= 1:
-                if len(concats) != 1:
-                    raise NotImplementedError(
-                        "Currently, Label Errors only supports pipelines following a very specific "
-                        "pattern!")
-                for concat in concats:
-                    concat_parents = get_sorted_parent_nodes(new_dag, concat)
-                    for concat_parent in concat_parents:
-                        if concat_parent not in new_nodes:
-                            edge_data = new_dag.get_edge_data(concat_parent, concat)
-                            new_dag.remove_edge(concat_parent, concat)
-                            new_concat_parent_filter_node = DagNode(singleton.get_next_op_id(),
-                                                                    BasicCodeLocation("Data Errors", None),
-                                                                    OperatorContext(OperatorType.SELECTION, None),
-                                                                    DagNodeDetails(
-                                                                        f"Filter for diff only",
-                                                                        None),
-                                                                    None,
-                                                                    FairnessSlices.apply_diff_filter)
-                            new_dag.add_edge(concat_parent, new_concat_parent_filter_node, arg_index=0)
-                            new_dag.add_edge(new_fix_diff_indices_node, new_concat_parent_filter_node, arg_index=1)
-                            new_dag.add_edge(new_concat_parent_filter_node, concat, **edge_data)
-            test_predict = [node for node in new_nodes
-                            if node.operator_info.operator == OperatorType.PREDICT][0]
-
-            if data_type == DataType.TEXT:
-                new_indices_before_corruption_node = DagNode(singleton.get_next_op_id(),
-                                                             BasicCodeLocation("Data Errors", None),
-                                                             OperatorContext(OperatorType.SELECTION, None),
-                                                             DagNodeDetails(
-                                                                 f"Compute indices relative to before corrupting and fixing",
-                                                                 None),
-                                                             None,
-                                                             FairnessSlices.fix_data_diff_indices_before_corruption)
-                new_dag.add_edge(new_corruption_diff_node, new_indices_before_corruption_node, arg_index=0)
-                new_dag.add_edge(new_fix_diff_mask_node, new_indices_before_corruption_node, arg_index=1)
-                new_dag.add_edge(conditional_corruption_made_changes_node, new_indices_before_corruption_node,
-                                 arg_index=2)
-
-                prediction_filter_index_node = new_indices_before_corruption_node
-            else:
-                prediction_filter_index_node = new_fix_diff_indices_node
-
-            new_fix_predict_diff_update_node = DagNode(singleton.get_next_op_id(),
-                                                       BasicCodeLocation("Data Errors", None),
-                                                       OperatorContext(OperatorType.SELECTION, None),
-                                                       DagNodeDetails(
-                                                           f"Merge fix diff with old predictions",
-                                                           None),
-                                                       None,
-                                                       FairnessSlices.update_prediction_diff)
-            new_dag.add_edge(new_corrupt_predict_diff_update_node, new_fix_predict_diff_update_node, arg_index=0)
-            new_dag.add_edge(test_predict, new_fix_predict_diff_update_node, arg_index=1)
-            new_dag.add_edge(prediction_filter_index_node, new_fix_predict_diff_update_node, arg_index=2)
-            new_dag.add_edge(conditional_fixes_changed_something_node, new_fix_predict_diff_update_node, arg_index=3)
-
-            if len(new_score_nodes) < 1:
-                raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
-                                          "pattern!")
-            for score_index, score_operator in enumerate(new_score_nodes):
-                edge_data = new_dag.get_edge_data(test_predict, score_operator)
-                new_dag.remove_edge(test_predict, score_operator)
-                new_dag.add_edge(new_fix_predict_diff_update_node, score_operator, **edge_data)
-
-                extraction_node = get_intermediate_extraction_node(singleton, score_operator,
-                                                                   f"data-errors-corrupt-fix-{score_index}-{data_type_index}")
-                new_dag.add_edge(score_operator, extraction_node, arg_index=0)
-            # End evaluate
+        # data_parent_transformer_and_data_type = FairnessSlices._get_transformer_operators_to_test(dag)
+        # self.transformer_inputs_to_check_count = len(data_parent_transformer_and_data_type)
+        #
+        # for data_type_index, (data_parent, transformer, data_type) in enumerate(data_parent_transformer_and_data_type):
+        #     processing_func = partial(FairnessSlices.corrupt_data,
+        #                               data_type=data_type,
+        #                               corruption_fraction=self._corruption_fraction)
+        #     new_corruption_node = DagNode(singleton.get_next_op_id(),
+        #                                   BasicCodeLocation("Data Errors", None),
+        #                                   OperatorContext(OperatorType.PROJECTION_MODIFY, None),
+        #                                   DagNodeDetails(
+        #                                       f"Corrupt {self._corruption_fraction} of {data_type.value} values", None),
+        #                                   None,
+        #                                   processing_func)
+        #     new_dag.add_edge(data_parent, new_corruption_node, arg_index=0)
+        #
+        #     new_corruption_diff_node = DagNode(singleton.get_next_op_id(),
+        #                                        BasicCodeLocation("Data Errors", None),
+        #                                        OperatorContext(OperatorType.GROUP_BY_AGG, None),
+        #                                        DagNodeDetails(
+        #                                            f"Detect changed indices from corrupting", None),
+        #                                        None,
+        #                                        FairnessSlices.corrupt_data_diff_detection)
+        #     new_dag.add_edge(data_parent, new_corruption_diff_node, arg_index=0)
+        #     new_dag.add_edge(new_corruption_node, new_corruption_diff_node, arg_index=1)
+        #
+        #     condition_corrupt_function = lambda np_array: len(np_array) != 0
+        #     conditional_corruption_made_changes_node = get_conditional_stop_node(
+        #         singleton, condition_corrupt_function, f"data-errors-corruption-made-changes-{data_type_index}",
+        #         "Check if corrupt function made changes", new_corruption_diff_node)
+        #     new_dag.add_edge(new_corruption_diff_node, conditional_corruption_made_changes_node, arg_index=1)
+        #
+        #     new_corruption_diff_filter_node = DagNode(singleton.get_next_op_id(),
+        #                                               BasicCodeLocation("Data Errors", None),
+        #                                               OperatorContext(OperatorType.SELECTION, None),
+        #                                               DagNodeDetails(
+        #                                                   f"Filter for diff only",
+        #                                                   None),
+        #                                               None,
+        #                                               FairnessSlices.apply_diff_filter)
+        #     new_dag.add_edge(new_corruption_node, new_corruption_diff_filter_node, arg_index=0)
+        #     new_dag.add_edge(new_corruption_diff_node, new_corruption_diff_filter_node, arg_index=1)
+        #     new_dag.add_edge(conditional_corruption_made_changes_node, new_corruption_diff_filter_node, arg_index=2)
+        #
+        #     extraction_node = get_intermediate_extraction_node(singleton, new_corruption_diff_filter_node,
+        #                                                        f"data-errors-corruption-diff-{data_type_index}")
+        #     new_dag.add_edge(new_corruption_diff_filter_node, extraction_node, arg_index=0)
+        #
+        #     # Evaluate with corrupted data
+        #     old_copied_nodes, new_nodes, new_score_nodes = duplicate_descendants(
+        #         dag, new_dag, data_parent, new_corruption_diff_filter_node, singleton)
+        #
+        #     # Now apply filter to all other concatenation inputs
+        #     concats = [node for node in new_nodes if node.operator_info.operator == OperatorType.CONCATENATION]
+        #     if len(concats) >= 1:
+        #         if len(concats) != 1:
+        #             raise NotImplementedError(
+        #                 "Currently, Label Errors only supports pipelines following a very specific "
+        #                 "pattern!")
+        #         for concat in concats:
+        #             concat_parents = get_sorted_parent_nodes(new_dag, concat)
+        #             for concat_parent in concat_parents:
+        #                 if concat_parent not in new_nodes:
+        #                     edge_data = new_dag.get_edge_data(concat_parent, concat)
+        #                     new_dag.remove_edge(concat_parent, concat)
+        #                     new_concat_parent_filter_node = DagNode(singleton.get_next_op_id(),
+        #                                                             BasicCodeLocation("Data Errors", None),
+        #                                                             OperatorContext(OperatorType.SELECTION, None),
+        #                                                             DagNodeDetails(
+        #                                                                 f"Filter for diff only",
+        #                                                                 None),
+        #                                                             None,
+        #                                                             FairnessSlices.apply_diff_filter)
+        #                     new_dag.add_edge(concat_parent, new_concat_parent_filter_node, arg_index=0)
+        #                     new_dag.add_edge(new_corruption_diff_node, new_concat_parent_filter_node, arg_index=1)
+        #                     new_dag.add_edge(conditional_corruption_made_changes_node, new_concat_parent_filter_node,
+        #                                      arg_index=2)
+        #                     new_dag.add_edge(new_concat_parent_filter_node, concat, **edge_data)
+        #     test_predict = [node for node in new_nodes
+        #                     if node.operator_info.operator == OperatorType.PREDICT][0]
+        #     old_predict = [node for node in old_copied_nodes
+        #                    if node.operator_info.operator == OperatorType.PREDICT][0]
+        #
+        #     new_corrupt_predict_diff_update_node = DagNode(singleton.get_next_op_id(),
+        #                                                    BasicCodeLocation("Data Errors", None),
+        #                                                    OperatorContext(OperatorType.SELECTION, None),
+        #                                                    DagNodeDetails(
+        #                                                        f"Merge corruption diff with old predictions",
+        #                                                        None),
+        #                                                    None,
+        #                                                    FairnessSlices.update_prediction_diff)
+        #     new_dag.add_edge(old_predict, new_corrupt_predict_diff_update_node, arg_index=0)
+        #     new_dag.add_edge(test_predict, new_corrupt_predict_diff_update_node, arg_index=1)
+        #     new_dag.add_edge(new_corruption_diff_node, new_corrupt_predict_diff_update_node, arg_index=2)
+        #     new_dag.add_edge(conditional_corruption_made_changes_node, new_corrupt_predict_diff_update_node,
+        #                      arg_index=3)
+        #
+        #     if len(new_score_nodes) < 1:
+        #         raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
+        #                                   "pattern!")
+        #     for score_index, score_operator in enumerate(new_score_nodes):
+        #         edge_data = new_dag.get_edge_data(test_predict, score_operator)
+        #         new_dag.remove_edge(test_predict, score_operator)
+        #         new_dag.add_edge(new_corrupt_predict_diff_update_node, score_operator, **edge_data)
+        #
+        #         extraction_node = get_intermediate_extraction_node(singleton, score_operator,
+        #                                                            f"data-errors-corrupt-{score_index}-{data_type_index}")
+        #         new_dag.add_edge(score_operator, extraction_node, arg_index=0)
+        #
+        #     condition_processing_func = partial(FairnessSlices.condition_corruption_significant_function,
+        #                                         self._corruption_significant_relative_threshold)
+        #     conditional_corruption_significant_node = get_conditional_stop_node(
+        #         singleton, condition_processing_func, f"data-errors-corruption-significant-{data_type_index}",
+        #         "Check if fix function made changes", new_score_nodes[0])
+        #     for score_index, score_operator in enumerate(score_operators):
+        #         new_dag.add_edge(score_operator, conditional_corruption_significant_node,
+        #                          arg_index=score_index)
+        #     for score_index, score_operator in enumerate(new_score_nodes):
+        #         new_dag.add_edge(score_operator, conditional_corruption_significant_node,
+        #                          arg_index=score_index + self.score_operator_count)
+        #     # End evaluate
+        #
+        #     if data_type == DataType.TEXT:
+        #         fix_input_node = new_corruption_diff_filter_node
+        #     else:
+        #         fix_input_node = new_corruption_node
+        #
+        #     processing_func = partial(FairnessSlices.fix_data, data_type=data_type)
+        #     new_fix_node = DagNode(singleton.get_next_op_id(),
+        #                            BasicCodeLocation("Data Errors", None),
+        #                            OperatorContext(OperatorType.PROJECTION_MODIFY, None),
+        #                            DagNodeDetails(
+        #                                f"Fix {self._corruption_fraction} of {data_type.value} values", None),
+        #                            None,
+        #                            processing_func)
+        #     new_dag.add_edge(fix_input_node, new_fix_node, arg_index=0)
+        #     new_dag.add_edge(conditional_corruption_significant_node, new_fix_node, arg_index=1)
+        #
+        #     if data_type == DataType.TEXT:
+        #         fix_node_to_extract = new_fix_node
+        #     else:
+        #         new_fix_with_corruption_change_filter_node = DagNode(singleton.get_next_op_id(),
+        #                                                              BasicCodeLocation("Data Errors", None),
+        #                                                              OperatorContext(OperatorType.SELECTION, None),
+        #                                                              DagNodeDetails(
+        #                                                                  f"Filter for diff only",
+        #                                                                  None),
+        #                                                              None,
+        #                                                              FairnessSlices.apply_diff_filter)
+        #         new_dag.add_edge(new_fix_node, new_fix_with_corruption_change_filter_node, arg_index=0)
+        #         new_dag.add_edge(new_corruption_diff_node, new_fix_with_corruption_change_filter_node, arg_index=1)
+        #         new_dag.add_edge(conditional_corruption_made_changes_node, new_fix_with_corruption_change_filter_node,
+        #                          arg_index=2)
+        #         fix_node_to_extract = new_fix_with_corruption_change_filter_node
+        #     extraction_node = get_intermediate_extraction_node(singleton, new_fix_node,
+        #                                                        f"data-errors-corruption-diff-fix-{data_type_index}")
+        #     new_dag.add_edge(fix_node_to_extract, extraction_node, arg_index=0)
+        #
+        #     new_fix_diff_mask_node = DagNode(singleton.get_next_op_id(),
+        #                                      BasicCodeLocation("Data Errors", None),
+        #                                      OperatorContext(OperatorType.PROJECTION_MODIFY, None),
+        #                                      DagNodeDetails(
+        #                                          f"Compute change mask from fixing", None),
+        #                                      None,
+        #                                      FairnessSlices.fix_data_diff_detection_mask_only)
+        #     new_dag.add_edge(fix_input_node, new_fix_diff_mask_node, arg_index=0)
+        #     new_dag.add_edge(new_fix_node, new_fix_diff_mask_node, arg_index=1)
+        #
+        #     new_fix_diff_indices_node = DagNode(singleton.get_next_op_id(),
+        #                                         BasicCodeLocation("Data Errors", None),
+        #                                         OperatorContext(OperatorType.GROUP_BY_AGG, None),
+        #                                         DagNodeDetails(
+        #                                             f"Compute changed indices from fixing", None),
+        #                                         None,
+        #                                         FairnessSlices.fix_data_mask_to_indices)
+        #     new_dag.add_edge(new_fix_diff_mask_node, new_fix_diff_indices_node, arg_index=0)
+        #
+        #     condition_fix_function = lambda np_array: len(np_array) != 0
+        #     conditional_fixes_changed_something_node = get_conditional_stop_node(
+        #         singleton, condition_fix_function, f"data-errors-corruption-diff-fix-not-empty-{data_type_index}",
+        #         "Check if fix function made changes", new_fix_diff_indices_node)
+        #     new_dag.add_edge(new_fix_diff_indices_node, conditional_fixes_changed_something_node, arg_index=0)
+        #
+        #     new_fix_diff_filter_node = DagNode(singleton.get_next_op_id(),
+        #                                        BasicCodeLocation("Data Errors", None),
+        #                                        OperatorContext(OperatorType.SELECTION, None),
+        #                                        DagNodeDetails(
+        #                                            f"Filter for diff only",
+        #                                            None),
+        #                                        None,
+        #                                        FairnessSlices.apply_diff_filter)
+        #     new_dag.add_edge(new_fix_node, new_fix_diff_filter_node, arg_index=0)
+        #     new_dag.add_edge(new_fix_diff_indices_node, new_fix_diff_filter_node, arg_index=1)
+        #     new_dag.add_edge(conditional_fixes_changed_something_node, new_fix_diff_filter_node, arg_index=2)
+        #
+        #     # Evaluate with fixed data
+        #     old_copied_nodes, new_nodes, new_score_nodes = duplicate_descendants(
+        #         dag, new_dag, data_parent, new_fix_diff_filter_node, singleton)
+        #
+        #     # Now apply filter to all other concatenation inputs
+        #     concats = [node for node in new_nodes if node.operator_info.operator == OperatorType.CONCATENATION]
+        #     if len(concats) >= 1:
+        #         if len(concats) != 1:
+        #             raise NotImplementedError(
+        #                 "Currently, Label Errors only supports pipelines following a very specific "
+        #                 "pattern!")
+        #         for concat in concats:
+        #             concat_parents = get_sorted_parent_nodes(new_dag, concat)
+        #             for concat_parent in concat_parents:
+        #                 if concat_parent not in new_nodes:
+        #                     edge_data = new_dag.get_edge_data(concat_parent, concat)
+        #                     new_dag.remove_edge(concat_parent, concat)
+        #                     new_concat_parent_filter_node = DagNode(singleton.get_next_op_id(),
+        #                                                             BasicCodeLocation("Data Errors", None),
+        #                                                             OperatorContext(OperatorType.SELECTION, None),
+        #                                                             DagNodeDetails(
+        #                                                                 f"Filter for diff only",
+        #                                                                 None),
+        #                                                             None,
+        #                                                             FairnessSlices.apply_diff_filter)
+        #                     new_dag.add_edge(concat_parent, new_concat_parent_filter_node, arg_index=0)
+        #                     new_dag.add_edge(new_fix_diff_indices_node, new_concat_parent_filter_node, arg_index=1)
+        #                     new_dag.add_edge(new_concat_parent_filter_node, concat, **edge_data)
+        #     test_predict = [node for node in new_nodes
+        #                     if node.operator_info.operator == OperatorType.PREDICT][0]
+        #
+        #     if data_type == DataType.TEXT:
+        #         new_indices_before_corruption_node = DagNode(singleton.get_next_op_id(),
+        #                                                      BasicCodeLocation("Data Errors", None),
+        #                                                      OperatorContext(OperatorType.SELECTION, None),
+        #                                                      DagNodeDetails(
+        #                                                          f"Compute indices relative to before corrupting and fixing",
+        #                                                          None),
+        #                                                      None,
+        #                                                      FairnessSlices.fix_data_diff_indices_before_corruption)
+        #         new_dag.add_edge(new_corruption_diff_node, new_indices_before_corruption_node, arg_index=0)
+        #         new_dag.add_edge(new_fix_diff_mask_node, new_indices_before_corruption_node, arg_index=1)
+        #         new_dag.add_edge(conditional_corruption_made_changes_node, new_indices_before_corruption_node,
+        #                          arg_index=2)
+        #
+        #         prediction_filter_index_node = new_indices_before_corruption_node
+        #     else:
+        #         prediction_filter_index_node = new_fix_diff_indices_node
+        #
+        #     new_fix_predict_diff_update_node = DagNode(singleton.get_next_op_id(),
+        #                                                BasicCodeLocation("Data Errors", None),
+        #                                                OperatorContext(OperatorType.SELECTION, None),
+        #                                                DagNodeDetails(
+        #                                                    f"Merge fix diff with old predictions",
+        #                                                    None),
+        #                                                None,
+        #                                                FairnessSlices.update_prediction_diff)
+        #     new_dag.add_edge(new_corrupt_predict_diff_update_node, new_fix_predict_diff_update_node, arg_index=0)
+        #     new_dag.add_edge(test_predict, new_fix_predict_diff_update_node, arg_index=1)
+        #     new_dag.add_edge(prediction_filter_index_node, new_fix_predict_diff_update_node, arg_index=2)
+        #     new_dag.add_edge(conditional_fixes_changed_something_node, new_fix_predict_diff_update_node, arg_index=3)
+        #
+        #     if len(new_score_nodes) < 1:
+        #         raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
+        #                                   "pattern!")
+        #     for score_index, score_operator in enumerate(new_score_nodes):
+        #         edge_data = new_dag.get_edge_data(test_predict, score_operator)
+        #         new_dag.remove_edge(test_predict, score_operator)
+        #         new_dag.add_edge(new_fix_predict_diff_update_node, score_operator, **edge_data)
+        #
+        #         extraction_node = get_intermediate_extraction_node(singleton, score_operator,
+        #                                                            f"data-errors-corrupt-fix-{score_index}-{data_type_index}")
+        #         new_dag.add_edge(score_operator, extraction_node, arg_index=0)
+        # End evaluate
         return new_dag
 
-    def get_llm_rag_dag(self, dag):
+    def get_llm_rag_dag(self, dag, data_sources_concat, data_sources_prov_join):
         new_dag = dag.copy()
 
         predict_operators = find_nodes_by_type(dag, OperatorType.PREDICT)
@@ -624,12 +684,12 @@ class FairnessSlices(ShadowPipeline):
         return new_dag
 
     @staticmethod
-    def get_data_sources_to_sensitive_columns(dag):
+    def get_data_sources_to_sensitive_columns(dag, additional_column_names):
         data_sources_to_columns = defaultdict(list)
         data_sources = find_nodes_by_type(dag, OperatorType.DATA_SOURCE)
         for data_source in data_sources:
             for column_name in data_source.details.columns:
-                if FairnessSlices.is_column_sensitive(column_name) is True:
+                if FairnessSlices.is_column_sensitive(column_name, additional_column_names) is True:
                     data_sources_to_columns[data_source].append(column_name)
         test_data_operators = find_nodes_by_type(dag, OperatorType.TEST_DATA)
         dag_to_consider = networkx.subgraph_view(dag, filter_edge=filter_estimator_transformer_edges)
@@ -659,59 +719,61 @@ class FairnessSlices(ShadowPipeline):
         for score_index in range(self.score_operator_count):
             orig_result.append(extracted_plan_results[f"label-errors-orig-{score_index}"])
         report = ""
-        for transformer_index in range(self.transformer_inputs_to_check_count):
-            report += (f"Issue {transformer_index}\n-\n")
-            if extracted_plan_results[f"data-errors-corruption-made-changes-{transformer_index}"] is False:
-                report += "The corruption function did not make any changes."
-            else:
-                corruption_diff_df = extracted_plan_results[
-                    f"data-errors-corruption-diff-{transformer_index}"]
-                if isinstance(corruption_diff_df, (pandas.DataFrame, pandas.Series)):
-                    corruption_diff_df_sample = corruption_diff_df.head(20)
-                elif isinstance(corruption_diff_df, numpy.ndarray) and corruption_diff_df.ndim == 1:
-                    corruption_diff_df_sample = corruption_diff_df[:20]
-                elif isinstance(corruption_diff_df, numpy.ndarray) and corruption_diff_df.ndim == 2:
-                    corruption_diff_df_sample = corruption_diff_df[:20, :]
-                else:
-                    raise NotImplementedError("TODO")
-                corrupt_result = []
-                for score_index in range(self.score_operator_count):
-                    corrupt_result.append(
-                        extracted_plan_results[f"data-errors-corrupt-{score_index}-{transformer_index}"])
-                report += (
-                    f"The original result was {orig_result}. After corrupting {self._corruption_fraction} of rows, "
-                    f"the pipeline metric was {corrupt_result}, indicating robustness problems. A sample of the corrupted "
-                    f"rows: {str(corruption_diff_df_sample)}. ")
-
-                if extracted_plan_results[f"data-errors-corruption-significant-{transformer_index}"] is True:
-                    corruption_diff_fix_df = extracted_plan_results[
-                        f"data-errors-corruption-diff-fix-{transformer_index}"]
-                    if isinstance(corruption_diff_fix_df, (pandas.DataFrame, pandas.Series)):
-                        corruption_diff_fix_df_sample = corruption_diff_fix_df.head(20)
-                    elif (isinstance(corruption_diff_fix_df, numpy.ndarray) and
-                          corruption_diff_fix_df.ndim == 2):
-                        corruption_diff_fix_df_sample = corruption_diff_fix_df[:20, :]
-                    elif (isinstance(corruption_diff_fix_df, numpy.ndarray) and
-                          corruption_diff_fix_df.ndim == 1):
-                        corruption_diff_fix_df_sample = corruption_diff_fix_df[:20]
-                    else:
-                        raise NotImplementedError("TODO")
-                    score_after_fixing = []
-                    for score_index in range(self.score_operator_count):
-                        score_after_fixing.append(
-                            extracted_plan_results[f"data-errors-corrupt-fix-{score_index}-{transformer_index}"])
-                else:
-                    report += (
-                        "Fortunately, corruption function was not able to significantly affect the performance beyond "
-                        "the configured acceptable threshold.")
-                if (extracted_plan_results[f"data-errors-corruption-significant-{transformer_index}"] is True and
-                        extracted_plan_results[
-                            f"data-errors-corruption-diff-fix-not-empty-{transformer_index}"] is True):
-                    report += (f"After adding a fix method, the pipeline metric was "
-                               f"{score_after_fixing}. A sample of the fixed rows: {str(corruption_diff_fix_df_sample)}")
-                elif extracted_plan_results[f"data-errors-corruption-significant-{transformer_index}"] is True:
-                    report += "Unfortunately, the fix method was not able to automatically address the corrupted rows."
-            report += "\n"
+        slice_line_result = extracted_plan_results["fairness-slices-slice-line-result"]
+        report += f"{orig_result}, {slice_line_result}"
+        # for transformer_index in range(self.transformer_inputs_to_check_count):
+        #     report += (f"Issue {transformer_index}\n-\n")
+        #     if extracted_plan_results[f"data-errors-corruption-made-changes-{transformer_index}"] is False:
+        #         report += "The corruption function did not make any changes."
+        #     else:
+        #         corruption_diff_df = extracted_plan_results[
+        #             f"data-errors-corruption-diff-{transformer_index}"]
+        #         if isinstance(corruption_diff_df, (pandas.DataFrame, pandas.Series)):
+        #             corruption_diff_df_sample = corruption_diff_df.head(20)
+        #         elif isinstance(corruption_diff_df, numpy.ndarray) and corruption_diff_df.ndim == 1:
+        #             corruption_diff_df_sample = corruption_diff_df[:20]
+        #         elif isinstance(corruption_diff_df, numpy.ndarray) and corruption_diff_df.ndim == 2:
+        #             corruption_diff_df_sample = corruption_diff_df[:20, :]
+        #         else:
+        #             raise NotImplementedError("TODO")
+        #         corrupt_result = []
+        #         for score_index in range(self.score_operator_count):
+        #             corrupt_result.append(
+        #                 extracted_plan_results[f"data-errors-corrupt-{score_index}-{transformer_index}"])
+        #         report += (
+        #             f"The original result was {orig_result}. After corrupting {self._corruption_fraction} of rows, "
+        #             f"the pipeline metric was {corrupt_result}, indicating robustness problems. A sample of the corrupted "
+        #             f"rows: {str(corruption_diff_df_sample)}. ")
+        #
+        #         if extracted_plan_results[f"data-errors-corruption-significant-{transformer_index}"] is True:
+        #             corruption_diff_fix_df = extracted_plan_results[
+        #                 f"data-errors-corruption-diff-fix-{transformer_index}"]
+        #             if isinstance(corruption_diff_fix_df, (pandas.DataFrame, pandas.Series)):
+        #                 corruption_diff_fix_df_sample = corruption_diff_fix_df.head(20)
+        #             elif (isinstance(corruption_diff_fix_df, numpy.ndarray) and
+        #                   corruption_diff_fix_df.ndim == 2):
+        #                 corruption_diff_fix_df_sample = corruption_diff_fix_df[:20, :]
+        #             elif (isinstance(corruption_diff_fix_df, numpy.ndarray) and
+        #                   corruption_diff_fix_df.ndim == 1):
+        #                 corruption_diff_fix_df_sample = corruption_diff_fix_df[:20]
+        #             else:
+        #                 raise NotImplementedError("TODO")
+        #             score_after_fixing = []
+        #             for score_index in range(self.score_operator_count):
+        #                 score_after_fixing.append(
+        #                     extracted_plan_results[f"data-errors-corrupt-fix-{score_index}-{transformer_index}"])
+        #         else:
+        #             report += (
+        #                 "Fortunately, corruption function was not able to significantly affect the performance beyond "
+        #                 "the configured acceptable threshold.")
+        #         if (extracted_plan_results[f"data-errors-corruption-significant-{transformer_index}"] is True and
+        #                 extracted_plan_results[
+        #                     f"data-errors-corruption-diff-fix-not-empty-{transformer_index}"] is True):
+        #             report += (f"After adding a fix method, the pipeline metric was "
+        #                        f"{score_after_fixing}. A sample of the fixed rows: {str(corruption_diff_fix_df_sample)}")
+        #         elif extracted_plan_results[f"data-errors-corruption-significant-{transformer_index}"] is True:
+        #             report += "Unfortunately, the fix method was not able to automatically address the corrupted rows."
+        #     report += "\n"
         return report
 
     @staticmethod
@@ -961,3 +1023,25 @@ class FairnessSlices(ShadowPipeline):
             ):
                 scores_different_enough = True
         return scores_different_enough
+
+    @staticmethod
+    def get_slice_finder_mask_and_slice(side_info_df, encoded_test_labels, predicted_test_labels):
+        # TODO: In the documentation, it is only used on train and with known float loss
+        sf = Slicefinder(
+            alpha=0.95,
+            k=1,
+            max_l=2,
+            min_sup=1,
+            verbose=True,
+        )
+
+        sf_result = sf.fit(side_info_df, (encoded_test_labels.reshape(-1, ) != predicted_test_labels.reshape(-1, )))
+        if len(sf_result.top_slices_) == 0:
+            return None, None
+        top_slice = sf_result.top_slices_[0]
+        # Make sure that our experiment consistently hits the case where something needs to be translated
+        test_mask = numpy.ones(shape=(len(side_info_df)), dtype=bool)
+        for column_index, column_value in enumerate(top_slice):
+            if column_value is not None:
+                test_mask = test_mask & (side_info_df.iloc[:, column_index] == column_value).to_numpy()
+        return top_slice, test_mask
