@@ -1,4 +1,5 @@
 import warnings
+from enum import Enum
 from functools import partial
 
 import duckdb
@@ -286,3 +287,54 @@ def get_conditional_stop_node(singleton, condition_func, label, description, par
                                   None,
                                   processing_func)
     return new_extraction_node
+
+
+class DataType(Enum):
+    """
+    The different data types that we base our error detection techniques on
+    """
+    NUM = "numerical"
+    CAT = "categorical"
+    TEXT = "text"
+
+
+TRANSFORMER_TO_DATA_TYPES = {
+    "One-Hot": DataType.CAT,
+    "Word2Vec": DataType.TEXT,
+    "Standard Scaler": DataType.NUM
+}
+
+
+def get_transformer_operators_to_test(dag):
+    """
+    For now, we will ignore project modifies and focus on selections and transformers.
+    This is because for transformers it is easy to find the corresponding test set operation and for the
+    selection we do not need to worry about finding corresponding test set operations.
+    """
+    # This only works for traditional ML of course and not LLMs
+    # pylint: disable=redefined-variable-type
+    search_start_node = find_train_or_test_pipeline_part_end(dag, False)
+    nodes_to_search = set(networkx.ancestors(dag, search_start_node))
+    # Maybe start with outliers and text typos
+    transformers_to_test = [node for node in nodes_to_search if
+                            node.operator_info.operator == OperatorType.TRANSFORMER
+                            and ": transform" in node.details.description
+                            ]
+    data_parent_and_data_type = []
+    for transformer in transformers_to_test:
+        for transformer_desc, data_type in TRANSFORMER_TO_DATA_TYPES.items():
+            if transformer_desc in transformer.details.description:
+                data_parent = get_sorted_parent_nodes(dag, transformer)[1]
+                data_parent_and_data_type.append((data_parent, transformer, data_type))
+
+    # A simple heuristic for now to detect embedding operations in FunctionTransformers in pipelines like
+    #  anhedonia_ml
+    function_transformers = [node for node in nodes_to_search if
+                             node.operator_info.operator == OperatorType.TRANSFORMER
+                             and "Function Transformer: transform" in node.details.description]
+    for function_transformer in function_transformers:
+        data_parent = get_sorted_parent_nodes(dag, function_transformer)[1]
+        if (data_parent.details.optimizer_info.shape[1] == 1 and
+                function_transformer.details.optimizer_info.shape[1] >= 100):
+            data_parent_and_data_type.append((data_parent, transformer, DataType.TEXT))
+    return data_parent_and_data_type

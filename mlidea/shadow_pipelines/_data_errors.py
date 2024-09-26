@@ -14,46 +14,26 @@
 # but might have a big of added performance overhead. then, conditional operator depending on how many mislabels
 # found. but maybe not that problematic here. but maybe for this we do want to use the provenance since the labeling
 # might not be the final step in the data preprocessing and there might be filte
-from enum import Enum
 from functools import partial
 
-import duckdb
 import networkx
 import numpy
 import pandas
 from fairlearn.metrics import MetricFrame
 from jenga.corruptions.generic import MissingValues
 from jenga.corruptions.numerical import Scaling
-from jenga.corruptions.text import BrokenCharacters
 from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import MinMaxScaler
 
-from mlidea.analysis._cleaning_methods import OutlierCleaner
-from mlidea.execution._pipeline_executor import singleton
-from mlidea.analysis._analysis_utils import find_nodes_by_type
 from mlidea import OperatorType, DagNode, BasicCodeLocation, OperatorContext, DagNodeDetails
+from mlidea.analysis._analysis_utils import find_nodes_by_type
+from mlidea.analysis._cleaning_methods import OutlierCleaner, detect_outlier_interquartile_range
+from mlidea.execution._pipeline_executor import singleton
+from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
+from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
-    get_sorted_parent_nodes, find_train_or_test_pipeline_part_end, get_typo_adder, duplicate_descendants, \
-    get_typo_fixer, get_conditional_stop_node
-from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
-from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
-
-
-class DataType(Enum):
-    """
-    The different data types that we base our error detection techniques on
-    """
-    NUM = "numerical"
-    CAT = "categorical"
-    TEXT = "text"
-
-
-TRANSFORMER_TO_DATA_TYPES = {
-    "One-Hot": DataType.CAT,
-    "Word2Vec": DataType.TEXT,
-    "Standard Scaler": DataType.NUM
-}
+    get_sorted_parent_nodes, get_typo_adder, duplicate_descendants, \
+    get_typo_fixer, get_conditional_stop_node, DataType, get_transformer_operators_to_test
 
 
 class DataErrorRobustness(ShadowPipeline):
@@ -111,7 +91,7 @@ class DataErrorRobustness(ShadowPipeline):
         DataErrorRobustness.add_orig_score_extraction_nodes(new_dag, score_operators)
         self.score_operator_count = len(score_operators)
 
-        data_parent_transformer_and_data_type = DataErrorRobustness._get_transformer_operators_to_test(dag)
+        data_parent_transformer_and_data_type = get_transformer_operators_to_test(dag)
         self.transformer_inputs_to_check_count = len(data_parent_transformer_and_data_type)
 
         for data_type_index, (data_parent, transformer, data_type) in enumerate(data_parent_transformer_and_data_type):
@@ -233,6 +213,7 @@ class DataErrorRobustness(ShadowPipeline):
                                  arg_index=score_index + self.score_operator_count)
             # End evaluate
 
+            # This is important so the non-text-based fix functions can also see the clean data if necessary
             if data_type == DataType.TEXT:
                 fix_input_node = new_corruption_diff_filter_node
             else:
@@ -247,8 +228,14 @@ class DataErrorRobustness(ShadowPipeline):
                                    None,
                                    processing_func)
             new_dag.add_edge(fix_input_node, new_fix_node, arg_index=0)
-            new_dag.add_edge(conditional_corruption_significant_node, new_fix_node, arg_index=1)
 
+            if data_type != DataType.TEXT:
+                new_dag.add_edge(new_corruption_diff_node, new_fix_node, arg_index=1)
+                new_dag.add_edge(conditional_corruption_significant_node, new_fix_node, arg_index=2)
+            else:
+                new_dag.add_edge(conditional_corruption_significant_node, new_fix_node, arg_index=1)
+
+            # This is important so the non-text-based fix functions can also see the clean data if necessary
             if data_type == DataType.TEXT:
                 fix_node_to_extract = new_fix_node
             else:
@@ -751,7 +738,7 @@ class DataErrorRobustness(ShadowPipeline):
         return updated_predictions
 
     @staticmethod
-    def fix_data(input_df, data_type):
+    def fix_data(input_df, only_fix_indices=None, data_type=None):
         fixed_corrupted = input_df.copy()
         if data_type == DataType.TEXT:
             was_series = False
@@ -771,22 +758,33 @@ class DataErrorRobustness(ShadowPipeline):
             elif was_numpy is True:
                 fixed_corrupted = fixed_corrupted["column"].to_numpy()
         elif data_type == DataType.CAT:
-            fixed_corrupted = input_df
+            fixed_corrupted = input_df.reset_index(drop=True)
+            clean = fixed_corrupted.drop(only_fix_indices, axis=0)
             for column in fixed_corrupted.columns:
-                # TODO: There are also smarter ways to do this
-                # This should always be the case if the conditional nodes didn't already abort the execution
-                assert len(fixed_corrupted[column]) != 0
-                if (fixed_corrupted[column].dtype == object and not isinstance(fixed_corrupted[column][0], bool) and
-                        not isinstance(input_df[column][0], int)):
-                    fixed_corrupted = SimpleImputer(strategy="most_frequent", copy=True, missing_values="0"
-                                                    ).fit_transform(fixed_corrupted)
+                imputer = SimpleImputer(strategy="most_frequent", copy=True, missing_values="0")
+                imputer.fit(clean[[column]])
+                fixed_corrupted.iloc[only_fix_indices, [column]] = imputer.transform(
+                    fixed_corrupted.iloc[only_fix_indices, [column]])
+
         elif data_type == DataType.NUM:
-            # FIXME: This doesn't work that well because the OutlierCleaner never sees clean rows this way
-            #  ALso, this might not perform any changes. In these cases, the shadow pipeline shouldn't crash
-            for column in fixed_corrupted.columns:
+            fixed_corrupted = input_df.reset_index(drop=True)
+            clean = fixed_corrupted.drop(only_fix_indices, axis=0)
+            for column_index, column in enumerate(fixed_corrupted.columns):
                 is_int = fixed_corrupted[column].dtype == int
-                fixed_corrupted = OutlierCleaner.fit_transform_all(fixed_corrupted, detection_strategy='IQR',
-                                                                   repair_strategy='mean', column=column)
+                # This is if we want to just apply fit_transform on all data instead of fixing only the corrupted data
+                #  with a detection and cleaning method fitted on the clean data
+                # fixed_corrupted = OutlierCleaner.fit_transform_all(fixed_corrupted, detection_strategy='IQR',
+                #                                                    repair_strategy='mean', column=column)
+                _, fitted_detector = detect_outlier_interquartile_range(clean[[column]])
+                imputer = SimpleImputer(strategy='mean', copy=True)
+                imputer.fit(clean[[column]])
+                outlier_indicator, _ = detect_outlier_interquartile_range(
+                    fixed_corrupted.iloc[only_fix_indices, [column_index]], fitted_detector=fitted_detector)
+                detector_mask = fixed_corrupted.iloc[only_fix_indices, column_index].apply(outlier_indicator).to_numpy()
+                if numpy.any(detector_mask):
+                    fixed_corrupted.iloc[only_fix_indices[detector_mask], [column_index]] = numpy.nan
+                    fixed_corrupted.iloc[only_fix_indices[detector_mask], [column_index]] = imputer.transform(
+                        fixed_corrupted.iloc[only_fix_indices[detector_mask], [column_index]])
                 if is_int:
                     fixed_corrupted[column] = fixed_corrupted[column].astype(int)
             # fixed_corrupted = MinMaxScaler(feature_range=(0, 10)).fit_transform(input_df)
@@ -874,41 +872,6 @@ class DataErrorRobustness(ShadowPipeline):
             retrain_extraction_node = get_intermediate_extraction_node(singleton, new_score_node,
                                                                        f"label-errors-flip-retrain-{score_index}")
             new_dag.add_edge(new_score_node, retrain_extraction_node, arg_index=0)
-
-    @staticmethod
-    def _get_transformer_operators_to_test(dag):
-        """
-        For now, we will ignore project modifies and focus on selections and transformers.
-        This is because for transformers it is easy to find the corresponding test set operation and for the
-        selection we do not need to worry about finding corresponding test set operations.
-        """
-        # This only works for traditional ML of course and not LLMs
-        # pylint: disable=redefined-variable-type
-        search_start_node = find_train_or_test_pipeline_part_end(dag, False)
-        nodes_to_search = set(networkx.ancestors(dag, search_start_node))
-        # Maybe start with outliers and text typos
-        transformers_to_test = [node for node in nodes_to_search if
-                                node.operator_info.operator == OperatorType.TRANSFORMER
-                                and ": transform" in node.details.description
-                                ]
-        data_parent_and_data_type = []
-        for transformer in transformers_to_test:
-            for transformer_desc, data_type in TRANSFORMER_TO_DATA_TYPES.items():
-                if transformer_desc in transformer.details.description:
-                    data_parent = get_sorted_parent_nodes(dag, transformer)[1]
-                    data_parent_and_data_type.append((data_parent, transformer, data_type))
-
-        # A simple heuristic for now to detect embedding operations in FunctionTransformers in pipelines like
-        #  anhedonia_ml
-        function_transformers = [node for node in nodes_to_search if
-                                 node.operator_info.operator == OperatorType.TRANSFORMER
-                                 and "Function Transformer: transform" in node.details.description]
-        for function_transformer in function_transformers:
-            data_parent = get_sorted_parent_nodes(dag, function_transformer)[1]
-            if (data_parent.details.optimizer_info.shape[1] == 1 and
-                    function_transformer.details.optimizer_info.shape[1] >= 100):
-                data_parent_and_data_type.append((data_parent, transformer, DataType.TEXT))
-        return data_parent_and_data_type
 
     @staticmethod
     def condition_corruption_significant_function(corruption_significant_relative_threshold, *scores):
