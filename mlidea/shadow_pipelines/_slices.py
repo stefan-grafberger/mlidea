@@ -31,33 +31,18 @@ from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import MinMaxScaler
 from sliceline import Slicefinder
 
-from mlidea.analysis._cleaning_methods import OutlierCleaner
+from mlidea.analysis._cleaning_methods import OutlierCleaner, detect_outlier_interquartile_range
 from mlidea.execution._pipeline_executor import singleton
 from mlidea.analysis._analysis_utils import find_nodes_by_type
 from mlidea import OperatorType, DagNode, BasicCodeLocation, OperatorContext, DagNodeDetails
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
     get_sorted_parent_nodes, find_train_or_test_pipeline_part_end, get_typo_adder, duplicate_descendants, \
-    get_typo_fixer, get_conditional_stop_node, filter_estimator_transformer_edges, get_transformer_operators_to_test
+    get_typo_fixer, get_conditional_stop_node, filter_estimator_transformer_edges, get_transformer_operators_to_test, \
+    TRANSFORMER_TO_DATA_TYPES, DataType
 from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
 from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
 from monkeypatching._provenance_propagation import wrap_projection_func
-
-
-class DataType(Enum):
-    """
-    The different data types that we base our error detection techniques on
-    """
-    NUM = "numerical"
-    CAT = "categorical"
-    TEXT = "text"
-
-
-TRANSFORMER_TO_DATA_TYPES = {
-    "One-Hot": DataType.CAT,
-    "Word2Vec": DataType.TEXT,
-    "Standard Scaler": DataType.NUM
-}
 
 
 class FairnessSlices(ShadowPipeline):
@@ -192,7 +177,7 @@ class FairnessSlices(ShadowPipeline):
                                         DagNodeDetails(
                                             f"Run Slice Finder", None),
                                         None,
-                                        FairnessSlices.get_slice_finder_mask_and_slice)
+                                        FairnessSlices.get_slice_finder_slice_and_indices)
         new_dag.add_edge(concat_node, new_slice_finder_node, arg_index=0)
         new_dag.add_edge(test_labels_operators[0], new_slice_finder_node, arg_index=1)
         new_dag.add_edge(predict_operators[0], new_slice_finder_node, arg_index=2)
@@ -207,31 +192,46 @@ class FairnessSlices(ShadowPipeline):
             "Check if corrupt function made changes", new_slice_finder_node)
         new_dag.add_edge(new_slice_finder_node, conditional_corruption_made_changes_node, arg_index=0)
 
+        process_func = lambda slice_finder_result:slice_finder_result[1]
+        slice_finder_indices_node = DagNode(singleton.get_next_op_id(),
+                                        BasicCodeLocation("Fairness Slices", None),
+                                        OperatorContext(OperatorType.GROUP_BY_AGG, None),
+                                        DagNodeDetails(
+                                            f"Compute slice finder indexes", None),
+                                        None,
+                                        process_func)
+        new_dag.add_edge(new_slice_finder_node, slice_finder_indices_node, arg_index=0)
+        new_dag.add_edge(conditional_corruption_made_changes_node, slice_finder_indices_node, arg_index=1)
+
         data_parent_transformer_and_data_type = get_transformer_operators_to_test(dag)
         self.transformer_inputs_to_check_count = len(data_parent_transformer_and_data_type)
 
         for data_type_index, (data_parent, transformer, data_type) in enumerate(data_parent_transformer_and_data_type):
-            new_slice_mask_filter_node = DagNode(singleton.get_next_op_id(),
-                                                 BasicCodeLocation("Fairness Slices", None),
-                                                 OperatorContext(OperatorType.SELECTION, None),
-                                                 DagNodeDetails(
-                                                     f"Apply slice finder mask",
-                                                     None),
-                                                 None,
-                                                 FairnessSlices.apply_slice_finder_mask)
-            new_dag.add_edge(data_parent, new_slice_mask_filter_node, arg_index=0)
-            new_dag.add_edge(new_slice_finder_node, new_slice_mask_filter_node, arg_index=1)
-            new_dag.add_edge(conditional_corruption_made_changes_node, new_slice_mask_filter_node, arg_index=2)
+            new_slice_filter_node = DagNode(singleton.get_next_op_id(),
+                                            BasicCodeLocation("Fairness Slices", None),
+                                            OperatorContext(OperatorType.SELECTION, None),
+                                            DagNodeDetails(
+                                                f"Apply slice finder mask",
+                                                None),
+                                            None,
+                                            FairnessSlices.apply_diff_filter)
+            new_dag.add_edge(data_parent, new_slice_filter_node, arg_index=0)
+            new_dag.add_edge(slice_finder_indices_node, new_slice_filter_node, arg_index=1)
+
+            extraction_node = get_intermediate_extraction_node(singleton, new_slice_finder_node,
+                                                               f"fairness-slices-data-to-fix-{data_type_index}")
+            new_dag.add_edge(new_slice_finder_node, extraction_node, arg_index=0)
 
             processing_func = partial(FairnessSlices.fix_data, data_type=data_type)
             new_fix_node = DagNode(singleton.get_next_op_id(),
                                    BasicCodeLocation("Data Errors", None),
                                    OperatorContext(OperatorType.PROJECTION_MODIFY, None),
                                    DagNodeDetails(
-                                       f"Fix {self._corruption_fraction} of {data_type.value} values", None),
+                                       "Trying to fix unfair slice data errors", None),
                                    None,
                                    processing_func)
-            new_dag.add_edge(new_slice_mask_filter_node, new_fix_node, arg_index=0)
+            new_dag.add_edge(data_parent, new_fix_node, arg_index=0)
+            new_dag.add_edge(slice_finder_indices_node, new_fix_node, arg_index=1)
         # The first step is to concat the test
 
         # data_parent_transformer_and_data_type = FairnessSlices._get_transformer_operators_to_test(dag)
@@ -906,10 +906,65 @@ class FairnessSlices(ShadowPipeline):
         return updated_predictions
 
     @staticmethod
-    def fix_data(input_df, data_type):
-        # TODO
+    def fix_data(input_df, only_fix_indices=None, data_type=None):
+        # For now, this function is the same as in data_errors. Might want to consider different things here
+        #  at some point
+        fixed_corrupted = input_df.copy()
+        if data_type == DataType.TEXT:
+            was_series = False
+            was_numpy = False
+            if isinstance(fixed_corrupted, pandas.Series):
+                fixed_corrupted = pandas.DataFrame(fixed_corrupted)
+                was_series = True
+            elif isinstance(fixed_corrupted, numpy.ndarray):
+                fixed_corrupted = pandas.DataFrame({"column": fixed_corrupted})
+                was_numpy = True
+            for column in fixed_corrupted.columns:
+                if fixed_corrupted[column].dtype == object:
+                    typo_fixer = get_typo_fixer(column)
+                    fixed_corrupted = typo_fixer.fit_transform(fixed_corrupted)
+            if was_series is True:
+                fixed_corrupted = fixed_corrupted[column]
+            elif was_numpy is True:
+                fixed_corrupted = fixed_corrupted["column"].to_numpy()
+        elif data_type == DataType.CAT:
+            fixed_corrupted = input_df.reset_index(drop=True)
+            clean = fixed_corrupted.drop(only_fix_indices, axis=0)
+            for column in fixed_corrupted.columns:
+                imputer = SimpleImputer(strategy="most_frequent", copy=True, missing_values="0")
+                imputer.fit(clean[[column]])
+                fixed_corrupted.iloc[only_fix_indices, [column]] = imputer.transform(
+                    fixed_corrupted.iloc[only_fix_indices, [column]])
 
-        return input_df
+        elif data_type == DataType.NUM:
+            fixed_corrupted = input_df.reset_index(drop=True)
+            clean = fixed_corrupted.drop(only_fix_indices, axis=0)
+            for column_index, column in enumerate(fixed_corrupted.columns):
+                is_int = fixed_corrupted[column].dtype == int
+                # This is if we want to just apply fit_transform on all data instead of fixing only the corrupted data
+                #  with a detection and cleaning method fitted on the clean data
+                # fixed_corrupted = OutlierCleaner.fit_transform_all(fixed_corrupted, detection_strategy='IQR',
+                #                                                    repair_strategy='mean', column=column)
+                _, fitted_detector = detect_outlier_interquartile_range(clean[[column]])
+                imputer = SimpleImputer(strategy='mean', copy=True)
+                imputer.fit(clean[[column]])
+                outlier_indicator, _ = detect_outlier_interquartile_range(
+                    fixed_corrupted.iloc[only_fix_indices, [column_index]], fitted_detector=fitted_detector)
+                detector_mask = fixed_corrupted.iloc[only_fix_indices, column_index].apply(outlier_indicator).to_numpy()
+                if numpy.any(detector_mask):
+                    fixed_corrupted.iloc[only_fix_indices[detector_mask], [column_index]] = numpy.nan
+                    fixed_corrupted.iloc[only_fix_indices[detector_mask], [column_index]] = imputer.transform(
+                        fixed_corrupted.iloc[only_fix_indices[detector_mask], [column_index]])
+                if is_int:
+                    fixed_corrupted[column] = fixed_corrupted[column].astype(int)
+            # fixed_corrupted = MinMaxScaler(feature_range=(0, 10)).fit_transform(input_df)
+        else:
+            raise NotImplementedError(f"TODO: Add support for datatype {data_type.value}!")
+
+        fixed_corrupted = wrap_in_mlinspect_array_if_necessary(fixed_corrupted)
+        fixed_corrupted._mlinspect_provenance = None
+
+        return fixed_corrupted
 
     @staticmethod
     def corrupt_data_diff_detection(input_df, corrupted_result):
@@ -1043,7 +1098,7 @@ class FairnessSlices(ShadowPipeline):
         return scores_different_enough
 
     @staticmethod
-    def get_slice_finder_mask_and_slice(side_info_df, encoded_test_labels, predicted_test_labels):
+    def get_slice_finder_slice_and_indices(side_info_df, encoded_test_labels, predicted_test_labels):
         # TODO: In the documentation, it is only used on train and with known float loss
         sf = Slicefinder(
             alpha=0.95,
@@ -1065,7 +1120,8 @@ class FairnessSlices(ShadowPipeline):
         for column_index, column_value in enumerate(top_slice):
             if column_value is not None:
                 test_mask = test_mask & (side_info_df.iloc[:, column_index] == column_value).to_numpy()
-        return top_slice, test_mask
+        test_indices = numpy.where(test_mask)[0]
+        return top_slice, test_indices
 
     @staticmethod
     def projection_processing_func(column_names, input):
@@ -1103,70 +1159,3 @@ class FairnessSlices(ShadowPipeline):
         result = wrap_in_mlinspect_array_if_necessary(result)
         result._mlinspect_provenance = right_prov
         return result
-
-    @staticmethod
-    def apply_slice_finder_mask(input_df, slice_finder_result):
-        mask = slice_finder_result[1]
-        if isinstance(input_df, (pandas.DataFrame, pandas.Series)):
-            input_df = input_df.reset_index(drop=True)
-        if isinstance(input_df, (pandas.DataFrame, pandas.Series)):
-            corrupted_diff = input_df[mask]
-        elif isinstance(input_df, list):
-            corrupted_diff = numpy.array(input_df)[mask]
-            numpy.arange(len(input_df))
-        else:
-            corrupted_diff = input_df[mask]
-        if isinstance(corrupted_diff, (pandas.Series, pandas.DataFrame)):
-            corrupted_diff = corrupted_diff.reset_index(drop=True)
-        corrupted_diff = wrap_in_mlinspect_array_if_necessary(corrupted_diff)
-        corrupted_diff._mlinspect_provenance = None
-
-        return corrupted_diff
-
-    @staticmethod
-    def fix_data(input_df, data_type):
-        fixed_corrupted = input_df.copy()
-        if data_type == DataType.TEXT:
-            was_series = False
-            was_numpy = False
-            if isinstance(fixed_corrupted, pandas.Series):
-                fixed_corrupted = pandas.DataFrame(fixed_corrupted)
-                was_series = True
-            elif isinstance(fixed_corrupted, numpy.ndarray):
-                fixed_corrupted = pandas.DataFrame({"column": fixed_corrupted})
-                was_numpy = True
-            for column in fixed_corrupted.columns:
-                if fixed_corrupted[column].dtype == object:
-                    typo_fixer = get_typo_fixer(column)
-                    fixed_corrupted = typo_fixer.fit_transform(fixed_corrupted)
-            if was_series is True:
-                fixed_corrupted = fixed_corrupted[column]
-            elif was_numpy is True:
-                fixed_corrupted = fixed_corrupted["column"].to_numpy()
-        elif data_type == DataType.CAT:
-            fixed_corrupted = input_df
-            for column in fixed_corrupted.columns:
-                # TODO: There are also smarter ways to do this
-                # This should always be the case if the conditional nodes didn't already abort the execution
-                assert len(fixed_corrupted[column]) != 0
-                if (fixed_corrupted[column].dtype == object and not isinstance(fixed_corrupted[column][0], bool) and
-                        not isinstance(input_df[column][0], int)):
-                    fixed_corrupted = SimpleImputer(strategy="most_frequent", copy=True, missing_values="0"
-                                                    ).fit_transform(fixed_corrupted)
-        elif data_type == DataType.NUM:
-            # FIXME: This doesn't work that well because the OutlierCleaner never sees clean rows this way
-            #  ALso, this might not perform any changes. In these cases, the shadow pipeline shouldn't crash
-            for column in fixed_corrupted.columns:
-                is_int = fixed_corrupted[column].dtype == int
-                fixed_corrupted = OutlierCleaner.fit_transform_all(fixed_corrupted, detection_strategy='IQR',
-                                                                   repair_strategy='mean', column=column)
-                if is_int:
-                    fixed_corrupted[column] = fixed_corrupted[column].astype(int)
-            # fixed_corrupted = MinMaxScaler(feature_range=(0, 10)).fit_transform(input_df)
-        else:
-            raise NotImplementedError(f"TODO: Add support for datatype {DataType.value}!")
-
-        fixed_corrupted = wrap_in_mlinspect_array_if_necessary(fixed_corrupted)
-        fixed_corrupted._mlinspect_provenance = None
-
-        return fixed_corrupted
