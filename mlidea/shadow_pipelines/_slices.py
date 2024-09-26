@@ -74,6 +74,7 @@ class FairnessSlices(ShadowPipeline):
         self._additional_column_names = additional_column_names
         self._shadow_pipeline_id = (tuple(additional_column_names),)
         self.score_operator_count = 0
+        self.sensitive_column_count = 0
 
     @property
     def shadow_pipeline_id(self):
@@ -95,6 +96,7 @@ class FairnessSlices(ShadowPipeline):
 
         data_sources_concat, data_sources_prov_join = FairnessSlices.get_data_sources_to_sensitive_columns(
             dag, self._additional_column_names)
+        self.sensitive_column_count = len(data_sources_concat) + len(data_sources_prov_join)
 
         rag_join_operators = find_nodes_by_type(dag, OperatorType.RAG_JOIN)
 
@@ -157,7 +159,8 @@ class FairnessSlices(ShadowPipeline):
             new_dag.add_edge(projection_node, concat_node, arg_index=0)
 
         for data_source, column_names in data_sources_prov_join.items():
-            projection_processing_func = wrap_projection_func(partial(FairnessSlices.projection_processing_func, column_names))
+            projection_processing_func = wrap_projection_func(
+                partial(FairnessSlices.projection_processing_func, column_names))
 
             projection_node = DagNode(singleton.get_next_op_id(),
                                       BasicCodeLocation("Fairness Slices", None),
@@ -196,6 +199,13 @@ class FairnessSlices(ShadowPipeline):
         extraction_node = get_intermediate_extraction_node(singleton, new_slice_finder_node,
                                                            "fairness-slices-slice-line-result")
         new_dag.add_edge(new_slice_finder_node, extraction_node, arg_index=0)
+
+        problematic_slice_found_func = lambda slice_finder_result: (slice_finder_result[0] is not None and
+                                                                    slice_finder_result[1] is not None)
+        conditional_corruption_made_changes_node = get_conditional_stop_node(
+            singleton, problematic_slice_found_func, f"fairness-slices-slice-line-problematic-slice-found",
+            "Check if corrupt function made changes", new_slice_finder_node)
+        new_dag.add_edge(new_slice_finder_node, conditional_corruption_made_changes_node, arg_index=0)
 
         # The first step is to concat the test
 
@@ -517,7 +527,7 @@ class FairnessSlices(ShadowPipeline):
         condition_corrupt_function = lambda np_array: len(np_array) != 0
         conditional_corruption_made_changes_node = get_conditional_stop_node(
             singleton, condition_corrupt_function, f"data-errors-corruption-made-changes-0",
-            "Check if corrupt function made changes", new_corruption_diff_node)
+            "Check if problematic slice was found", new_corruption_diff_node)
         new_dag.add_edge(new_corruption_diff_node, conditional_corruption_made_changes_node, arg_index=1)
 
         new_corruption_diff_filter_node = DagNode(singleton.get_next_op_id(),
@@ -734,12 +744,18 @@ class FairnessSlices(ShadowPipeline):
             new_dag.add_edge(score_operator, orig_extraction_node, arg_index=0)
 
     def generate_final_report(self, extracted_plan_results: dict[str, any]) -> any:
+        report = ""
         orig_result = []
         for score_index in range(self.score_operator_count):
             orig_result.append(extracted_plan_results[f"label-errors-orig-{score_index}"])
-        report = ""
-        slice_line_result = extracted_plan_results["fairness-slices-slice-line-result"]
-        report += f"{orig_result}, {slice_line_result}"
+        report += f"The original result was {orig_result}.\n"
+        if self.sensitive_column_count == 0:
+            report += "Slice finding could not be applied since no sensitive column could be found!"
+        elif extracted_plan_results["fairness-slices-slice-line-problematic-slice-found"] is False:
+            report += "No problematic slice could be found by the slice finder"
+        else:
+            slice_line_result = extracted_plan_results["fairness-slices-slice-line-result"]
+            report += f"The problematic slice that was found is {slice_line_result[0]}."
         # for transformer_index in range(self.transformer_inputs_to_check_count):
         #     report += (f"Issue {transformer_index}\n-\n")
         #     if extracted_plan_results[f"data-errors-corruption-made-changes-{transformer_index}"] is False:
