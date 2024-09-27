@@ -3,7 +3,8 @@ from inspect import cleandoc
 from example_pipelines import HEALTHCARE_PY, ANHEDONIA_ML_PY, ANHEDONIA_LLM_PY, ADULT_COMPLEX_PY, COMPAS_PY
 from example_pipelines.healthcare import custom_monkeypatching
 from mlidea import PipelineAnalyzer
-from mlidea.testing._testing_helper_utils import visualize_dags_shadow_pipelines, get_llm_rag_mini_example_code
+from mlidea.testing._testing_helper_utils import visualize_dags_shadow_pipelines, get_llm_rag_mini_example_code, \
+    get_llm_rag_mini_example_test_side_info_code
 from shadow_pipelines._slices import FairnessSlices
 
 
@@ -48,11 +49,11 @@ def test_slices_mini_example_with_transformer_processing_multiple_columns(tmpdir
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
 
-def test_slices_mini_example_llm_rag(tmpdir):
+def test_slices_mini_example_side_info_llm_rag(tmpdir):
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
     """
-    test_code = get_llm_rag_mini_example_code()
+    test_code = get_llm_rag_mini_example_test_side_info_code()
 
     slices = FairnessSlices()
     analysis_result = PipelineAnalyzer \
