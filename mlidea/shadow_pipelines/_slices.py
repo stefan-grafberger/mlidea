@@ -190,7 +190,7 @@ class FairnessSlices(ShadowPipeline):
                                                                     slice_finder_result[1] is not None)
         conditional_corruption_made_changes_node = get_conditional_stop_node(
             singleton, problematic_slice_found_func, f"fairness-slices-slice-line-problematic-slice-found",
-            "Check if corrupt function made changes", new_slice_finder_node)
+            "Check if problematic slice was found", new_slice_finder_node)
         new_dag.add_edge(new_slice_finder_node, conditional_corruption_made_changes_node, arg_index=0)
 
         process_func = lambda slice_finder_result:slice_finder_result[1]
@@ -248,7 +248,7 @@ class FairnessSlices(ShadowPipeline):
             condition_corrupt_function = lambda np_array: len(np_array) != 0
             conditional_corruption_made_changes_node = get_conditional_stop_node(
                 singleton, condition_corrupt_function, f"fairness-slices-fixing-made-changes-{data_type_index}",
-                "Check if corrupt function made changes", new_corruption_diff_node)
+                "Check if fixing function made changes", new_corruption_diff_node)
             new_dag.add_edge(new_corruption_diff_node, conditional_corruption_made_changes_node, arg_index=1)
 
             new_corruption_diff_filter_node = DagNode(singleton.get_next_op_id(),
@@ -646,7 +646,7 @@ class FairnessSlices(ShadowPipeline):
         condition_corrupt_function = lambda np_array: len(np_array) != 0
         conditional_corruption_made_changes_node = get_conditional_stop_node(
             singleton, condition_corrupt_function, f"data-errors-corruption-made-changes-0",
-            "Check if problematic slice was found", new_corruption_diff_node)
+            "Check if corrupt function made changes", new_corruption_diff_node)
         new_dag.add_edge(new_corruption_diff_node, conditional_corruption_made_changes_node, arg_index=1)
 
         new_corruption_diff_filter_node = DagNode(singleton.get_next_op_id(),
@@ -667,7 +667,6 @@ class FairnessSlices(ShadowPipeline):
 
         # Evaluate with corrupted data
         # Operator to get the rag join results
-        # TODO: Actually implement the function used here
         new_rag_join_update_node = DagNode(singleton.get_next_op_id(),
                                            BasicCodeLocation("Data Errors", None),
                                            OperatorContext(OperatorType.RAG_JOIN, None),
@@ -720,20 +719,33 @@ class FairnessSlices(ShadowPipeline):
                              arg_index=score_index + self.score_operator_count)
         # End evaluate
 
-        fix_input_node = new_corruption_diff_filter_node
+        fix_input_node = new_corruption_node
 
         processing_func = partial(FairnessSlices.fix_data, data_type=data_type)
         new_fix_node = DagNode(singleton.get_next_op_id(),
                                BasicCodeLocation("Data Errors", None),
-                               OperatorContext(OperatorType.PROJECTION_MODIFY, None),
+                               OperatorContext(OperatorType.ESTIMATOR, None),
                                DagNodeDetails(
                                    f"Fix {self._corruption_fraction} of {data_type.value} values", None),
                                None,
                                processing_func)
         new_dag.add_edge(fix_input_node, new_fix_node, arg_index=0)
-        new_dag.add_edge(conditional_corruption_significant_node, new_fix_node, arg_index=1)
+        new_dag.add_edge(new_corruption_diff_node, new_fix_node, arg_index=1)
+        new_dag.add_edge(conditional_corruption_significant_node, new_fix_node, arg_index=2)
 
-        fix_node_to_extract = new_fix_node
+        new_fix_with_corruption_change_filter_node = DagNode(singleton.get_next_op_id(),
+                                                             BasicCodeLocation("Data Errors", None),
+                                                             OperatorContext(OperatorType.SELECTION, None),
+                                                             DagNodeDetails(
+                                                                 f"Filter for diff only",
+                                                                 None),
+                                                             None,
+                                                             FairnessSlices.apply_diff_filter)
+        new_dag.add_edge(new_fix_node, new_fix_with_corruption_change_filter_node, arg_index=0)
+        new_dag.add_edge(new_corruption_diff_node, new_fix_with_corruption_change_filter_node, arg_index=1)
+        new_dag.add_edge(conditional_corruption_made_changes_node, new_fix_with_corruption_change_filter_node,
+                         arg_index=2)
+        fix_node_to_extract = new_fix_with_corruption_change_filter_node
 
         extraction_node = get_intermediate_extraction_node(singleton, new_fix_node,
                                                            f"data-errors-corruption-diff-fix-0")
@@ -778,7 +790,6 @@ class FairnessSlices(ShadowPipeline):
 
         # Evaluate with fixed data
         # Operator to get the rag join results
-        # TODO: Actually implement the function used here
         new_rag_join_update_node = DagNode(singleton.get_next_op_id(),
                                            BasicCodeLocation("Data Errors", None),
                                            OperatorContext(OperatorType.RAG_JOIN, None),
@@ -791,20 +802,7 @@ class FairnessSlices(ShadowPipeline):
         test_predict = copy_node_with_new_id(singleton, predict_operators[0])
         new_dag.add_edge(new_rag_join_update_node, test_predict, arg_index=0)
 
-        new_indices_before_corruption_node = DagNode(singleton.get_next_op_id(),
-                                                     BasicCodeLocation("Data Errors", None),
-                                                     OperatorContext(OperatorType.SELECTION, None),
-                                                     DagNodeDetails(
-                                                         f"Compute indices relative to before corrupting and fixing",
-                                                         None),
-                                                     None,
-                                                     FairnessSlices.fix_data_diff_indices_before_corruption)
-        new_dag.add_edge(new_corruption_diff_node, new_indices_before_corruption_node, arg_index=0)
-        new_dag.add_edge(new_fix_diff_mask_node, new_indices_before_corruption_node, arg_index=1)
-        new_dag.add_edge(conditional_corruption_made_changes_node, new_indices_before_corruption_node,
-                         arg_index=2)
-
-        prediction_filter_index_node = new_indices_before_corruption_node
+        prediction_filter_index_node = new_fix_diff_indices_node
 
         new_fix_predict_diff_update_node = DagNode(singleton.get_next_op_id(),
                                                    BasicCodeLocation("Data Errors", None),
@@ -897,61 +895,8 @@ class FairnessSlices(ShadowPipeline):
                             extracted_plan_results[f"fairness-slice-fixing-{score_index}-{transformer_index}"])
                     report += (
                         f"After trying to automatically repair rows from this slice, "
-                        f"the pipeline metric was {corrupt_result}, indicating that we can improve the handling of these "
-                        f"rows. A sample of the corrupted rows: {str(corruption_diff_df_sample)}.\n")
-        # for transformer_index in range(self.transformer_inputs_to_check_count):
-        #     report += (f"Issue {transformer_index}\n-\n")
-        #     if extracted_plan_results[f"data-errors-corruption-made-changes-{transformer_index}"] is False:
-        #         report += "The corruption function did not make any changes."
-        #     else:
-        #         corruption_diff_df = extracted_plan_results[
-        #             f"data-errors-corruption-diff-{transformer_index}"]
-        #         if isinstance(corruption_diff_df, (pandas.DataFrame, pandas.Series)):
-        #             corruption_diff_df_sample = corruption_diff_df.head(20)
-        #         elif isinstance(corruption_diff_df, numpy.ndarray) and corruption_diff_df.ndim == 1:
-        #             corruption_diff_df_sample = corruption_diff_df[:20]
-        #         elif isinstance(corruption_diff_df, numpy.ndarray) and corruption_diff_df.ndim == 2:
-        #             corruption_diff_df_sample = corruption_diff_df[:20, :]
-        #         else:
-        #             raise NotImplementedError("TODO")
-        #         corrupt_result = []
-        #         for score_index in range(self.score_operator_count):
-        #             corrupt_result.append(
-        #                 extracted_plan_results[f"data-errors-corrupt-{score_index}-{transformer_index}"])
-        #         report += (
-        #             f"The original result was {orig_result}. After corrupting {self._corruption_fraction} of rows, "
-        #             f"the pipeline metric was {corrupt_result}, indicating robustness problems. A sample of the corrupted "
-        #             f"rows: {str(corruption_diff_df_sample)}. ")
-        #
-        #         if extracted_plan_results[f"data-errors-corruption-significant-{transformer_index}"] is True:
-        #             corruption_diff_fix_df = extracted_plan_results[
-        #                 f"data-errors-corruption-diff-fix-{transformer_index}"]
-        #             if isinstance(corruption_diff_fix_df, (pandas.DataFrame, pandas.Series)):
-        #                 corruption_diff_fix_df_sample = corruption_diff_fix_df.head(20)
-        #             elif (isinstance(corruption_diff_fix_df, numpy.ndarray) and
-        #                   corruption_diff_fix_df.ndim == 2):
-        #                 corruption_diff_fix_df_sample = corruption_diff_fix_df[:20, :]
-        #             elif (isinstance(corruption_diff_fix_df, numpy.ndarray) and
-        #                   corruption_diff_fix_df.ndim == 1):
-        #                 corruption_diff_fix_df_sample = corruption_diff_fix_df[:20]
-        #             else:
-        #                 raise NotImplementedError("TODO")
-        #             score_after_fixing = []
-        #             for score_index in range(self.score_operator_count):
-        #                 score_after_fixing.append(
-        #                     extracted_plan_results[f"data-errors-corrupt-fix-{score_index}-{transformer_index}"])
-        #         else:
-        #             report += (
-        #                 "Fortunately, corruption function was not able to significantly affect the performance beyond "
-        #                 "the configured acceptable threshold.")
-        #         if (extracted_plan_results[f"data-errors-corruption-significant-{transformer_index}"] is True and
-        #                 extracted_plan_results[
-        #                     f"data-errors-corruption-diff-fix-not-empty-{transformer_index}"] is True):
-        #             report += (f"After adding a fix method, the pipeline metric was "
-        #                        f"{score_after_fixing}. A sample of the fixed rows: {str(corruption_diff_fix_df_sample)}")
-        #         elif extracted_plan_results[f"data-errors-corruption-significant-{transformer_index}"] is True:
-        #             report += "Unfortunately, the fix method was not able to automatically address the corrupted rows."
-        #     report += "\n"
+                        f"the pipeline metric was {corrupt_result}. A sample of the corrupted "
+                        f"rows: {str(corruption_diff_df_sample)}.\n")
         return report
 
     @staticmethod
