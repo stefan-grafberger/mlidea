@@ -950,17 +950,16 @@ class FairnessSlices(ShadowPipeline):
             if is_dataframe:
                 one_hot_dirty = one_hot_encoder.transform(fixed_corrupted.iloc[only_fix_indices, :])
                 outlier_indicator = isolation_forest.predict(one_hot_dirty) == -1
-                fixed_corrupted[only_fix_indices[outlier_indicator], :] = numpy.nan
+                fixed_corrupted[only_fix_indices[outlier_indicator], :] = -1
             else:
                 one_hot_dirty = one_hot_encoder.transform(fixed_corrupted[only_fix_indices, :])
                 outlier_indicator = isolation_forest.predict(one_hot_dirty) == -1
-                fixed_corrupted[only_fix_indices[outlier_indicator], :] = numpy.nan
+                fixed_corrupted[only_fix_indices[outlier_indicator], :] = -1
 
             # Iterate over columns
             num_columns = fixed_corrupted.shape[1]
             for col in range(num_columns):
-                # Create the imputer for the current column, assuming missing values are '0'
-                imputer = SimpleImputer(strategy="most_frequent", copy=True)
+                imputer = SimpleImputer(strategy="most_frequent", copy=True, missing_values=-1)
 
                 if is_dataframe:
                     # For DataFrame, fit on the clean column and transform specified rows
