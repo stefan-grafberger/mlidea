@@ -27,8 +27,9 @@ from fairlearn.metrics import MetricFrame
 from jenga.corruptions.generic import MissingValues
 from jenga.corruptions.numerical import Scaling
 from jenga.corruptions.text import BrokenCharacters
+from sklearn.ensemble import IsolationForest
 from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, OneHotEncoder
 from sliceline import Slicefinder
 
 from mlidea.analysis._cleaning_methods import OutlierCleaner, detect_outlier_interquartile_range
@@ -928,13 +929,52 @@ class FairnessSlices(ShadowPipeline):
             elif was_numpy is True:
                 fixed_corrupted = fixed_corrupted["column"].to_numpy()
         elif data_type == DataType.CAT:
-            fixed_corrupted = input_df.reset_index(drop=True)
-            clean = fixed_corrupted.drop(only_fix_indices, axis=0)
-            for column in fixed_corrupted.columns:
-                imputer = SimpleImputer(strategy="most_frequent", copy=True, missing_values="0")
-                imputer.fit(clean[[column]])
-                fixed_corrupted.iloc[only_fix_indices, [column]] = imputer.transform(
-                    fixed_corrupted.iloc[only_fix_indices, [column]])
+            # maybe use IsolationForest and? imputer?
+
+            is_dataframe = isinstance(fixed_corrupted, pandas.DataFrame)
+            fixed_corrupted = input_df
+            if is_dataframe:
+                fixed_corrupted = fixed_corrupted.reset_index(drop=True)
+                clean = fixed_corrupted.drop(only_fix_indices, axis=0)
+            else:
+                # For NumPy array, create a mask and remove rows
+                mask = numpy.ones(fixed_corrupted.shape[0], dtype=bool)
+                mask[only_fix_indices] = False
+                clean = fixed_corrupted[mask]
+
+            one_hot_encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
+            one_hot_clean = one_hot_encoder.fit_transform(clean)
+            isolation_forest = IsolationForest(contamination='auto', random_state=42)
+            isolation_forest.fit(one_hot_clean)
+
+            if is_dataframe:
+                one_hot_dirty = one_hot_encoder.transform(fixed_corrupted.iloc[only_fix_indices, :])
+                outlier_indicator = isolation_forest.predict(one_hot_dirty) == -1
+                fixed_corrupted[only_fix_indices[outlier_indicator], :] = numpy.nan
+            else:
+                one_hot_dirty = one_hot_encoder.transform(fixed_corrupted[only_fix_indices, :])
+                outlier_indicator = isolation_forest.predict(one_hot_dirty) == -1
+                fixed_corrupted[only_fix_indices[outlier_indicator], :] = numpy.nan
+
+            # Iterate over columns
+            num_columns = fixed_corrupted.shape[1]
+            for col in range(num_columns):
+                # Create the imputer for the current column, assuming missing values are '0'
+                imputer = SimpleImputer(strategy="most_frequent", copy=True)
+
+                if is_dataframe:
+                    # For DataFrame, fit on the clean column and transform specified rows
+                    imputer.fit(clean[[fixed_corrupted.columns[col]]])
+
+                    fixed_corrupted.iloc[only_fix_indices, col] = imputer.transform(
+                        fixed_corrupted.iloc[only_fix_indices, [col]]
+                    ).ravel()
+                else:
+                    # For NumPy array, fit on the clean column and transform specified rows
+                    imputer.fit(clean[:, col].reshape(-1, 1))
+                    fixed_corrupted[only_fix_indices, col] = imputer.transform(
+                        fixed_corrupted[only_fix_indices, col].reshape(-1, 1)
+                    ).ravel()
 
         elif data_type == DataType.NUM:
             fixed_corrupted = input_df.reset_index(drop=True)
