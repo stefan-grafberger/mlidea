@@ -792,13 +792,6 @@ class DataErrorRobustness(ShadowPipeline):
         return changed_indices_corrupt
 
     @staticmethod
-    def fix_data_diff_indices_before_corruption(corrupted_diff_index, corrupt_fix_diff_mask):
-        if isinstance(corrupted_diff_index, (pandas.Series, pandas.DataFrame)):
-            corrupted_diff_index = corrupted_diff_index.reset_index(drop=True)
-        changed_indices_fix_corrupt = corrupted_diff_index[corrupt_fix_diff_mask]
-        return changed_indices_fix_corrupt
-
-    @staticmethod
     def rag_join_update(rag_join_result, inputs):
         vectorstore = rag_join_result[5]
         retrieval_index = rag_join_result[6]
@@ -817,22 +810,6 @@ class DataErrorRobustness(ShadowPipeline):
         new_rag_join_result = (rag_join_result[0], rag_join_result[1], new_rag_join_text_result, list(inputs),
                                None, rag_join_result[5], diff_retrieval_index, rag_join_result[7])
         return new_rag_join_result
-
-    @staticmethod
-    def add_new_score_and_score_extraction_nodes(new_dag, new_predict_node, score_operators,
-                                                 test_labels_operators):
-        for score_index, score_operator in enumerate(score_operators):
-            new_score_node = copy_node_with_new_id(singleton, score_operator)
-            new_dag.add_edge(new_predict_node, new_score_node, arg_index=0)
-            new_dag.add_edge(test_labels_operators[0], new_score_node, arg_index=1)
-            parents = get_sorted_parent_nodes(new_dag, score_operator)[2:]
-            for parent_index, parent in enumerate(parents):
-                # TODO: There might be shadow pipeline edge cases where this does not work without further work
-                new_dag.add_edge(parent, new_score_node, arg_index=parent_index + 2)
-
-            retrain_extraction_node = get_intermediate_extraction_node(singleton, new_score_node,
-                                                                       f"label-errors-flip-retrain-{score_index}")
-            new_dag.add_edge(new_score_node, retrain_extraction_node, arg_index=0)
 
     @staticmethod
     def condition_corruption_significant_function(corruption_significant_relative_threshold, *scores):
