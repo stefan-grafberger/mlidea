@@ -214,10 +214,7 @@ class DataErrorRobustness(ShadowPipeline):
             # End evaluate
 
             # This is important so the non-text-based fix functions can also see the clean data if necessary
-            if data_type == DataType.TEXT:
-                fix_input_node = new_corruption_diff_filter_node
-            else:
-                fix_input_node = new_corruption_node
+            fix_input_node = new_corruption_node
 
             processing_func = partial(DataErrorRobustness.fix_data, data_type=data_type)
             new_fix_node = DagNode(singleton.get_next_op_id(),
@@ -229,29 +226,22 @@ class DataErrorRobustness(ShadowPipeline):
                                    processing_func)
             new_dag.add_edge(fix_input_node, new_fix_node, arg_index=0)
 
-            if data_type != DataType.TEXT:
-                new_dag.add_edge(new_corruption_diff_node, new_fix_node, arg_index=1)
-                new_dag.add_edge(conditional_corruption_significant_node, new_fix_node, arg_index=2)
-            else:
-                new_dag.add_edge(conditional_corruption_significant_node, new_fix_node, arg_index=1)
+            new_dag.add_edge(new_corruption_diff_node, new_fix_node, arg_index=1)
+            new_dag.add_edge(conditional_corruption_significant_node, new_fix_node, arg_index=2)
 
-            # This is important so the non-text-based fix functions can also see the clean data if necessary
-            if data_type == DataType.TEXT:
-                fix_node_to_extract = new_fix_node
-            else:
-                new_fix_with_corruption_change_filter_node = DagNode(singleton.get_next_op_id(),
-                                                                     BasicCodeLocation("Data Errors", None),
-                                                                     OperatorContext(OperatorType.SELECTION, None),
-                                                                     DagNodeDetails(
-                                                                         f"Filter for diff only",
-                                                                         None),
-                                                                     None,
-                                                                     DataErrorRobustness.apply_diff_filter)
-                new_dag.add_edge(new_fix_node, new_fix_with_corruption_change_filter_node, arg_index=0)
-                new_dag.add_edge(new_corruption_diff_node, new_fix_with_corruption_change_filter_node, arg_index=1)
-                new_dag.add_edge(conditional_corruption_made_changes_node, new_fix_with_corruption_change_filter_node,
-                                 arg_index=2)
-                fix_node_to_extract = new_fix_with_corruption_change_filter_node
+            new_fix_with_corruption_change_filter_node = DagNode(singleton.get_next_op_id(),
+                                                                 BasicCodeLocation("Data Errors", None),
+                                                                 OperatorContext(OperatorType.SELECTION, None),
+                                                                 DagNodeDetails(
+                                                                     f"Filter for diff only",
+                                                                     None),
+                                                                 None,
+                                                                 DataErrorRobustness.apply_diff_filter)
+            new_dag.add_edge(new_fix_node, new_fix_with_corruption_change_filter_node, arg_index=0)
+            new_dag.add_edge(new_corruption_diff_node, new_fix_with_corruption_change_filter_node, arg_index=1)
+            new_dag.add_edge(conditional_corruption_made_changes_node, new_fix_with_corruption_change_filter_node,
+                             arg_index=2)
+            fix_node_to_extract = new_fix_with_corruption_change_filter_node
             extraction_node = get_intermediate_extraction_node(singleton, new_fix_node,
                                                                f"data-errors-corruption-diff-fix-{data_type_index}")
             new_dag.add_edge(fix_node_to_extract, extraction_node, arg_index=0)
@@ -324,23 +314,7 @@ class DataErrorRobustness(ShadowPipeline):
             test_predict = [node for node in new_nodes
                             if node.operator_info.operator == OperatorType.PREDICT][0]
 
-            if data_type == DataType.TEXT:
-                new_indices_before_corruption_node = DagNode(singleton.get_next_op_id(),
-                                                             BasicCodeLocation("Data Errors", None),
-                                                             OperatorContext(OperatorType.SELECTION, None),
-                                                             DagNodeDetails(
-                                                                 f"Compute indices relative to before corrupting and fixing",
-                                                                 None),
-                                                             None,
-                                                             DataErrorRobustness.fix_data_diff_indices_before_corruption)
-                new_dag.add_edge(new_corruption_diff_node, new_indices_before_corruption_node, arg_index=0)
-                new_dag.add_edge(new_fix_diff_mask_node, new_indices_before_corruption_node, arg_index=1)
-                new_dag.add_edge(conditional_corruption_made_changes_node, new_indices_before_corruption_node,
-                                 arg_index=2)
-
-                prediction_filter_index_node = new_indices_before_corruption_node
-            else:
-                prediction_filter_index_node = new_fix_diff_indices_node
+            prediction_filter_index_node = new_fix_diff_indices_node
 
             new_fix_predict_diff_update_node = DagNode(singleton.get_next_op_id(),
                                                        BasicCodeLocation("Data Errors", None),
@@ -437,7 +411,6 @@ class DataErrorRobustness(ShadowPipeline):
 
         # Evaluate with corrupted data
         # Operator to get the rag join results
-        # TODO: Actually implement the function used here
         new_rag_join_update_node = DagNode(singleton.get_next_op_id(),
                                            BasicCodeLocation("Data Errors", None),
                                            OperatorContext(OperatorType.RAG_JOIN, None),
@@ -548,7 +521,6 @@ class DataErrorRobustness(ShadowPipeline):
 
         # Evaluate with fixed data
         # Operator to get the rag join results
-        # TODO: Actually implement the function used here
         new_rag_join_update_node = DagNode(singleton.get_next_op_id(),
                                            BasicCodeLocation("Data Errors", None),
                                            OperatorContext(OperatorType.RAG_JOIN, None),
@@ -749,10 +721,11 @@ class DataErrorRobustness(ShadowPipeline):
             elif isinstance(fixed_corrupted, numpy.ndarray):
                 fixed_corrupted = pandas.DataFrame({"column": fixed_corrupted})
                 was_numpy = True
-            for column in fixed_corrupted.columns:
+            for column_index, column in enumerate(fixed_corrupted.columns):
                 if fixed_corrupted[column].dtype == object:
                     typo_fixer = get_typo_fixer(column)
-                    fixed_corrupted = typo_fixer.fit_transform(fixed_corrupted)
+                    fixed_corrupted.iloc[only_fix_indices, [column_index]] = typo_fixer.fit_transform(
+                        fixed_corrupted.iloc[only_fix_indices, [column_index]])
             if was_series is True:
                 fixed_corrupted = fixed_corrupted[column]
             elif was_numpy is True:
