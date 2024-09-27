@@ -110,7 +110,7 @@ def test_slices_anhedonia_llm(tmpdir):
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
     """
-    slices = FairnessSlices(database_path=DATABASE_PATH_FUNC_TRANSFORMER)
+    slices = FairnessSlices(database_path=DATABASE_PATH_FUNC_TRANSFORMER, slice_finder_alpha=1.)
     analysis_result = PipelineAnalyzer \
         .on_pipeline_from_py_file(ANHEDONIA_LLM_PY) \
         .add_shadow_pipeline(slices) \

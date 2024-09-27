@@ -54,14 +54,16 @@ class FairnessSlices(ShadowPipeline):
     def check_rebuilding_necessary(self, extracted_plan_results: dict[str, any]) -> any:
         return False
 
-    def __init__(self, additional_column_names=None, database_path=".function_transformer_cache.db"):
+    def __init__(self, additional_column_names=None, database_path=".function_transformer_cache.db",
+                 slice_finder_alpha=0.95):
         if additional_column_names is None:
             additional_column_names = []
         self._additional_column_names = additional_column_names
-        self._shadow_pipeline_id = (tuple(additional_column_names), database_path)
+        self._shadow_pipeline_id = (tuple(additional_column_names), database_path, slice_finder_alpha)
         self.score_operator_count = 0
         self.sensitive_column_count = 0
         self.database_path = database_path
+        self.slice_finder_alpha = slice_finder_alpha
 
     @property
     def shadow_pipeline_id(self):
@@ -173,13 +175,15 @@ class FairnessSlices(ShadowPipeline):
 
         # TODO: The prov join version where all need a projection and join before connecting it to the concat
 
+        slice_finder_process_func = partial(FairnessSlices.get_slice_finder_slice_and_indices,
+                                            alpha=self.slice_finder_alpha)
         new_slice_finder_node = DagNode(singleton.get_next_op_id(),
                                         BasicCodeLocation("Fairness Slices", None),
                                         OperatorContext(OperatorType.GROUP_BY_AGG, None),
                                         DagNodeDetails(
                                             f"Run Slice Finder", None),
                                         None,
-                                        FairnessSlices.get_slice_finder_slice_and_indices)
+                                        slice_finder_process_func)
         new_dag.add_edge(concat_node, new_slice_finder_node, arg_index=0)
         new_dag.add_edge(test_labels_operators[0], new_slice_finder_node, arg_index=1)
         new_dag.add_edge(predict_operators[0], new_slice_finder_node, arg_index=2)
@@ -409,15 +413,15 @@ class FairnessSlices(ShadowPipeline):
 
             new_dag.add_edge(join_node, concat_node, arg_index=0)
 
-        # TODO: The prov join version where all need a projection and join before connecting it to the concat
-
+        slice_finder_process_func = partial(FairnessSlices.get_slice_finder_slice_and_indices,
+                                            alpha=self.slice_finder_alpha)
         new_slice_finder_node = DagNode(singleton.get_next_op_id(),
                                         BasicCodeLocation("Fairness Slices", None),
                                         OperatorContext(OperatorType.GROUP_BY_AGG, None),
                                         DagNodeDetails(
                                             f"Run Slice Finder", None),
                                         None,
-                                        FairnessSlices.get_slice_finder_slice_and_indices)
+                                        slice_finder_process_func)
         new_dag.add_edge(concat_node, new_slice_finder_node, arg_index=0)
         new_dag.add_edge(test_labels_operators[0], new_slice_finder_node, arg_index=1)
         new_dag.add_edge(predict_operators[0], new_slice_finder_node, arg_index=2)
@@ -593,7 +597,7 @@ class FairnessSlices(ShadowPipeline):
             report += "No problematic slice could be found by the slice finder."
         else:
             slice_line_result = extracted_plan_results["fairness-slices-slice-line-result"]
-            report += f"The problematic slice that was found is {slice_line_result[0]}."
+            report += f"The problematic slice that was found is {slice_line_result[0]}.\n"
 
             for transformer_index in range(self.transformer_inputs_to_check_count):
                 report += (f"Repair strategy {transformer_index}\n-\n")
@@ -936,10 +940,10 @@ class FairnessSlices(ShadowPipeline):
         return scores_different_enough
 
     @staticmethod
-    def get_slice_finder_slice_and_indices(side_info_df, encoded_test_labels, predicted_test_labels):
+    def get_slice_finder_slice_and_indices(side_info_df, encoded_test_labels, predicted_test_labels, alpha):
         # TODO: In the documentation, it is only used on train and with known float loss
         sf = Slicefinder(
-            alpha=0.95,
+            alpha=alpha,
             k=1,
             max_l=2,
             min_sup=1,
@@ -953,15 +957,8 @@ class FairnessSlices(ShadowPipeline):
         side_info_df = side_info_df.fillna("nan")
         sf_result = sf.fit(side_info_df, (encoded_test_labels.reshape(-1, ) != predicted_test_labels.reshape(-1, )))
         if len(sf_result.top_slices_) == 0:
-            # FIXME: Remove this outside of testing or construct a proper test case
-            # Make sure that our experiment consistently hits the case where something needs to be translated
-            columns = list(side_info_df.columns)
-            if len(columns) == 2 and columns[0] == "lang" and columns[1] == "country":
-                top_slice = ("bengali", None)
-            else:
-                return None, None
-        else:
-            top_slice = sf_result.top_slices_[0]
+            return None, None
+        top_slice = sf_result.top_slices_[0]
 
         test_mask = numpy.ones(shape=(len(side_info_df)), dtype=bool)
         for column_index, column_value in enumerate(top_slice):
