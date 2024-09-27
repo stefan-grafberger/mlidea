@@ -344,7 +344,7 @@ def get_transformer_operators_to_test(dag):
     return data_parent_and_data_type
 
 
-def get_translate_transformer(column):
+def get_translate_transformer(column, database_path):
     translator = GoogleTranslator(source='auto', target='en')
 
     # translator = MyMemoryTranslator(source='auto', target='en-US')
@@ -364,7 +364,6 @@ def get_translate_transformer(column):
     translate_transformer = FunctionTransformer(translate)
     # TODO: What to do with this? Where to store this savefile?
     translate_transformer = CachedTextTransformer(translate_transformer,
-                                                  database_path=f"{str(get_project_root())}/test/offline"
-                                                                f"/.function_transformer_cache.db")
+                                                  database_path=database_path)
     return translate_transformer
 

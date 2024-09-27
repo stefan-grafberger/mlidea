@@ -6,6 +6,10 @@ from mlidea import PipelineAnalyzer
 from mlidea.testing._testing_helper_utils import visualize_dags_shadow_pipelines, get_llm_rag_mini_example_code, \
     get_llm_rag_mini_example_test_side_info_code
 from shadow_pipelines._slices import FairnessSlices
+from utils import get_project_root
+
+
+DATABASE_PATH_FUNC_TRANSFORMER = f"{str(get_project_root())}/test/offline/.function_transformer_cache.db"
 
 
 def test_slices_mini_example_with_transformer_processing_multiple_columns(tmpdir):
@@ -36,7 +40,7 @@ def test_slices_mini_example_with_transformer_processing_multiple_columns(tmpdir
         assert test_score == 1.0
         """)
 
-    slices = FairnessSlices()
+    slices = FairnessSlices(database_path=DATABASE_PATH_FUNC_TRANSFORMER)
     analysis_result = PipelineAnalyzer \
         .on_pipeline_from_string(test_code) \
         .add_shadow_pipeline(slices) \
@@ -55,7 +59,7 @@ def test_slices_mini_example_side_info_llm_rag(tmpdir):
     """
     test_code = get_llm_rag_mini_example_test_side_info_code()
 
-    slices = FairnessSlices()
+    slices = FairnessSlices(database_path=DATABASE_PATH_FUNC_TRANSFORMER)
     analysis_result = PipelineAnalyzer \
         .on_pipeline_from_string(test_code) \
         .add_shadow_pipeline(slices) \
@@ -72,7 +76,7 @@ def test_slices_compas(tmpdir):
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
     """
-    slices = FairnessSlices()
+    slices = FairnessSlices(database_path=DATABASE_PATH_FUNC_TRANSFORMER)
     analysis_result = PipelineAnalyzer \
         .on_pipeline_from_py_file(COMPAS_PY) \
         .add_shadow_pipeline(slices) \
@@ -89,7 +93,7 @@ def test_slices_anhedonia_ml(tmpdir):
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
     """
-    slices = FairnessSlices()
+    slices = FairnessSlices(database_path=DATABASE_PATH_FUNC_TRANSFORMER)
     analysis_result = PipelineAnalyzer \
         .on_pipeline_from_py_file(ANHEDONIA_ML_PY) \
         .add_shadow_pipeline(slices) \
@@ -106,7 +110,7 @@ def test_slices_anhedonia_llm(tmpdir):
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
     """
-    slices = FairnessSlices()
+    slices = FairnessSlices(database_path=DATABASE_PATH_FUNC_TRANSFORMER)
     analysis_result = PipelineAnalyzer \
         .on_pipeline_from_py_file(ANHEDONIA_LLM_PY) \
         .add_shadow_pipeline(slices) \
@@ -123,7 +127,7 @@ def test_slices_adult_complex(tmpdir):
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
     """
-    slices = FairnessSlices()
+    slices = FairnessSlices(database_path=DATABASE_PATH_FUNC_TRANSFORMER)
     analysis_result = PipelineAnalyzer \
         .on_pipeline_from_py_file(ADULT_COMPLEX_PY) \
         .add_shadow_pipeline(slices) \
@@ -140,7 +144,7 @@ def test_slices_healthcare(tmpdir):
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
     """
-    slices = FairnessSlices()
+    slices = FairnessSlices(database_path=DATABASE_PATH_FUNC_TRANSFORMER)
     analysis_result = PipelineAnalyzer \
         .on_pipeline_from_py_file(HEALTHCARE_PY) \
         .add_custom_monkey_patching_module(custom_monkeypatching) \

@@ -79,8 +79,8 @@ class CachedTextTransformer(BaseEstimator, TransformerMixin):
 
         translation_end = time.time()
         additional_sleep = max(realistic_wait_time_calculation - (translation_end - translation_start) / 1000,  0)
-        print(f"Sleeping an additional {additional_sleep}s to simulate real API call when cache was hit "
-              f"({realistic_wait_time_calculation} - {(translation_end - translation_start) / 1000})!")
+        # print(f"Sleeping an additional {additional_sleep}s to simulate real API call when cache was hit "
+        #       f"({realistic_wait_time_calculation} - {(translation_end - translation_start) / 1000})!")
         time.sleep(additional_sleep)
         return X
 

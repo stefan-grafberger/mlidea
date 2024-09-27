@@ -54,13 +54,14 @@ class FairnessSlices(ShadowPipeline):
     def check_rebuilding_necessary(self, extracted_plan_results: dict[str, any]) -> any:
         return False
 
-    def __init__(self, additional_column_names=None):
+    def __init__(self, additional_column_names=None, database_path=".function_transformer_cache.db"):
         if additional_column_names is None:
             additional_column_names = []
         self._additional_column_names = additional_column_names
-        self._shadow_pipeline_id = (tuple(additional_column_names),)
+        self._shadow_pipeline_id = (tuple(additional_column_names), database_path)
         self.score_operator_count = 0
         self.sensitive_column_count = 0
+        self.database_path = database_path
 
     @property
     def shadow_pipeline_id(self):
@@ -208,7 +209,7 @@ class FairnessSlices(ShadowPipeline):
         self.transformer_inputs_to_check_count = len(data_parent_transformer_and_data_type)
 
         for data_type_index, (data_parent, transformer, data_type) in enumerate(data_parent_transformer_and_data_type):
-            processing_func = partial(FairnessSlices.fix_data, data_type=data_type)
+            processing_func = partial(FairnessSlices.fix_data, data_type=data_type, database_path=self.database_path)
             new_fix_node = DagNode(singleton.get_next_op_id(),
                                    BasicCodeLocation("Data Errors", None),
                                    OperatorContext(OperatorType.ESTIMATOR, None),
@@ -447,7 +448,7 @@ class FairnessSlices(ShadowPipeline):
         data_parent = test_data_operators[0]
         data_type = DataType.TEXT
 
-        processing_func = partial(FairnessSlices.fix_data, data_type=data_type)
+        processing_func = partial(FairnessSlices.fix_data, data_type=data_type, database_path=self.database_path)
         new_fix_node = DagNode(singleton.get_next_op_id(),
                                BasicCodeLocation("Data Errors", None),
                                OperatorContext(OperatorType.ESTIMATOR, None),
@@ -702,7 +703,7 @@ class FairnessSlices(ShadowPipeline):
         return updated_predictions
 
     @staticmethod
-    def fix_data(input_df, only_fix_indices=None, data_type=None):
+    def fix_data(input_df, only_fix_indices=None, data_type=None, database_path=None):
         # For now, this function is the same as in data_errors. Might want to consider different things here
         #  at some point
         fixed_corrupted = input_df.copy()
@@ -719,7 +720,7 @@ class FairnessSlices(ShadowPipeline):
                 if fixed_corrupted[column].dtype == object:
                     # typo_fixer = get_typo_fixer(column)
                     # translate_transformer = get_translate_transformer()
-                    typo_fixer = get_translate_transformer(column)
+                    typo_fixer = get_translate_transformer(column, database_path)
                     fixed_corrupted.iloc[only_fix_indices, [column_index]] = typo_fixer.fit_transform(
                         fixed_corrupted.iloc[only_fix_indices, [column_index]])
             if was_series is True:
