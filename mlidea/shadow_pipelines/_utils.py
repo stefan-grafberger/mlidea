@@ -5,11 +5,15 @@ from functools import partial
 import duckdb
 import networkx
 import numpy
+import pandas
 from autocorrect import Speller
+from deep_translator import GoogleTranslator
 from sklearn.preprocessing import FunctionTransformer
 
 from mlidea.instrumentation._operator_types import ConditionalResult
 from mlidea import DagNode, OperatorContext, OperatorType, DagNodeDetails
+from shadow_pipelines.cached_text_transformer import CachedTextTransformer
+from utils import get_project_root
 
 
 def get_intermediate_extraction_node(singleton, dag_node, label: str):
@@ -338,3 +342,29 @@ def get_transformer_operators_to_test(dag):
                 function_transformer.details.optimizer_info.shape[1] >= 100):
             data_parent_and_data_type.append((data_parent, transformer, DataType.TEXT))
     return data_parent_and_data_type
+
+
+def get_translate_transformer(column):
+    translator = GoogleTranslator(source='auto', target='en')
+
+    # translator = MyMemoryTranslator(source='auto', target='en-US')
+    # Could also use HuggingFace, but then it would be even slower probably
+    # https://github.com/huggingface/notebooks/blob/main/examples/translation.ipynb
+    def translate(df, bound_column):
+        # df['tweet'] = df['tweet'].map(lambda txt: translator.translate(txt))
+        if isinstance(df, pandas.DataFrame):
+            df[bound_column] = translator.translate_batch(df[bound_column].to_list())
+        else:
+            df = translator.translate_batch(df)
+        # TODO: Is this fast enough?
+        return df
+
+    translate = partial(translate, bound_column=column)
+    warnings.filterwarnings('ignore')
+    translate_transformer = FunctionTransformer(translate)
+    # TODO: What to do with this? Where to store this savefile?
+    translate_transformer = CachedTextTransformer(translate_transformer,
+                                                  database_path=f"{str(get_project_root())}/test/offline"
+                                                                f"/.function_transformer_cache.db")
+    return translate_transformer
+

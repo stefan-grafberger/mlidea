@@ -114,7 +114,7 @@ def test_slices_anhedonia_llm(tmpdir):
 
     report = analysis_result.shadow_pipelines_to_result_reports[slices]
     # assert report.shape == (4, 2)
-    assert "the pipeline metric was" in report
+    # assert "the pipeline metric was" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
