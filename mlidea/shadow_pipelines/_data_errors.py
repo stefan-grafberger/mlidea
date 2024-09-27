@@ -622,6 +622,7 @@ class DataErrorRobustness(ShadowPipeline):
                 elif extracted_plan_results[f"data-errors-corruption-significant-{transformer_index}"] is True:
                     report += "Unfortunately, the fix method was not able to automatically address the corrupted rows."
             report += "\n"
+        # TODO: Add a final sentence with an action recommendation
         return report
 
     @staticmethod

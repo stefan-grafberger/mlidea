@@ -226,6 +226,7 @@ class LabelErrors(ShadowPipeline):
             report += " (with the proxy model)"
         report += (f". The shapley values of the "
                    f"most likely mislabeled rows: {str(shapley_values)}.")
+        # TODO: Add a final sentence with an action recommendation
         return report
 
     @staticmethod

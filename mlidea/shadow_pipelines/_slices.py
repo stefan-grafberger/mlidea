@@ -637,6 +637,7 @@ class FairnessSlices(ShadowPipeline):
                         f"the pipeline metric was {fix_result}. A sample of the modified "
                         f"rows:\n{str(fix_diff_df_sample)}.\n\n"
                         f"Before, these rows had the following values:\n{str(unmodified_diff_sample)}.\n")
+        # TODO: Add a final sentence with an action recommendation
         return report
 
     @staticmethod
