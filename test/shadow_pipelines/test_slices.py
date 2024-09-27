@@ -48,7 +48,48 @@ def test_slices_mini_example_with_transformer_processing_multiple_columns(tmpdir
 
     report = analysis_result.shadow_pipelines_to_result_reports[slices]
     # assert report.shape == (4, 2)
-    assert "the pipeline metric was" in report
+    assert "No problematic slice could be found" in report
+
+    visualize_dags_shadow_pipelines(analysis_result, tmpdir)
+
+
+def test_slices_mini_example_with_transformer_processing_multiple_columns_no_sensitive_column(tmpdir):
+    """
+    Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
+    """
+    test_code = cleandoc("""
+        import pandas as pd
+        from sklearn.preprocessing import label_binarize, StandardScaler
+        from sklearn.tree import DecisionTreeClassifier
+        import numpy as np
+
+        df = pd.DataFrame({'A': [0, 0, 0, 0], 'B': [0, 1, 3, 4], 'race': ['cat_a', 'cat_a', 'cat_a', 'cat_b'], 
+                           'target': ['no', 'no', 'yes', 'yes']})
+
+        standard_scaler = StandardScaler()
+        train = standard_scaler.fit_transform(df[['A', 'B']])
+        target = label_binarize(df['target'], classes=['no', 'yes'])
+
+        clf = DecisionTreeClassifier()
+        clf = clf.fit(train, target)
+
+        test_df = pd.DataFrame({'A': [0, 0, 0, 0], 'B':  [4, 3, 4, 3], 
+            'target': ['yes', 'yes', 'yes', 'yes']})
+        test_data = standard_scaler.transform(test_df[['A', 'B']])
+        test_labels = label_binarize(test_df['target'], classes=['no', 'yes'])
+        test_score = clf.score(test_data, test_labels)
+        assert test_score == 1.0
+        """)
+
+    slices = FairnessSlices(database_path=DATABASE_PATH_FUNC_TRANSFORMER)
+    analysis_result = PipelineAnalyzer \
+        .on_pipeline_from_string(test_code) \
+        .add_shadow_pipeline(slices) \
+        .execute()
+
+    report = analysis_result.shadow_pipelines_to_result_reports[slices]
+    # assert report.shape == (4, 2)
+    assert "no sensitive column could be found" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -67,7 +108,7 @@ def test_slices_mini_example_side_info_llm_rag(tmpdir):
 
     report = analysis_result.shadow_pipelines_to_result_reports[slices]
     # assert report.shape == (4, 2)
-    assert "the pipeline metric was" in report
+    assert "No problematic slice could be found" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
