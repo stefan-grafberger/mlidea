@@ -219,7 +219,7 @@ class DataErrorRobustness(ShadowPipeline):
             processing_func = partial(DataErrorRobustness.fix_data, data_type=data_type)
             new_fix_node = DagNode(singleton.get_next_op_id(),
                                    BasicCodeLocation("Data Errors", None),
-                                   OperatorContext(OperatorType.PROJECTION_MODIFY, None),
+                                   OperatorContext(OperatorType.ESTIMATOR, None),
                                    DagNodeDetails(
                                        f"Fix {self._corruption_fraction} of {data_type.value} values", None),
                                    None,
@@ -463,20 +463,33 @@ class DataErrorRobustness(ShadowPipeline):
                              arg_index=score_index + self.score_operator_count)
         # End evaluate
 
-        fix_input_node = new_corruption_diff_filter_node
+        fix_input_node = new_corruption_node
 
         processing_func = partial(DataErrorRobustness.fix_data, data_type=data_type)
         new_fix_node = DagNode(singleton.get_next_op_id(),
                                BasicCodeLocation("Data Errors", None),
-                               OperatorContext(OperatorType.PROJECTION_MODIFY, None),
+                               OperatorContext(OperatorType.ESTIMATOR, None),
                                DagNodeDetails(
                                    f"Fix {self._corruption_fraction} of {data_type.value} values", None),
                                None,
                                processing_func)
         new_dag.add_edge(fix_input_node, new_fix_node, arg_index=0)
-        new_dag.add_edge(conditional_corruption_significant_node, new_fix_node, arg_index=1)
+        new_dag.add_edge(new_corruption_diff_node, new_fix_node, arg_index=1)
+        new_dag.add_edge(conditional_corruption_significant_node, new_fix_node, arg_index=2)
 
-        fix_node_to_extract = new_fix_node
+        new_fix_with_corruption_change_filter_node = DagNode(singleton.get_next_op_id(),
+                                                             BasicCodeLocation("Data Errors", None),
+                                                             OperatorContext(OperatorType.SELECTION, None),
+                                                             DagNodeDetails(
+                                                                 f"Filter for diff only",
+                                                                 None),
+                                                             None,
+                                                             DataErrorRobustness.apply_diff_filter)
+        new_dag.add_edge(new_fix_node, new_fix_with_corruption_change_filter_node, arg_index=0)
+        new_dag.add_edge(new_corruption_diff_node, new_fix_with_corruption_change_filter_node, arg_index=1)
+        new_dag.add_edge(conditional_corruption_made_changes_node, new_fix_with_corruption_change_filter_node,
+                         arg_index=2)
+        fix_node_to_extract = new_fix_with_corruption_change_filter_node
 
         extraction_node = get_intermediate_extraction_node(singleton, new_fix_node,
                                                            f"data-errors-corruption-diff-fix-0")
@@ -533,20 +546,7 @@ class DataErrorRobustness(ShadowPipeline):
         test_predict = copy_node_with_new_id(singleton, predict_operators[0])
         new_dag.add_edge(new_rag_join_update_node, test_predict, arg_index=0)
 
-        new_indices_before_corruption_node = DagNode(singleton.get_next_op_id(),
-                                                     BasicCodeLocation("Data Errors", None),
-                                                     OperatorContext(OperatorType.SELECTION, None),
-                                                     DagNodeDetails(
-                                                         f"Compute indices relative to before corrupting and fixing",
-                                                         None),
-                                                     None,
-                                                     DataErrorRobustness.fix_data_diff_indices_before_corruption)
-        new_dag.add_edge(new_corruption_diff_node, new_indices_before_corruption_node, arg_index=0)
-        new_dag.add_edge(new_fix_diff_mask_node, new_indices_before_corruption_node, arg_index=1)
-        new_dag.add_edge(conditional_corruption_made_changes_node, new_indices_before_corruption_node,
-                         arg_index=2)
-
-        prediction_filter_index_node = new_indices_before_corruption_node
+        prediction_filter_index_node = new_fix_diff_indices_node
 
         new_fix_predict_diff_update_node = DagNode(singleton.get_next_op_id(),
                                                    BasicCodeLocation("Data Errors", None),
@@ -718,7 +718,7 @@ class DataErrorRobustness(ShadowPipeline):
             if isinstance(fixed_corrupted, pandas.Series):
                 fixed_corrupted = pandas.DataFrame(fixed_corrupted)
                 was_series = True
-            elif isinstance(fixed_corrupted, numpy.ndarray):
+            elif isinstance(fixed_corrupted, (numpy.ndarray, list)):
                 fixed_corrupted = pandas.DataFrame({"column": fixed_corrupted})
                 was_numpy = True
             for column_index, column in enumerate(fixed_corrupted.columns):
@@ -788,8 +788,12 @@ class DataErrorRobustness(ShadowPipeline):
     def fix_data_diff_detection_mask_only(input_df, corrupted_result):
         if isinstance(input_df, (pandas.Series, pandas.DataFrame)):
             input_df = input_df.reset_index(drop=True)
+        elif isinstance(input_df, list):
+            input_df = numpy.array(input_df)
         if isinstance(corrupted_result, (pandas.Series, pandas.DataFrame)):
             corrupted_result = corrupted_result.reset_index(drop=True)
+        elif isinstance(corrupted_result, list):
+            corrupted_result = numpy.array(corrupted_result)
         if isinstance(input_df, pandas.Series):
             corrupt_diff_mask = (corrupted_result != input_df).to_numpy()
         elif len(input_df.shape) == 2:

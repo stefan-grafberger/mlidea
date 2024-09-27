@@ -226,7 +226,7 @@ class FairnessSlices(ShadowPipeline):
             processing_func = partial(FairnessSlices.fix_data, data_type=data_type)
             new_fix_node = DagNode(singleton.get_next_op_id(),
                                    BasicCodeLocation("Data Errors", None),
-                                   OperatorContext(OperatorType.PROJECTION_MODIFY, None),
+                                   OperatorContext(OperatorType.ESTIMATOR, None),
                                    DagNodeDetails(
                                        "Trying to fix unfair slice data errors", None),
                                    None,
@@ -920,10 +920,11 @@ class FairnessSlices(ShadowPipeline):
             elif isinstance(fixed_corrupted, numpy.ndarray):
                 fixed_corrupted = pandas.DataFrame({"column": fixed_corrupted})
                 was_numpy = True
-            for column in fixed_corrupted.columns:
+            for column_index, column in enumerate(fixed_corrupted.columns):
                 if fixed_corrupted[column].dtype == object:
                     typo_fixer = get_typo_fixer(column)
-                    fixed_corrupted = typo_fixer.fit_transform(fixed_corrupted)
+                    fixed_corrupted.iloc[only_fix_indices, [column_index]] = typo_fixer.fit_transform(
+                        fixed_corrupted.iloc[only_fix_indices, [column_index]])
             if was_series is True:
                 fixed_corrupted = fixed_corrupted[column]
             elif was_numpy is True:
