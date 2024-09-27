@@ -1,19 +1,3 @@
-# 3. robustness:
-# we can just run a corruption udf on everything that changes a small part of the data, then we run a diff
-# detection and use it to create a mask. only on the changed ones do we need to try a correction. this needs to
-# be modeled in the DAG, since we don't want to run the correction on all data in this first step.
-# however, not perfectly accurate results
-#
-# also, the provenance part should be possible to turn off for performance comparisons. in general, we do need
-# provenance, but with enough simplyfying assumptions about the order not changing and all data being available
-# until right before the featurisation, we can get away without. maybe I wasted a day today... or we still build
-# it to have better explanations?
-# 1. Mislabel: in mlwhatif, two approaches, shapley and cleanlab. for mlidea workshop paper we only used shapley.
-# in general, for LLM+RAG, we need the embeddings, that we don't have specifically in the DAG right now.
-# Do we need to update the DAG? Or use some hack like letting the RAG join output the embeddings next to the text?
-# but might have a big of added performance overhead. then, conditional operator depending on how many mislabels
-# found. but maybe not that problematic here. but maybe for this we do want to use the provenance since the labeling
-# might not be the final step in the data preprocessing and there might be filte
 from functools import partial
 
 import networkx
