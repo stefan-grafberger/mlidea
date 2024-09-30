@@ -177,6 +177,21 @@ class LabelErrors(ShadowPipeline):
         extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node, "label-errors-shapley-values")
         new_dag.add_edge(new_shapley_node, extraction_node, arg_index=0)
 
+        # TODO: Condition if shapley values are really negative
+
+        new_label_flip_indices_node = DagNode(singleton.get_next_op_id(),
+                                              BasicCodeLocation("Label Errors", None),
+                                              OperatorContext(OperatorType.PROJECTION, None),
+                                              DagNodeDetails(
+                                                  f"Flip {self._cleaning_batch_size} most likely incorrect labels",
+                                                  None),
+                                              None,
+                                              LabelErrors.get_rows_to_flip_llm)
+        new_dag.add_edge(rag_join_operators[0], new_label_flip_indices_node, arg_index=0)
+        new_dag.add_edge(train_labels_operators[0], new_label_flip_indices_node, arg_index=1)
+        new_dag.add_edge(new_shapley_node, new_label_flip_indices_node, arg_index=2)
+        new_dag.add_edge(test_data_operators[0], new_label_flip_indices_node, arg_index=3)
+
         new_label_flip_node = DagNode(singleton.get_next_op_id(),
                                       BasicCodeLocation("Label Errors", None),
                                       OperatorContext(OperatorType.PROJECTION, None),
@@ -186,8 +201,9 @@ class LabelErrors(ShadowPipeline):
                                       LabelErrors.label_flip_processing_func_llm)
         new_dag.add_edge(rag_join_operators[0], new_label_flip_node, arg_index=0)
         new_dag.add_edge(train_labels_operators[0], new_label_flip_node, arg_index=1)
-        new_dag.add_edge(extraction_node, new_label_flip_node, arg_index=2)
-        new_dag.add_edge(test_data_operators[0], new_label_flip_node, arg_index=3)
+        new_dag.add_edge(new_shapley_node, new_label_flip_node, arg_index=2)
+        new_dag.add_edge(new_label_flip_indices_node, new_label_flip_node, arg_index=3)
+        new_dag.add_edge(test_data_operators[0], new_label_flip_node, arg_index=4)
 
         # FIXME: Rerun predictions only on the diff like in data errors!!!
 
@@ -331,7 +347,27 @@ class LabelErrors(ShadowPipeline):
         return rows_to_fix
 
     @staticmethod
-    def label_flip_processing_func_llm(rag_join_result, encoded_train_labels, shapley_result, inputs):
+    def get_rows_to_flip_llm(rag_join_result, encoded_train_labels, shapley_result, inputs):
+        retrieval_index = rag_join_result[6]
+        changed_df = shapley_result[['train_id']]
+        pandas_retrieval_index_df = pandas.DataFrame(retrieval_index,
+                                                     columns=['train_retrieved_1', 'train_retrieved_2',
+                                                              'train_retrieved_3', 'train_retrieved_4'])
+        pandas_retrieval_index_df['prediction_id'] = list(range(len(rag_join_result[2])))
+        all_predictions_to_rerun = duckdb.query("""
+                    SELECT DISTINCT prediction_id
+                    FROM changed_df c JOIN pandas_retrieval_index_df p 
+                    ON c.train_id = train_retrieved_1 
+                    OR c.train_id = train_retrieved_2 
+                    OR c.train_id = train_retrieved_3 
+                    OR c.train_id = train_retrieved_4 
+                """).fetchnumpy()['prediction_id']
+
+        return all_predictions_to_rerun
+
+    @staticmethod
+    def label_flip_processing_func_llm(rag_join_result, encoded_train_labels, shapley_result, all_predictions_to_rerun,
+                                       inputs):
         mislabeled_indices = shapley_result['train_id']
         classes = set()
         class_search_index = 0
@@ -360,20 +396,6 @@ class LabelErrors(ShadowPipeline):
         old_metadata = old_entries['metadatas']
         vectorstore._collection.update(vectorstore_ids, embeddings, diff_encoded_train_labels, documents)
         retrieval_index = rag_join_result[6]
-
-        pandas_retrieval_index_df = pandas.DataFrame(retrieval_index,
-                                                     columns=['train_retrieved_1', 'train_retrieved_2',
-                                                              'train_retrieved_3', 'train_retrieved_4'])
-        pandas_retrieval_index_df['prediction_id'] = list(range(len(rag_join_result[2])))
-        changed_df = shapley_result[['train_id']]
-        all_predictions_to_rerun = duckdb.query("""
-                    SELECT DISTINCT prediction_id
-                    FROM changed_df c JOIN pandas_retrieval_index_df p 
-                    ON c.train_id = train_retrieved_1 
-                    OR c.train_id = train_retrieved_2 
-                    OR c.train_id = train_retrieved_3 
-                    OR c.train_id = train_retrieved_4 
-                """).fetchnumpy()['prediction_id']
 
         diff_inputs = list(numpy.array(inputs)[all_predictions_to_rerun])
         diff_rag_result, diff_retrieval_index = RunnableSequencePatching.execute_rag_join_diff(
