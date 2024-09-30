@@ -43,7 +43,6 @@ def test_label_errors_mini_example_with_transformer_processing_multiple_columns(
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    # assert report.shape == (4, 2)
     assert "the pipeline metric was" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
@@ -62,7 +61,6 @@ def test_label_errors_mini_example_llm_rag(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    # assert report.shape == (4, 2)
     assert "the pipeline metric was" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
@@ -79,7 +77,6 @@ def test_label_errors_compas(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    # assert report.shape == (4, 2)
     assert "the pipeline metric was" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
@@ -96,7 +93,6 @@ def test_label_errors_anhedonia_ml(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    # assert report.shape == (4, 2)
     assert "the pipeline metric was" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
@@ -113,7 +109,6 @@ def test_label_errors_anhedonia_llm(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    # assert report.shape == (4, 2)
     assert "the pipeline metric was" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
@@ -130,7 +125,6 @@ def test_label_errors_adult_complex(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    # assert report.shape == (4, 2)
     assert "the pipeline metric was" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
@@ -148,9 +142,7 @@ def test_label_errors_healthcare(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    # assert report.shape == (4, 2)
     assert "the pipeline metric was" in report
-    # TODO: Does not work yet because of multiple score functions
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -167,9 +159,7 @@ def test_label_errors_healthcare_fraction(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    # assert report.shape == (4, 2)
     assert "the pipeline metric was" in report
-    # TODO: Does not work yet because of multiple score functions
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -208,7 +198,6 @@ def test_label_errors_mini_example_with_transformer_processing_multiple_columns_
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    # assert report.shape == (4, 2)
     assert "the pipeline metric was" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
@@ -239,7 +228,6 @@ def test_label_errors_compas_proxy(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    # assert report.shape == (4, 2)
     assert "the pipeline metric was" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
@@ -256,7 +244,6 @@ def test_label_errors_anhedonia_ml_proxy(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    # assert report.shape == (4, 2)
     assert "the pipeline metric was" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
@@ -273,7 +260,6 @@ def test_label_errors_adult_complex_proxy(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    # assert report.shape == (4, 2)
     assert "the pipeline metric was" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
@@ -291,9 +277,7 @@ def test_label_errors_healthcare_proxy(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    # assert report.shape == (4, 2)
     assert "the pipeline metric was" in report
-    # TODO: Does not work yet because of multiple score functions
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -311,8 +295,56 @@ def test_label_errors_healthcare_fraction_proxy(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    # assert report.shape == (4, 2)
     assert "the pipeline metric was" in report
-    # TODO: Does not work yet because of multiple score functions
+
+    visualize_dags_shadow_pipelines(analysis_result, tmpdir)
+
+
+def test_label_errors_anhedonia_llm_only_negative(tmpdir):
+    """
+    Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
+    """
+    label_errors = LabelErrors(only_consider_negative_shapley_values=True, cleaning_batch_size=0)
+    analysis_result = PipelineAnalyzer \
+        .on_pipeline_from_py_file(ANHEDONIA_LLM_PY) \
+        .add_shadow_pipeline(label_errors) \
+        .execute()
+
+    report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
+    assert "No likely mislabeled rows were found with the given label error config" in report
+
+    visualize_dags_shadow_pipelines(analysis_result, tmpdir)
+
+
+def test_label_errors_compas_only_negative(tmpdir):
+    """
+    Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
+    """
+    label_errors = LabelErrors(only_consider_negative_shapley_values=True, cleaning_batch_size=0)
+    analysis_result = PipelineAnalyzer \
+        .on_pipeline_from_py_file(COMPAS_PY) \
+        .add_shadow_pipeline(label_errors) \
+        .execute()
+
+    report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
+    assert "No likely mislabeled rows were found with the given label error config" in report
+
+    visualize_dags_shadow_pipelines(analysis_result, tmpdir)
+
+
+def test_label_errors_mini_example_llm_rag_only_negative(tmpdir):
+    """
+    Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
+    """
+    test_code = get_llm_rag_mini_example_code()
+
+    label_errors = LabelErrors(only_consider_negative_shapley_values=True)
+    analysis_result = PipelineAnalyzer \
+        .on_pipeline_from_string(test_code) \
+        .add_shadow_pipeline(label_errors) \
+        .execute()
+
+    report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
+    assert "the pipeline metric was" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)

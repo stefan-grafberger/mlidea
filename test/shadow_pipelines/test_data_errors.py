@@ -42,7 +42,6 @@ def test_data_errors_mini_example_with_transformer_processing_multiple_columns_n
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[data_errors]
-    # assert report.shape == (4, 2)
     assert "the pipeline metric was" in report
     assert "Fortunately, " in report
 
@@ -83,7 +82,6 @@ def test_data_errors_mini_example_with_transformer_processing_multiple_columns_g
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[data_errors]
-    # assert report.shape == (4, 2)
     assert "the pipeline metric was" in report
     assert "Fortunately, " not in report
 
@@ -119,7 +117,6 @@ def test_data_errors_compas(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[data_errors]
-    # assert report.shape == (4, 2)
     assert "the pipeline metric was" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
@@ -136,7 +133,6 @@ def test_data_errors_anhedonia_ml(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[data_errors]
-    # assert report.shape == (4, 2)
     assert "the pipeline metric was" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
@@ -153,7 +149,6 @@ def test_data_errors_anhedonia_llm(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[data_errors]
-    # assert report.shape == (4, 2)
     assert "the pipeline metric was" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
@@ -170,7 +165,6 @@ def test_data_errors_adult_complex(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[data_errors]
-    # assert report.shape == (4, 2)
     assert "the pipeline metric was" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
@@ -188,9 +182,7 @@ def test_data_errors_healthcare(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[data_errors]
-    # assert report.shape == (4, 2)
     assert "the pipeline metric was" in report
-    # TODO: Does not work yet because of multiple score functions
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -207,8 +199,6 @@ def test_data_errors_healthcare_fraction(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[data_errors]
-    # assert report.shape == (4, 2)
     assert "the pipeline metric was" in report
-    # TODO: Does not work yet because of multiple score functions
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)

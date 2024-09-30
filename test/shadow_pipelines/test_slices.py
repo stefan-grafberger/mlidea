@@ -46,7 +46,6 @@ def test_slices_mini_example_with_transformer_processing_multiple_columns(tmpdir
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[slices]
-    # assert report.shape == (4, 2)
     assert "No problematic slice could be found" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
@@ -87,7 +86,6 @@ def test_slices_mini_example_with_transformer_processing_multiple_columns_no_sen
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[slices]
-    # assert report.shape == (4, 2)
     assert "no sensitive column could be found" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
@@ -106,7 +104,6 @@ def test_slices_mini_example_side_info_llm_rag(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[slices]
-    # assert report.shape == (4, 2)
     assert "No problematic slice could be found" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
@@ -188,8 +185,6 @@ def test_slices_healthcare(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[slices]
-    # assert report.shape == (4, 2)
     assert "The problematic slice that was found is" in report
-    # TODO: Does not work yet because of multiple score functions
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)

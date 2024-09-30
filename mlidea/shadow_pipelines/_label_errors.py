@@ -14,7 +14,7 @@ from mlidea.analysis._analysis_utils import find_nodes_by_type
 from mlidea import OperatorType, DagNode, BasicCodeLocation, OperatorContext, DagNodeDetails
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
-    get_sorted_parent_nodes
+    get_sorted_parent_nodes, get_conditional_stop_node
 from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
 from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
 
@@ -28,14 +28,15 @@ class LabelErrors(ShadowPipeline):
         return False
 
     def __init__(self, train_fraction_to_consider=1., test_fraction_to_consider=1., proxy_model=False,
-                 cleaning_batch_size=20):
+                 cleaning_batch_size=20, only_consider_negative_shapley_values=False):
         # TODO: We should probably also implement the second proxy version from the workshop paper
         self._train_fraction_to_consider = train_fraction_to_consider
         self._test_fraction_to_consider = test_fraction_to_consider
         self._proxy_model = proxy_model
         self._cleaning_batch_size = cleaning_batch_size
-        self._shadow_pipeline_id = (
-            train_fraction_to_consider, test_fraction_to_consider, proxy_model, cleaning_batch_size)
+        self._only_consider_negative_shapley_values = only_consider_negative_shapley_values
+        self._shadow_pipeline_id = (train_fraction_to_consider, test_fraction_to_consider, proxy_model,
+                                    cleaning_batch_size, only_consider_negative_shapley_values)
         self.score_operator_count = 0
 
     @property
@@ -81,7 +82,8 @@ class LabelErrors(ShadowPipeline):
         processing_func = partial(LabelErrors.shapley_top_k_func_ml,
                                   train_fraction_to_consider=self._train_fraction_to_consider,
                                   test_fraction_to_consider=self._test_fraction_to_consider,
-                                  cleaning_batch_size=self._cleaning_batch_size)
+                                  cleaning_batch_size=self._cleaning_batch_size,
+                                  only_consider_negative_shapley_values=self._only_consider_negative_shapley_values)
         new_shapley_node = DagNode(singleton.get_next_op_id(),
                                    BasicCodeLocation("Label Errors", None),
                                    OperatorContext(OperatorType.GROUP_BY_AGG, None),
@@ -96,7 +98,11 @@ class LabelErrors(ShadowPipeline):
         extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node, "label-errors-shapley-values")
         new_dag.add_edge(new_shapley_node, extraction_node, arg_index=0)
 
-        # TODO: Condition if shapley values are really negative and then the number of problematic rows is 0
+        likely_mislabeled_rows_not_empty_func = lambda shapley_df: len(shapley_df) != 0
+        likely_mislabeled_rows_condition_node = get_conditional_stop_node(
+            singleton, likely_mislabeled_rows_not_empty_func, "label-errors-shapley-values-non-empty",
+            "Check if there are likely mislabeled rows", new_shapley_node)
+        new_dag.add_edge(new_shapley_node, likely_mislabeled_rows_condition_node, arg_index=0)
 
         new_label_flip_node = DagNode(singleton.get_next_op_id(),
                                       BasicCodeLocation("Label Errors", None),
@@ -107,14 +113,17 @@ class LabelErrors(ShadowPipeline):
                                       LabelErrors.label_flip_processing_func_ml)
         new_dag.add_edge(train_labels_operators[0], new_label_flip_node, arg_index=0)
         new_dag.add_edge(extraction_node, new_label_flip_node, arg_index=1)
+        new_dag.add_edge(likely_mislabeled_rows_condition_node, new_label_flip_node, arg_index=4)
 
         if self._proxy_model is True:
             new_model_node = LabelErrors.get_proxy_model_node(singleton, model_operators[0])
             new_dag.add_edge(train_data_operators[0], new_model_node, arg_index=0)
             new_dag.add_edge(train_labels_operators[0], new_model_node, arg_index=1)
+            new_dag.add_edge(likely_mislabeled_rows_condition_node, new_model_node, arg_index=2)
             new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
             new_dag.add_edge(new_model_node, new_predict_node, arg_index=0)
             new_dag.add_edge(test_data_operators[0], new_predict_node, arg_index=1)
+            new_dag.add_edge(likely_mislabeled_rows_condition_node, new_predict_node, arg_index=2)
             LabelErrors.add_new_score_and_score_extraction_nodes(new_dag, new_predict_node, score_operators,
                                                                  test_labels_operators, "label-errors-proxy")
 
@@ -166,7 +175,8 @@ class LabelErrors(ShadowPipeline):
                                   train_fraction_to_consider=self._train_fraction_to_consider,
                                   test_fraction_to_consider=self._test_fraction_to_consider,
                                   cleaning_batch_size=self._cleaning_batch_size,
-                                  label_encoding_op=label_encoder_operators[0])
+                                  label_encoding_op=label_encoder_operators[0],
+                                  only_consider_negative_shapley_values=self._only_consider_negative_shapley_values)
         new_shapley_node = DagNode(singleton.get_next_op_id(),
                                    BasicCodeLocation("Label Errors", None),
                                    OperatorContext(OperatorType.GROUP_BY_AGG, None),
@@ -181,7 +191,11 @@ class LabelErrors(ShadowPipeline):
         extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node, "label-errors-shapley-values")
         new_dag.add_edge(new_shapley_node, extraction_node, arg_index=0)
 
-        # TODO: Condition if shapley values are really negative and then the number of problematic rows is 0
+        likely_mislabeled_rows_not_empty_func = lambda shapley_df: len(shapley_df) != 0
+        likely_mislabeled_rows_condition_node = get_conditional_stop_node(
+            singleton, likely_mislabeled_rows_not_empty_func, "label-errors-shapley-values-non-empty",
+            "Check if there are likely mislabeled rows", new_shapley_node)
+        new_dag.add_edge(new_shapley_node, likely_mislabeled_rows_condition_node, arg_index=0)
 
         new_label_flip_indices_node = DagNode(singleton.get_next_op_id(),
                                               BasicCodeLocation("Label Errors", None),
@@ -195,6 +209,7 @@ class LabelErrors(ShadowPipeline):
         new_dag.add_edge(train_labels_operators[0], new_label_flip_indices_node, arg_index=1)
         new_dag.add_edge(new_shapley_node, new_label_flip_indices_node, arg_index=2)
         new_dag.add_edge(test_data_operators[0], new_label_flip_indices_node, arg_index=3)
+        new_dag.add_edge(likely_mislabeled_rows_condition_node, new_label_flip_indices_node, arg_index=4)
 
         new_label_flip_node = DagNode(singleton.get_next_op_id(),
                                       BasicCodeLocation("Label Errors", None),
@@ -208,6 +223,7 @@ class LabelErrors(ShadowPipeline):
         new_dag.add_edge(new_shapley_node, new_label_flip_node, arg_index=2)
         new_dag.add_edge(new_label_flip_indices_node, new_label_flip_node, arg_index=3)
         new_dag.add_edge(test_data_operators[0], new_label_flip_node, arg_index=4)
+        new_dag.add_edge(likely_mislabeled_rows_condition_node, new_label_flip_indices_node, arg_index=5)
 
         new_fix_diff_filter_node = DagNode(singleton.get_next_op_id(),
                                            BasicCodeLocation("Data Errors", None),
@@ -258,15 +274,18 @@ class LabelErrors(ShadowPipeline):
                 proxy_result.append(extracted_plan_results[f"label-errors-proxy-{score_index}"])
             report += f"The proxy result was {proxy_result}.\n"
         shapley_values = extracted_plan_results["label-errors-shapley-values"]
-        flip_result = []
-        for score_index in range(self.score_operator_count):
-            flip_result.append(extracted_plan_results[f"label-errors-flip-retrain-{score_index}"])
-        report += (f"After flipping the top {self._cleaning_batch_size} most "
-                   f"likely incorrect row labels, the pipeline metric was {flip_result}")
-        if self._proxy_model is True:
-            report += " (with the proxy model)"
-        report += (f". The shapley values of the "
-                   f"most likely mislabeled rows: {str(shapley_values)}.")
+        if extracted_plan_results["label-errors-shapley-values-non-empty"] is False:
+            report += "No likely mislabeled rows were found with the given label error config!"
+        else:
+            flip_result = []
+            for score_index in range(self.score_operator_count):
+                flip_result.append(extracted_plan_results[f"label-errors-flip-retrain-{score_index}"])
+            report += (f"After flipping the top {self._cleaning_batch_size} most "
+                       f"likely incorrect row labels, the pipeline metric was {flip_result}")
+            if self._proxy_model is True:
+                report += " (with the proxy model)"
+            report += (f".\nThe shapley values of the "
+                       f"most likely mislabeled rows:\n{str(shapley_values)}.")
         # TODO: Add a final sentence with an action recommendation
         return report
 
@@ -304,7 +323,7 @@ class LabelErrors(ShadowPipeline):
     @staticmethod
     def shapley_top_k_func_llm(rag_join_result, train_labels_before_dict, encoded_test_data, encoded_test_labels,
                                train_fraction_to_consider, test_fraction_to_consider, cleaning_batch_size,
-                               label_encoding_op):
+                               label_encoding_op, only_consider_negative_shapley_values):
         # TODO: Should we propagate provenance here? Might be important for explanations later
         indices = numpy.arange(len(train_labels_before_dict))
         numpy.random.shuffle(indices)
@@ -332,11 +351,14 @@ class LabelErrors(ShadowPipeline):
             {"train_id": train_indices_to_consider, "shapley_value": shapley_values})
 
         rows_to_fix = df_with_id_and_shapley_value.nsmallest(cleaning_batch_size, "shapley_value")
+        if only_consider_negative_shapley_values:
+            rows_to_fix = rows_to_fix[rows_to_fix["shapley_value"] <= 0.]
         return rows_to_fix
 
     @staticmethod
     def shapley_top_k_func_ml(encoded_train_data, encoded_train_labels, encoded_test_data, encoded_test_labels,
-                              train_fraction_to_consider, test_fraction_to_consider, cleaning_batch_size):
+                              train_fraction_to_consider, test_fraction_to_consider, cleaning_batch_size,
+                              only_consider_negative_shapley_values):
         # TODO: Should we propagate provenance here? Might be important for explanations later
         indices = numpy.arange(len(encoded_train_labels))
         numpy.random.shuffle(indices)
@@ -370,6 +392,8 @@ class LabelErrors(ShadowPipeline):
             {"train_id": train_indices_to_consider, "shapley_value": shapley_values})
 
         rows_to_fix = df_with_id_and_shapley_value.nsmallest(cleaning_batch_size, "shapley_value")
+        if only_consider_negative_shapley_values:
+            rows_to_fix = rows_to_fix[rows_to_fix["shapley_value"] <= 0.]
         return rows_to_fix
 
     @staticmethod

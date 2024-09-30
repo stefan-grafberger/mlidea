@@ -237,7 +237,7 @@ class FairnessSlices(ShadowPipeline):
                     singleton, condition_fix_function_made_changes_func, f"fairness-slices-fixing-made-changes-"
                                                                          f"{fix_strategy_index}",
                     "Check if fixing function made changes", new_fix_diff_node)
-                new_dag.add_edge(new_fix_diff_node, conditional_fix_function_made_changes_node, arg_index=1)
+                new_dag.add_edge(new_fix_diff_node, conditional_fix_function_made_changes_node, arg_index=0)
 
                 new_unmodified_fix_filter_node = DagNode(singleton.get_next_op_id(),
                                                          BasicCodeLocation("Fairness Slices", None),
