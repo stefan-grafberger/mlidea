@@ -3,7 +3,6 @@ Tests whether the monkey patching works for all patched sklearn methods
 """
 from functools import partial
 from inspect import cleandoc
-from types import FunctionType
 
 import networkx
 import numpy

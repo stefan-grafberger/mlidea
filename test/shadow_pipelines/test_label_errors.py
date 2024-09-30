@@ -214,7 +214,7 @@ def test_label_errors_mini_example_with_transformer_processing_multiple_columns_
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
 
-def test_label_errors_mini_example_llm_rag_proxy(tmpdir):
+def test_label_errors_mini_example_llm_rag_proxy():
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
     """

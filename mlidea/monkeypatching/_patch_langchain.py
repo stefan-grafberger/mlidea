@@ -207,7 +207,7 @@ class RunnableSequencePatching:
 
     @staticmethod
     def execute_rag_join_diff(retriever_steps, inputs, filled_vectorstore):
-        retriever_step_index, retriever_sub_step_name, retriever_sub_step, _ = retriever_steps
+        _, _, retriever_sub_step, _ = retriever_steps
         retrieval_results = inputs
         retrieval_index_update = numpy.zeros((len(inputs), 4), dtype=int)
         if retrieval_results:

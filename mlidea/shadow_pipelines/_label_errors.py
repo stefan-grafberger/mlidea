@@ -211,7 +211,6 @@ class LabelErrors(ShadowPipeline):
             orig_result.append(extracted_plan_results[f"label-errors-orig-{score_index}"])
         report += f"The original result was {orig_result}.\n"
         if self._proxy_model is True:
-            # FIXME: This needs the proxy results and we also need to mark the proxy results with a separate label
             proxy_result = []
             for score_index in range(self.score_operator_count):
                 proxy_result.append(extracted_plan_results[f"label-errors-proxy-{score_index}"])
@@ -431,7 +430,7 @@ class LabelErrors(ShadowPipeline):
     def get_proxy_model_node(singleton, old_estimator_node):
         model_function = partial(SGDClassifier, loss='log_loss', max_iter=30, n_jobs=1)
         new_processing_func = partial(LabelErrors.fit_model_variant, make_classifier_func=model_function)
-        new_description = f"Fast proxy model"
+        new_description = "Fast proxy model"
         new_estimator_node = DagNode(singleton.get_next_op_id(),
                                      old_estimator_node.code_location,
                                      old_estimator_node.operator_info,

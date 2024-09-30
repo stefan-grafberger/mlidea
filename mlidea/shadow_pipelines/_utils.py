@@ -210,13 +210,12 @@ def get_typo_fixer(column):
     # typo_fixer = FunctionTransformer(fix_typos)
     spell = Speller()
 
-    def fix_typos(bound_column, df):
+    def fix_typos(bound_column, bound_spell, df):
         # df['tweet'] = df['tweet'].map(lambda txt: str(TextBlob(txt).correct()))
-        df[bound_column] = df[column].map(lambda txt: spell(txt))
-        # TODO: This spellchecker is much faster. However, I am not entirely sure how good it is
+        df[bound_column] = df[column].map(bound_spell)
         return df
 
-    processing_func = partial(fix_typos, column)
+    processing_func = partial(fix_typos, column, spell)
     warnings.filterwarnings('ignore')
     typo_fixer = FunctionTransformer(processing_func)
     return typo_fixer
@@ -339,7 +338,7 @@ def get_transformer_operators_to_test(dag):
         data_parent = get_sorted_parent_nodes(dag, function_transformer)[1]
         if (data_parent.details.optimizer_info.shape[1] == 1 and
                 function_transformer.details.optimizer_info.shape[1] >= 100):
-            data_parent_and_data_type.append((data_parent, transformer, DataType.TEXT))
+            data_parent_and_data_type.append((data_parent, function_transformer, DataType.TEXT))
     return data_parent_and_data_type
 
 

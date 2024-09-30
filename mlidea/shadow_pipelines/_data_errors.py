@@ -10,7 +10,7 @@ from sklearn.impute import SimpleImputer
 
 from mlidea import OperatorType, DagNode, BasicCodeLocation, OperatorContext, DagNodeDetails
 from mlidea.analysis._analysis_utils import find_nodes_by_type
-from mlidea.analysis._cleaning_methods import OutlierCleaner, detect_outlier_interquartile_range
+from mlidea.analysis._cleaning_methods import detect_outlier_interquartile_range
 from mlidea.execution._pipeline_executor import singleton
 from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
 from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
@@ -95,7 +95,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                BasicCodeLocation("Data Errors", None),
                                                OperatorContext(OperatorType.GROUP_BY_AGG, None),
                                                DagNodeDetails(
-                                                   f"Detect changed indices from corrupting", None),
+                                                   "Detect changed indices from corrupting", None),
                                                None,
                                                DataErrorRobustness.corrupt_data_diff_detection)
             new_dag.add_edge(data_parent, new_corruption_diff_node, arg_index=0)
@@ -111,7 +111,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                       BasicCodeLocation("Data Errors", None),
                                                       OperatorContext(OperatorType.SELECTION, None),
                                                       DagNodeDetails(
-                                                          f"Filter for diff only",
+                                                          "Filter for diff only",
                                                           None),
                                                       None,
                                                       DataErrorRobustness.apply_diff_filter)
@@ -144,7 +144,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                                     BasicCodeLocation("Data Errors", None),
                                                                     OperatorContext(OperatorType.SELECTION, None),
                                                                     DagNodeDetails(
-                                                                        f"Filter for diff only",
+                                                                        "Filter for diff only",
                                                                         None),
                                                                     None,
                                                                     DataErrorRobustness.apply_diff_filter)
@@ -162,7 +162,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                            BasicCodeLocation("Data Errors", None),
                                                            OperatorContext(OperatorType.SELECTION, None),
                                                            DagNodeDetails(
-                                                               f"Merge corruption diff with old predictions",
+                                                               "Merge corruption diff with old predictions",
                                                                None),
                                                            None,
                                                            DataErrorRobustness.update_prediction_diff)
@@ -217,7 +217,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                                  BasicCodeLocation("Data Errors", None),
                                                                  OperatorContext(OperatorType.SELECTION, None),
                                                                  DagNodeDetails(
-                                                                     f"Filter for diff only",
+                                                                     "Filter for diff only",
                                                                      None),
                                                                  None,
                                                                  DataErrorRobustness.apply_diff_filter)
@@ -234,7 +234,7 @@ class DataErrorRobustness(ShadowPipeline):
                                              BasicCodeLocation("Data Errors", None),
                                              OperatorContext(OperatorType.PROJECTION_MODIFY, None),
                                              DagNodeDetails(
-                                                 f"Compute change mask from fixing", None),
+                                                 "Compute change mask from fixing", None),
                                              None,
                                              DataErrorRobustness.fix_data_diff_detection_mask_only)
             new_dag.add_edge(fix_input_node, new_fix_diff_mask_node, arg_index=0)
@@ -244,7 +244,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                 BasicCodeLocation("Data Errors", None),
                                                 OperatorContext(OperatorType.GROUP_BY_AGG, None),
                                                 DagNodeDetails(
-                                                    f"Compute changed indices from fixing", None),
+                                                    "Compute changed indices from fixing", None),
                                                 None,
                                                 DataErrorRobustness.fix_data_mask_to_indices)
             new_dag.add_edge(new_fix_diff_mask_node, new_fix_diff_indices_node, arg_index=0)
@@ -259,7 +259,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                BasicCodeLocation("Data Errors", None),
                                                OperatorContext(OperatorType.SELECTION, None),
                                                DagNodeDetails(
-                                                   f"Filter for diff only",
+                                                   "Filter for diff only",
                                                    None),
                                                None,
                                                DataErrorRobustness.apply_diff_filter)
@@ -288,7 +288,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                                     BasicCodeLocation("Data Errors", None),
                                                                     OperatorContext(OperatorType.SELECTION, None),
                                                                     DagNodeDetails(
-                                                                        f"Filter for diff only",
+                                                                        "Filter for diff only",
                                                                         None),
                                                                     None,
                                                                     DataErrorRobustness.apply_diff_filter)
@@ -304,7 +304,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                        BasicCodeLocation("Data Errors", None),
                                                        OperatorContext(OperatorType.SELECTION, None),
                                                        DagNodeDetails(
-                                                           f"Merge fix diff with old predictions",
+                                                           "Merge fix diff with old predictions",
                                                            None),
                                                        None,
                                                        DataErrorRobustness.update_prediction_diff)
@@ -365,7 +365,7 @@ class DataErrorRobustness(ShadowPipeline):
                                            BasicCodeLocation("Data Errors", None),
                                            OperatorContext(OperatorType.GROUP_BY_AGG, None),
                                            DagNodeDetails(
-                                               f"Detect changed indices from corrupting", None),
+                                               "Detect changed indices from corrupting", None),
                                            None,
                                            DataErrorRobustness.corrupt_data_diff_detection)
         new_dag.add_edge(data_parent, new_corruption_diff_node, arg_index=0)
@@ -373,7 +373,7 @@ class DataErrorRobustness(ShadowPipeline):
 
         condition_corrupt_function = lambda np_array: len(np_array) != 0
         conditional_corruption_made_changes_node = get_conditional_stop_node(
-            singleton, condition_corrupt_function, f"data-errors-corruption-made-changes-0",
+            singleton, condition_corrupt_function, "data-errors-corruption-made-changes-0",
             "Check if corrupt function made changes", new_corruption_diff_node)
         new_dag.add_edge(new_corruption_diff_node, conditional_corruption_made_changes_node, arg_index=1)
 
@@ -381,7 +381,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                   BasicCodeLocation("Data Errors", None),
                                                   OperatorContext(OperatorType.SELECTION, None),
                                                   DagNodeDetails(
-                                                      f"Filter for diff only",
+                                                      "Filter for diff only",
                                                       None),
                                                   None,
                                                   DataErrorRobustness.apply_diff_filter)
@@ -390,7 +390,7 @@ class DataErrorRobustness(ShadowPipeline):
         new_dag.add_edge(conditional_corruption_made_changes_node, new_corruption_diff_filter_node, arg_index=2)
 
         extraction_node = get_intermediate_extraction_node(singleton, new_corruption_diff_filter_node,
-                                                           f"data-errors-corruption-diff-0")
+                                                           "data-errors-corruption-diff-0")
         new_dag.add_edge(new_corruption_diff_filter_node, extraction_node, arg_index=0)
 
         # Evaluate with corrupted data
@@ -412,7 +412,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                        BasicCodeLocation("Data Errors", None),
                                                        OperatorContext(OperatorType.SELECTION, None),
                                                        DagNodeDetails(
-                                                           f"Merge corruption diff with old predictions",
+                                                           "Merge corruption diff with old predictions",
                                                            None),
                                                        None,
                                                        DataErrorRobustness.update_prediction_diff)
@@ -437,7 +437,7 @@ class DataErrorRobustness(ShadowPipeline):
         condition_processing_func = partial(DataErrorRobustness.condition_corruption_significant_function,
                                             self._corruption_significant_relative_threshold)
         conditional_corruption_significant_node = get_conditional_stop_node(
-            singleton, condition_processing_func, f"data-errors-corruption-significant-0",
+            singleton, condition_processing_func, "data-errors-corruption-significant-0",
             "Check if fix function made changes", new_score_nodes[0])
         for score_index, score_operator in enumerate(score_operators):
             new_dag.add_edge(score_operator, conditional_corruption_significant_node,
@@ -465,7 +465,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                              BasicCodeLocation("Data Errors", None),
                                                              OperatorContext(OperatorType.SELECTION, None),
                                                              DagNodeDetails(
-                                                                 f"Filter for diff only",
+                                                                 "Filter for diff only",
                                                                  None),
                                                              None,
                                                              DataErrorRobustness.apply_diff_filter)
@@ -476,14 +476,14 @@ class DataErrorRobustness(ShadowPipeline):
         fix_node_to_extract = new_fix_with_corruption_change_filter_node
 
         extraction_node = get_intermediate_extraction_node(singleton, new_fix_node,
-                                                           f"data-errors-corruption-diff-fix-0")
+                                                           "data-errors-corruption-diff-fix-0")
         new_dag.add_edge(fix_node_to_extract, extraction_node, arg_index=0)
 
         new_fix_diff_mask_node = DagNode(singleton.get_next_op_id(),
                                          BasicCodeLocation("Data Errors", None),
                                          OperatorContext(OperatorType.PROJECTION_MODIFY, None),
                                          DagNodeDetails(
-                                             f"Compute change mask from fixing", None),
+                                             "Compute change mask from fixing", None),
                                          None,
                                          DataErrorRobustness.fix_data_diff_detection_mask_only)
         new_dag.add_edge(fix_input_node, new_fix_diff_mask_node, arg_index=0)
@@ -493,14 +493,14 @@ class DataErrorRobustness(ShadowPipeline):
                                             BasicCodeLocation("Data Errors", None),
                                             OperatorContext(OperatorType.GROUP_BY_AGG, None),
                                             DagNodeDetails(
-                                                f"Compute changed indices from fixing", None),
+                                                "Compute changed indices from fixing", None),
                                             None,
                                             DataErrorRobustness.fix_data_mask_to_indices)
         new_dag.add_edge(new_fix_diff_mask_node, new_fix_diff_indices_node, arg_index=0)
 
         condition_fix_function = lambda np_array: len(np_array) != 0
         conditional_fixes_changed_something_node = get_conditional_stop_node(
-            singleton, condition_fix_function, f"data-errors-corruption-diff-fix-not-empty-0",
+            singleton, condition_fix_function, "data-errors-corruption-diff-fix-not-empty-0",
             "Check if fix function made changes", new_fix_diff_indices_node)
         new_dag.add_edge(new_fix_diff_indices_node, conditional_fixes_changed_something_node, arg_index=0)
 
@@ -508,7 +508,7 @@ class DataErrorRobustness(ShadowPipeline):
                                            BasicCodeLocation("Data Errors", None),
                                            OperatorContext(OperatorType.SELECTION, None),
                                            DagNodeDetails(
-                                               f"Filter for diff only",
+                                               "Filter for diff only",
                                                None),
                                            None,
                                            DataErrorRobustness.apply_diff_filter)
@@ -536,7 +536,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                    BasicCodeLocation("Data Errors", None),
                                                    OperatorContext(OperatorType.SELECTION, None),
                                                    DagNodeDetails(
-                                                       f"Merge fix diff with old predictions",
+                                                       "Merge fix diff with old predictions",
                                                        None),
                                                    None,
                                                    DataErrorRobustness.update_prediction_diff)
@@ -644,8 +644,6 @@ class DataErrorRobustness(ShadowPipeline):
             else:
                 raise NotImplementedError("TODO")
         elif data_type == DataType.CAT:
-            # TODO: Broken Characters is pretty slow, maybe do not use it
-            """Corrupt broken characters that may be in a pandas df, but may also be in a different format"""
             if isinstance(corrupted_result, pandas.DataFrame):
                 for column in corrupted_result.columns:
                     corrupted_result = MissingValues(column=column, fraction=corruption_fraction, na_value="0"
@@ -700,8 +698,12 @@ class DataErrorRobustness(ShadowPipeline):
         if data_type == DataType.TEXT:
             was_series = False
             was_numpy = False
+            series_column_name = None
             if isinstance(fixed_corrupted, pandas.Series):
-                fixed_corrupted = pandas.DataFrame(fixed_corrupted)
+                series_column_name = fixed_corrupted.name
+                if series_column_name is None:
+                    series_column_name = "column"
+                fixed_corrupted = pandas.DataFrame({series_column_name: fixed_corrupted})
                 was_series = True
             elif isinstance(fixed_corrupted, (numpy.ndarray, list)):
                 fixed_corrupted = pandas.DataFrame({"column": fixed_corrupted})
@@ -712,7 +714,7 @@ class DataErrorRobustness(ShadowPipeline):
                     fixed_corrupted.iloc[only_fix_indices, [column_index]] = typo_fixer.fit_transform(
                         fixed_corrupted.iloc[only_fix_indices, [column_index]])
             if was_series is True:
-                fixed_corrupted = fixed_corrupted[column]
+                fixed_corrupted = fixed_corrupted[series_column_name]
             elif was_numpy is True:
                 fixed_corrupted = fixed_corrupted["column"].to_numpy()
         elif data_type == DataType.CAT:
@@ -818,15 +820,13 @@ class DataErrorRobustness(ShadowPipeline):
         # So the number of scores in both pipeline variants should be equal
         assert len(scores) % 2 == 0
         number_of_scores_each = int(len(scores) / 2)
-        scores_different_enough = False
-        for score_index in range(number_of_scores_each):
+        scores_different_enough = any(
             # TODO: More sophisticated handling of FairLearn MetricFrames
-            if ((isinstance(scores[score_index], float) and scores[
-                score_index] * corruption_significant_relative_threshold >=
-                 scores[score_index + number_of_scores_each]) or
-                    (isinstance(scores[score_index], MetricFrame) and
-                     scores[score_index].overall * corruption_significant_relative_threshold >=
-                     scores[score_index + number_of_scores_each].overall)
-            ):
-                scores_different_enough = True
+            (isinstance(scores[score_index], float) and
+             scores[score_index] * corruption_significant_relative_threshold >=
+             scores[score_index + number_of_scores_each]) or
+            (isinstance(scores[score_index], MetricFrame) and
+             scores[score_index].overall * corruption_significant_relative_threshold >=
+             scores[score_index + number_of_scores_each].overall)
+            for score_index in range(number_of_scores_each))
         return scores_different_enough

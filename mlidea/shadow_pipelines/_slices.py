@@ -21,7 +21,7 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     get_sorted_parent_nodes, duplicate_descendants, \
     get_typo_fixer, get_conditional_stop_node, filter_estimator_transformer_edges, get_transformer_operators_to_test, \
     DataType, get_translate_transformer
-from monkeypatching._provenance_propagation import wrap_projection_func
+from mlidea.monkeypatching._provenance_propagation import wrap_projection_func
 
 
 class FixType(Enum):
@@ -125,7 +125,7 @@ class FairnessSlices(ShadowPipeline):
                               BasicCodeLocation("Data Errors", None),
                               OperatorContext(OperatorType.CONCATENATION, None),
                               DagNodeDetails(
-                                  f"Concat sensitive attributes", None),
+                                  "Concat sensitive attributes", None),
                               None,
                               concat_processing_func)
 
@@ -137,7 +137,7 @@ class FairnessSlices(ShadowPipeline):
                                       BasicCodeLocation("Fairness Slices", None),
                                       OperatorContext(OperatorType.PROJECTION, None),
                                       DagNodeDetails(
-                                          f"Select sensitive attributes", None),
+                                          "Select sensitive attributes", None),
                                       None,
                                       projection_processing_func)
             new_dag.add_edge(data_source, projection_node, arg_index=0)
@@ -151,7 +151,7 @@ class FairnessSlices(ShadowPipeline):
                                       BasicCodeLocation("Fairness Slices", None),
                                       OperatorContext(OperatorType.PROJECTION, None),
                                       DagNodeDetails(
-                                          f"Select sensitive attributes", None),
+                                          "Select sensitive attributes", None),
                                       None,
                                       projection_processing_func)
             new_dag.add_edge(data_source, projection_node, arg_index=0)
@@ -161,7 +161,7 @@ class FairnessSlices(ShadowPipeline):
                                 BasicCodeLocation("Fairness Slices", None),
                                 OperatorContext(OperatorType.JOIN, None),
                                 DagNodeDetails(
-                                    f"Join on provenance", None),
+                                    "Join on provenance", None),
                                 None,
                                 join_processing_func)
             new_dag.add_edge(test_data_operators[0], join_node, arg_index=0)
@@ -177,7 +177,7 @@ class FairnessSlices(ShadowPipeline):
                                         BasicCodeLocation("Fairness Slices", None),
                                         OperatorContext(OperatorType.GROUP_BY_AGG, None),
                                         DagNodeDetails(
-                                            f"Run Slice Finder", None),
+                                            "Run Slice Finder", None),
                                         None,
                                         slice_finder_process_func)
         new_dag.add_edge(concat_node, new_slice_finder_node, arg_index=0)
@@ -190,7 +190,7 @@ class FairnessSlices(ShadowPipeline):
         problematic_slice_found_func = lambda slice_finder_result: (slice_finder_result[0] is not None and
                                                                     slice_finder_result[1] is not None)
         conditional_slices_found_node = get_conditional_stop_node(
-            singleton, problematic_slice_found_func, f"fairness-slices-slice-line-problematic-slice-found",
+            singleton, problematic_slice_found_func, "fairness-slices-slice-line-problematic-slice-found",
             "Check if problematic slice was found", new_slice_finder_node)
         new_dag.add_edge(new_slice_finder_node, conditional_slices_found_node, arg_index=0)
 
@@ -199,7 +199,7 @@ class FairnessSlices(ShadowPipeline):
                                             BasicCodeLocation("Fairness Slices", None),
                                             OperatorContext(OperatorType.GROUP_BY_AGG, None),
                                             DagNodeDetails(
-                                                f"Compute slice finder indexes", None),
+                                                "Compute slice finder indexes", None),
                                             None,
                                             process_func)
         new_dag.add_edge(new_slice_finder_node, slice_finder_indices_node, arg_index=0)
@@ -207,7 +207,7 @@ class FairnessSlices(ShadowPipeline):
 
         data_parent_transformer_and_data_type = get_transformer_operators_to_test(dag)
         fix_strategy_index = 0
-        for data_type_index, (data_parent, transformer, data_type) in enumerate(data_parent_transformer_and_data_type):
+        for data_parent, _, data_type in data_parent_transformer_and_data_type:
             for fix_strategy in DATA_TYPE_TO_FIX_STRATEGY[data_type]:
                 self.fix_strategy_names.append(fix_strategy.value)
                 processing_func = partial(FairnessSlices.fix_data, fix_strategy=fix_strategy,
@@ -223,12 +223,12 @@ class FairnessSlices(ShadowPipeline):
                 new_dag.add_edge(slice_finder_indices_node, new_fix_node, arg_index=1)
 
                 new_fix_diff_node = DagNode(singleton.get_next_op_id(),
-                                                   BasicCodeLocation("Fairness Slices", None),
-                                                   OperatorContext(OperatorType.GROUP_BY_AGG, None),
-                                                   DagNodeDetails(
-                                                       f"Detect changed indices from fixing", None),
-                                                   None,
-                                                   FairnessSlices.corrupt_data_diff_detection)
+                                            BasicCodeLocation("Fairness Slices", None),
+                                            OperatorContext(OperatorType.GROUP_BY_AGG, None),
+                                            DagNodeDetails(
+                                                "Detect changed indices from fixing", None),
+                                            None,
+                                            FairnessSlices.corrupt_data_diff_detection)
                 new_dag.add_edge(data_parent, new_fix_diff_node, arg_index=0)
                 new_dag.add_edge(new_fix_node, new_fix_diff_node, arg_index=1)
 
@@ -240,13 +240,13 @@ class FairnessSlices(ShadowPipeline):
                 new_dag.add_edge(new_fix_diff_node, conditional_fix_function_made_changes_node, arg_index=1)
 
                 new_unmodified_fix_filter_node = DagNode(singleton.get_next_op_id(),
-                                                             BasicCodeLocation("Fairness Slices", None),
-                                                             OperatorContext(OperatorType.SELECTION, None),
-                                                             DagNodeDetails(
-                                                                 f"Apply slice finder mask",
-                                                                 None),
-                                                             None,
-                                                             FairnessSlices.apply_diff_filter)
+                                                         BasicCodeLocation("Fairness Slices", None),
+                                                         OperatorContext(OperatorType.SELECTION, None),
+                                                         DagNodeDetails(
+                                                             "Apply slice finder mask",
+                                                             None),
+                                                         None,
+                                                         FairnessSlices.apply_diff_filter)
                 new_dag.add_edge(data_parent, new_unmodified_fix_filter_node, arg_index=0)
                 new_dag.add_edge(new_fix_diff_node, new_unmodified_fix_filter_node, arg_index=1)
 
@@ -255,13 +255,13 @@ class FairnessSlices(ShadowPipeline):
                 new_dag.add_edge(new_unmodified_fix_filter_node, extraction_node, arg_index=0)
 
                 new_fix_diff_filter_node = DagNode(singleton.get_next_op_id(),
-                                                          BasicCodeLocation("Data Errors", None),
-                                                          OperatorContext(OperatorType.SELECTION, None),
-                                                          DagNodeDetails(
-                                                              f"Filter for diff only",
-                                                              None),
-                                                          None,
-                                                          FairnessSlices.apply_diff_filter)
+                                                   BasicCodeLocation("Data Errors", None),
+                                                   OperatorContext(OperatorType.SELECTION, None),
+                                                   DagNodeDetails(
+                                                       "Filter for diff only",
+                                                       None),
+                                                   None,
+                                                   FairnessSlices.apply_diff_filter)
                 new_dag.add_edge(new_fix_node, new_fix_diff_filter_node, arg_index=0)
                 new_dag.add_edge(new_fix_diff_node, new_fix_diff_filter_node, arg_index=1)
                 new_dag.add_edge(conditional_fix_function_made_changes_node, new_fix_diff_filter_node, arg_index=2)
@@ -291,7 +291,7 @@ class FairnessSlices(ShadowPipeline):
                                                                         BasicCodeLocation("Data Errors", None),
                                                                         OperatorContext(OperatorType.SELECTION, None),
                                                                         DagNodeDetails(
-                                                                            f"Filter for diff only",
+                                                                            "Filter for diff only",
                                                                             None),
                                                                         None,
                                                                         FairnessSlices.apply_diff_filter)
@@ -307,13 +307,13 @@ class FairnessSlices(ShadowPipeline):
                                if node.operator_info.operator == OperatorType.PREDICT][0]
 
                 new_fix_predict_diff_update_node = DagNode(singleton.get_next_op_id(),
-                                                               BasicCodeLocation("Fairness Slices", None),
-                                                               OperatorContext(OperatorType.SELECTION, None),
-                                                               DagNodeDetails(
-                                                                   f"Merge fixing diff with old predictions",
-                                                                   None),
-                                                               None,
-                                                               FairnessSlices.update_prediction_diff)
+                                                           BasicCodeLocation("Fairness Slices", None),
+                                                           OperatorContext(OperatorType.SELECTION, None),
+                                                           DagNodeDetails(
+                                                               "Merge fixing diff with old predictions",
+                                                               None),
+                                                           None,
+                                                           FairnessSlices.update_prediction_diff)
                 new_dag.add_edge(old_predict, new_fix_predict_diff_update_node, arg_index=0)
                 new_dag.add_edge(test_predict, new_fix_predict_diff_update_node, arg_index=1)
                 new_dag.add_edge(new_fix_diff_node, new_fix_predict_diff_update_node, arg_index=2)
@@ -369,7 +369,7 @@ class FairnessSlices(ShadowPipeline):
                               BasicCodeLocation("Data Errors", None),
                               OperatorContext(OperatorType.CONCATENATION, None),
                               DagNodeDetails(
-                                  f"Concat sensitive attributes", None),
+                                  "Concat sensitive attributes", None),
                               None,
                               concat_processing_func)
 
@@ -381,7 +381,7 @@ class FairnessSlices(ShadowPipeline):
                                       BasicCodeLocation("Fairness Slices", None),
                                       OperatorContext(OperatorType.PROJECTION, None),
                                       DagNodeDetails(
-                                          f"Select sensitive attributes", None),
+                                          "Select sensitive attributes", None),
                                       None,
                                       projection_processing_func)
             new_dag.add_edge(data_source, projection_node, arg_index=0)
@@ -395,7 +395,7 @@ class FairnessSlices(ShadowPipeline):
                                       BasicCodeLocation("Fairness Slices", None),
                                       OperatorContext(OperatorType.PROJECTION, None),
                                       DagNodeDetails(
-                                          f"Select sensitive attributes", None),
+                                          "Select sensitive attributes", None),
                                       None,
                                       projection_processing_func)
             new_dag.add_edge(data_source, projection_node, arg_index=0)
@@ -405,7 +405,7 @@ class FairnessSlices(ShadowPipeline):
                                 BasicCodeLocation("Fairness Slices", None),
                                 OperatorContext(OperatorType.JOIN, None),
                                 DagNodeDetails(
-                                    f"Join on provenance", None),
+                                    "Join on provenance", None),
                                 None,
                                 join_processing_func)
             new_dag.add_edge(test_data_operators[0], join_node, arg_index=0)
@@ -419,7 +419,7 @@ class FairnessSlices(ShadowPipeline):
                                         BasicCodeLocation("Fairness Slices", None),
                                         OperatorContext(OperatorType.GROUP_BY_AGG, None),
                                         DagNodeDetails(
-                                            f"Run Slice Finder", None),
+                                            "Run Slice Finder", None),
                                         None,
                                         slice_finder_process_func)
         new_dag.add_edge(concat_node, new_slice_finder_node, arg_index=0)
@@ -432,7 +432,7 @@ class FairnessSlices(ShadowPipeline):
         problematic_slice_found_func = lambda slice_finder_result: (slice_finder_result[0] is not None and
                                                                     slice_finder_result[1] is not None)
         conditional_fix_made_changes_node = get_conditional_stop_node(
-            singleton, problematic_slice_found_func, f"fairness-slices-slice-line-problematic-slice-found",
+            singleton, problematic_slice_found_func, "fairness-slices-slice-line-problematic-slice-found",
             "Check if problematic slice was found", new_slice_finder_node)
         new_dag.add_edge(new_slice_finder_node, conditional_fix_made_changes_node, arg_index=0)
 
@@ -441,7 +441,7 @@ class FairnessSlices(ShadowPipeline):
                                             BasicCodeLocation("Fairness Slices", None),
                                             OperatorContext(OperatorType.GROUP_BY_AGG, None),
                                             DagNodeDetails(
-                                                f"Compute slice finder indexes", None),
+                                                "Compute slice finder indexes", None),
                                             None,
                                             process_func)
         new_dag.add_edge(new_slice_finder_node, slice_finder_indices_node, arg_index=0)
@@ -468,7 +468,7 @@ class FairnessSlices(ShadowPipeline):
                                         BasicCodeLocation("Fairness Slices", None),
                                         OperatorContext(OperatorType.GROUP_BY_AGG, None),
                                         DagNodeDetails(
-                                            f"Detect changed indices from fixing", None),
+                                            "Detect changed indices from fixing", None),
                                         None,
                                         FairnessSlices.corrupt_data_diff_detection)
             new_dag.add_edge(data_parent, new_fix_diff_node, arg_index=0)
@@ -476,18 +476,19 @@ class FairnessSlices(ShadowPipeline):
 
             condition_fix_function_made_changes_function = lambda np_array: len(np_array) != 0
             conditional_fix_made_changes_node = get_conditional_stop_node(
-                singleton, condition_fix_function_made_changes_function, f"fairness-slices-fixing-made-changes-{fix_strategy_index}",
+                singleton, condition_fix_function_made_changes_function,
+                f"fairness-slices-fixing-made-changes-{fix_strategy_index}",
                 "Check if fixing function made changes", new_fix_diff_node)
             new_dag.add_edge(new_fix_diff_node, conditional_fix_made_changes_node, arg_index=1)
 
             new_unmodified_fix_filter_node = DagNode(singleton.get_next_op_id(),
-                                                         BasicCodeLocation("Fairness Slices", None),
-                                                         OperatorContext(OperatorType.SELECTION, None),
-                                                         DagNodeDetails(
-                                                             f"Apply slice finder mask",
-                                                             None),
-                                                         None,
-                                                         FairnessSlices.apply_diff_filter)
+                                                     BasicCodeLocation("Fairness Slices", None),
+                                                     OperatorContext(OperatorType.SELECTION, None),
+                                                     DagNodeDetails(
+                                                         "Apply slice finder mask",
+                                                         None),
+                                                     None,
+                                                     FairnessSlices.apply_diff_filter)
             new_dag.add_edge(data_parent, new_unmodified_fix_filter_node, arg_index=0)
             new_dag.add_edge(new_fix_diff_node, new_unmodified_fix_filter_node, arg_index=1)
 
@@ -496,13 +497,13 @@ class FairnessSlices(ShadowPipeline):
             new_dag.add_edge(new_unmodified_fix_filter_node, extraction_node, arg_index=0)
 
             new_fix_diff_filter_node = DagNode(singleton.get_next_op_id(),
-                                                      BasicCodeLocation("Data Errors", None),
-                                                      OperatorContext(OperatorType.SELECTION, None),
-                                                      DagNodeDetails(
-                                                          f"Filter for diff only",
-                                                          None),
-                                                      None,
-                                                      FairnessSlices.apply_diff_filter)
+                                               BasicCodeLocation("Data Errors", None),
+                                               OperatorContext(OperatorType.SELECTION, None),
+                                               DagNodeDetails(
+                                                   "Filter for diff only",
+                                                   None),
+                                               None,
+                                               FairnessSlices.apply_diff_filter)
             new_dag.add_edge(new_fix_node, new_fix_diff_filter_node, arg_index=0)
             new_dag.add_edge(new_fix_diff_node, new_fix_diff_filter_node, arg_index=1)
             new_dag.add_edge(conditional_fix_made_changes_node, new_fix_diff_filter_node, arg_index=2)
@@ -530,7 +531,7 @@ class FairnessSlices(ShadowPipeline):
                                                        BasicCodeLocation("Fairness Slices", None),
                                                        OperatorContext(OperatorType.SELECTION, None),
                                                        DagNodeDetails(
-                                                           f"Merge fixing diff with old predictions",
+                                                           "Merge fixing diff with old predictions",
                                                            None),
                                                        None,
                                                        FairnessSlices.update_prediction_diff)
@@ -672,8 +673,12 @@ class FairnessSlices(ShadowPipeline):
         if fix_strategy == FixType.TEXT_TRANSLATE:
             was_series = False
             was_numpy = False
+            series_column_name = None
             if isinstance(fixed_corrupted, pandas.Series):
-                fixed_corrupted = pandas.DataFrame(fixed_corrupted)
+                series_column_name = fixed_corrupted.name
+                if series_column_name is None:
+                    series_column_name = "column"
+                fixed_corrupted = pandas.DataFrame({series_column_name: fixed_corrupted})
                 was_series = True
             elif isinstance(fixed_corrupted, (numpy.ndarray, list)):
                 fixed_corrupted = pandas.DataFrame({"column": fixed_corrupted})
@@ -684,7 +689,7 @@ class FairnessSlices(ShadowPipeline):
                     fixed_corrupted.iloc[only_fix_indices, [column_index]] = translate_transformer.fit_transform(
                         fixed_corrupted.iloc[only_fix_indices, [column_index]])
             if was_series is True:
-                fixed_corrupted = fixed_corrupted[column]
+                fixed_corrupted = fixed_corrupted[series_column_name]
             elif was_numpy is True:
                 fixed_corrupted = fixed_corrupted["column"].to_numpy()
         elif fix_strategy == FixType.TEXT_SPELLCHECK:
@@ -863,7 +868,7 @@ class FairnessSlices(ShadowPipeline):
         right_prov_columns = []
         right_prov_dict = {}
         for prov_key, prov_values in right_prov.items():
-            current_data_source, index_to_deduplicate = prov_key.rsplit('_', 1)
+            current_data_source, _ = prov_key.rsplit('_', 1)
             if int(current_data_source) == target_data_source_id:
                 right_prov_columns.append(prov_key)
                 right_prov_dict[prov_key] = prov_values

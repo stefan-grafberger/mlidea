@@ -164,8 +164,12 @@ class PipelineExecutor:
             self.analysis_results.original_dag.copy(), self.original_pipeline_labels_to_extracted_plan_results.copy(),
             self.next_op_id, self.next_patch_id, self.next_missing_op_id)
 
-        # Shadow Pipeline stuff
-        #  TODO: Extract this into new functions
+        self.gen_and_exec_shadow_pipelines()
+
+        logger.info('Done!')
+        return self.analysis_results
+
+    def gen_and_exec_shadow_pipelines(self):
         for shadow_pipeline in self.shadow_pipelines:
             shadow_dag = shadow_pipeline.generate_shadow_pipeline_dag(self.analysis_results.original_dag.copy())
             DagExecutor(self).execute(shadow_dag, self.use_dfs_exec_strategy)
@@ -174,9 +178,6 @@ class PipelineExecutor:
         for shadow_pipeline in self.shadow_pipelines:
             report = shadow_pipeline.generate_final_report(self.labels_to_extracted_plan_results)
             self.analysis_results.shadow_pipelines_to_result_reports[shadow_pipeline] = report
-        # End Shadow Pipeline stuff
-        logger.info('Done!')
-        return self.analysis_results
 
     def run_what_if_analyses(self):
         """

@@ -103,8 +103,7 @@ def test_data_errors_mini_example_llm_rag(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[data_errors]
-    # assert report.shape == (4, 2)
-    # assert "the pipeline metric was" in report
+    assert "Issue " in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 

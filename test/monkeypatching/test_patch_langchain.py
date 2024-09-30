@@ -1,8 +1,6 @@
 """
 Tests whether the monkey patching works for all patched sklearn methods
 """
-# pylint: disable=unused-import, unused-variable
-# FIXME: do we want to support the analyses or not? either fix tests or remove
 import os
 from functools import partial
 from types import FunctionType
