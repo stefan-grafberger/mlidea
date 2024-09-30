@@ -1,3 +1,4 @@
+from copy import copy
 from functools import partial
 
 import duckdb
@@ -15,6 +16,7 @@ from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
     get_sorted_parent_nodes
 from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
+from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
 
 
 class LabelErrors(ShadowPipeline):
@@ -207,12 +209,33 @@ class LabelErrors(ShadowPipeline):
         new_dag.add_edge(new_label_flip_indices_node, new_label_flip_node, arg_index=3)
         new_dag.add_edge(test_data_operators[0], new_label_flip_node, arg_index=4)
 
-        # FIXME: Rerun predictions only on the diff like in data errors!!!
-        #  We now have the intermediate results
+        new_fix_diff_filter_node = DagNode(singleton.get_next_op_id(),
+                                           BasicCodeLocation("Data Errors", None),
+                                           OperatorContext(OperatorType.SELECTION, None),
+                                           DagNodeDetails(
+                                               "Filter for diff only",
+                                               None),
+                                           None,
+                                           LabelErrors.apply_diff_filter)
+        new_dag.add_edge(new_label_flip_node, new_fix_diff_filter_node, arg_index=0)
+        new_dag.add_edge(new_label_flip_indices_node, new_fix_diff_filter_node, arg_index=1)
 
         new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
-        new_dag.add_edge(new_label_flip_node, new_predict_node, arg_index=0)
-        LabelErrors.add_new_score_and_score_extraction_nodes(new_dag, new_predict_node, score_operators,
+        new_dag.add_edge(new_fix_diff_filter_node, new_predict_node, arg_index=0)
+
+        new_fix_predict_diff_update_node = DagNode(singleton.get_next_op_id(),
+                                                   BasicCodeLocation("Label Errors", None),
+                                                   OperatorContext(OperatorType.SELECTION, None),
+                                                   DagNodeDetails(
+                                                       "Merge fixing diff with old predictions",
+                                                       None),
+                                                   None,
+                                                   LabelErrors.update_prediction_diff)
+        new_dag.add_edge(predict_operators[0], new_fix_predict_diff_update_node, arg_index=0)
+        new_dag.add_edge(new_predict_node, new_fix_predict_diff_update_node, arg_index=1)
+        new_dag.add_edge(new_label_flip_indices_node, new_fix_predict_diff_update_node, arg_index=2)
+
+        LabelErrors.add_new_score_and_score_extraction_nodes(new_dag, new_fix_predict_diff_update_node, score_operators,
                                                              test_labels_operators, "label-errors-flip-retrain")
         return new_dag
 
@@ -471,3 +494,33 @@ class LabelErrors(ShadowPipeline):
         estimator = make_classifier_func()
         estimator.fit(train_data, train_labels)
         return estimator
+
+    @staticmethod
+    def update_prediction_diff(old_predictions, prediction_diff, prediction_index):
+        updated_predictions = numpy.array(old_predictions.copy())
+        updated_predictions[prediction_index] = prediction_diff
+        return updated_predictions
+
+    @staticmethod
+    def apply_diff_filter(input_df, corrupted_index):
+        # TODO
+        if isinstance(input_df, (pandas.DataFrame, pandas.Series)):
+            input_df = input_df.reset_index(drop=True)
+        if isinstance(input_df, (pandas.DataFrame, pandas.Series)):
+            corrupted_diff = input_df.iloc[corrupted_index]
+        elif isinstance(input_df, list):
+            corrupted_diff = numpy.array(input_df)[corrupted_index]
+        elif isinstance(input_df, tuple) and len(input_df) == 8:  # RAG Join Result
+            corrupted_diff = list(copy(input_df))
+            corrupted_diff[2] = list(numpy.array(corrupted_diff[2])[corrupted_index])
+            corrupted_diff[3] = list(numpy.array(corrupted_diff[3])[corrupted_index])
+            corrupted_diff[6] = corrupted_diff[6][corrupted_index, :]
+            corrupted_diff = tuple(corrupted_diff)
+        else:
+            corrupted_diff = input_df[corrupted_index]
+        if isinstance(corrupted_diff, (pandas.Series, pandas.DataFrame)):
+            corrupted_diff = corrupted_diff.reset_index(drop=True)
+        corrupted_diff = wrap_in_mlinspect_array_if_necessary(corrupted_diff)
+        corrupted_diff._mlinspect_provenance = None
+
+        return corrupted_diff
