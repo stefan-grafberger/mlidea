@@ -12,8 +12,7 @@ from sklearn.preprocessing import FunctionTransformer
 
 from mlidea.instrumentation._operator_types import ConditionalResult
 from mlidea import DagNode, OperatorContext, OperatorType, DagNodeDetails
-from shadow_pipelines.cached_text_transformer import CachedTextTransformer
-from utils import get_project_root
+from mlidea.shadow_pipelines.cached_text_transformer import CachedTextTransformer
 
 
 def get_intermediate_extraction_node(singleton, dag_node, label: str):

@@ -5,8 +5,8 @@ from example_pipelines.healthcare import custom_monkeypatching
 from mlidea import PipelineAnalyzer
 from mlidea.testing._testing_helper_utils import visualize_dags_shadow_pipelines, get_llm_rag_mini_example_code, \
     get_llm_rag_mini_example_test_side_info_code
-from shadow_pipelines._slices import FairnessSlices
-from utils import get_project_root
+from mlidea.shadow_pipelines._slices import FairnessSlices
+from mlidea.utils import get_project_root
 
 
 DATABASE_PATH_FUNC_TRANSFORMER = f"{str(get_project_root())}/test/offline/.function_transformer_cache.db"
