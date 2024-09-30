@@ -8,6 +8,7 @@ import numpy
 import pandas
 from autocorrect import Speller
 from deep_translator import GoogleTranslator
+from fairlearn.metrics import MetricFrame
 from sklearn.preprocessing import FunctionTransformer
 
 from mlidea.instrumentation._operator_types import ConditionalResult
@@ -364,4 +365,25 @@ def get_translate_transformer(column, database_path):
     translate_transformer = CachedTextTransformer(translate_transformer,
                                                   database_path=database_path)
     return translate_transformer
+
+
+def get_max_relative_score_improvement(*old_scores_and_new_scores):
+    # This function compares all scores of the original pipeline and the corrupted pipeline
+    # So the number of scores in both pipeline variants should be equal
+    assert len(old_scores_and_new_scores) % 2 == 0
+    number_of_scores_each = int(len(old_scores_and_new_scores) / 2)
+    score_differences = []
+    for score_index in range(number_of_scores_each):
+        if isinstance(old_scores_and_new_scores[score_index], float):
+            score_difference = (old_scores_and_new_scores[score_index + number_of_scores_each] /
+                                old_scores_and_new_scores[score_index]
+                                if old_scores_and_new_scores[score_index] else 0)
+        elif isinstance(old_scores_and_new_scores[score_index], MetricFrame):
+            score_difference = (old_scores_and_new_scores[score_index + number_of_scores_each].overall /
+                                old_scores_and_new_scores[score_index].overall
+                                if old_scores_and_new_scores[score_index].overall else 0)
+        else:
+            raise NotImplementedError("TODO")
+        score_differences.append(score_difference)
+    return max(score_differences)
 

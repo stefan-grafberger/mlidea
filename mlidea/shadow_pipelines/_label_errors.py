@@ -14,7 +14,7 @@ from mlidea.analysis._analysis_utils import find_nodes_by_type
 from mlidea import OperatorType, DagNode, BasicCodeLocation, OperatorContext, DagNodeDetails
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
-    get_sorted_parent_nodes, get_conditional_stop_node
+    get_sorted_parent_nodes, get_conditional_stop_node, get_max_relative_score_improvement
 from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
 from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
 
@@ -206,10 +206,8 @@ class LabelErrors(ShadowPipeline):
                                               None,
                                               LabelErrors.get_rows_to_flip_llm)
         new_dag.add_edge(rag_join_operators[0], new_label_flip_indices_node, arg_index=0)
-        new_dag.add_edge(train_labels_operators[0], new_label_flip_indices_node, arg_index=1)
-        new_dag.add_edge(new_shapley_node, new_label_flip_indices_node, arg_index=2)
-        new_dag.add_edge(test_data_operators[0], new_label_flip_indices_node, arg_index=3)
-        new_dag.add_edge(likely_mislabeled_rows_condition_node, new_label_flip_indices_node, arg_index=4)
+        new_dag.add_edge(new_shapley_node, new_label_flip_indices_node, arg_index=1)
+        new_dag.add_edge(likely_mislabeled_rows_condition_node, new_label_flip_indices_node, arg_index=2)
 
         new_label_flip_node = DagNode(singleton.get_next_op_id(),
                                       BasicCodeLocation("Label Errors", None),
@@ -268,14 +266,14 @@ class LabelErrors(ShadowPipeline):
         for score_index in range(self.score_operator_count):
             orig_result.append(extracted_plan_results[f"label-errors-orig-{score_index}"])
         report += f"The original result was {orig_result}.\n"
+        proxy_result = []
         if self._proxy_model is True:
-            proxy_result = []
             for score_index in range(self.score_operator_count):
                 proxy_result.append(extracted_plan_results[f"label-errors-proxy-{score_index}"])
             report += f"The proxy result was {proxy_result}.\n"
         shapley_values = extracted_plan_results["label-errors-shapley-values"]
         if extracted_plan_results["label-errors-shapley-values-non-empty"] is False:
-            report += "No likely mislabeled rows were found with the given label error config!"
+            report += "No likely mislabeled rows were found with the given label error config!\nNothing to do for now."
         else:
             flip_result = []
             for score_index in range(self.score_operator_count):
@@ -285,8 +283,24 @@ class LabelErrors(ShadowPipeline):
             if self._proxy_model is True:
                 report += " (with the proxy model)"
             report += (f".\nThe shapley values of the "
-                       f"most likely mislabeled rows:\n{str(shapley_values)}.")
-        # TODO: Add a final sentence with an action recommendation
+                       f"most likely mislabeled rows:\n{str(shapley_values)}")
+            if self._proxy_model is True:
+                max_score_improvement = get_max_relative_score_improvement(*proxy_result, *flip_result)
+            else:
+                max_score_improvement = get_max_relative_score_improvement(*orig_result, *flip_result)
+            if max_score_improvement > 1.:
+                report += (f"\n\nThe score increased by relabeling {self._cleaning_batch_size} rows by "
+                           f"{max_score_improvement}. You probably want to take a look at "
+                           f"the row labels again!")
+            else:
+                report += (f"\n\nWhile there are rows with potentially problematic shapley values that you could "
+                           f"take a look at, automatically flipping the top {self._cleaning_batch_size} most likely "
+                           f"incorrect labels did not lead to an improvement (the max relative score "
+                           f"was {max_score_improvement}).")
+            if self._proxy_model is True:
+                report += (" (However, that relative score difference is only calculated using the proxy model, so "
+                           "the score changes with the proxy model are not guaranteed to be similar to score changes "
+                           "for your actual model.)")
         return report
 
     @staticmethod
@@ -397,7 +411,7 @@ class LabelErrors(ShadowPipeline):
         return rows_to_fix
 
     @staticmethod
-    def get_rows_to_flip_llm(rag_join_result, encoded_train_labels, shapley_result, inputs):
+    def get_rows_to_flip_llm(rag_join_result, shapley_result):
         retrieval_index = rag_join_result[6]
         changed_df = shapley_result[['train_id']]
         pandas_retrieval_index_df = pandas.DataFrame(retrieval_index,
