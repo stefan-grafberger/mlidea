@@ -20,7 +20,7 @@ from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
     get_sorted_parent_nodes, duplicate_descendants, \
     get_typo_fixer, get_conditional_stop_node, filter_estimator_transformer_edges, get_transformer_operators_to_test, \
-    DataType, get_translate_transformer
+    DataType, get_translate_transformer, get_max_relative_score_improvement
 from mlidea.monkeypatching._provenance_propagation import wrap_projection_func
 
 
@@ -597,11 +597,13 @@ class FairnessSlices(ShadowPipeline):
         if self.sensitive_column_count == 0:
             report += "Slice finding could not be applied since no sensitive column could be found!"
         elif extracted_plan_results["fairness-slices-slice-line-problematic-slice-found"] is False:
-            report += "No problematic slice could be found by the slice finder."
+            report += ("No problematic slice could be found by Fairness Slices. However, this does not mean that "
+                       "there are no fairness problems, Fairness Slices only could not find any with the given config.")
         else:
             slice_line_result = extracted_plan_results["fairness-slices-slice-line-result"]
             report += f"The problematic slice that was found is {slice_line_result[0]}.\n"
 
+            promising_fix_strategies = []
             for fix_strategy_index, fix_strategy_name in enumerate(self.fix_strategy_names):
                 report += f"-\nRepair strategy {fix_strategy_index}: {fix_strategy_name}\n-\n"
                 if extracted_plan_results[f"fairness-slices-fixing-made-changes-{fix_strategy_index}"] is False:
@@ -633,12 +635,32 @@ class FairnessSlices(ShadowPipeline):
                     for score_index in range(self.score_operator_count):
                         fix_result.append(
                             extracted_plan_results[f"fairness-slice-fixing-{score_index}-{fix_strategy_index}"])
+
+                    max_score_improvement = get_max_relative_score_improvement(*orig_result, *fix_result)
                     report += (
                         f"After trying to automatically repair rows from this slice, "
-                        f"the pipeline metric was {fix_result}. A sample of the modified "
-                        f"rows:\n{str(fix_diff_df_sample)}.\n\n"
+                        f"the pipeline metric was {fix_result} (A change of {max_score_improvement}). "
+                        f"A sample of the modified rows:\n{str(fix_diff_df_sample)}.\n\n"
                         f"Before, these rows had the following values:\n{str(unmodified_diff_sample)}.\n")
-        # TODO: Add a final sentence with an action recommendation
+                    if max_score_improvement > 1.:
+                        promising_fix_strategies.append(fix_strategy_name)
+                        report += (
+                            f" It seems like changing the preprocessing of this datatype with a repair strategy like "
+                            f"{fix_strategy_name} could help to improve the pipeline.\n")
+                    else:
+                        report += (
+                            f" Repair strategy {fix_strategy_name} did not help to automatically improve the "
+                            f"the pipeline performance. However, this does not mean that changing the preprocessing "
+                            f"cannot help, it only means that Fairness Slices cannot find a promising "
+                            f"repair strategy automatically.\n")
+            if len(promising_fix_strategies) != 0:
+                report += (f"\n\nIt seems that the fix strategies {promising_fix_strategies} that Fairness Slices"
+                           f"  tried to improve the predictions for the problematic slice {slice_line_result[0]} "
+                           f"can lead to performance improvements. You could take a look at these.")
+            else:
+                report += (f"While the slice {slice_line_result[0]} seems to be problematic, Fairness Slices"
+                           f" cannot find any promising repair strategy automatically. However, you could try finding"
+                           f" one on your own.")
         return report
 
     @staticmethod
