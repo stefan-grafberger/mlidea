@@ -573,6 +573,8 @@ class DataErrorRobustness(ShadowPipeline):
         report = ""
         corrupted_data_types = []
         data_types_w_repairs = []
+        corruption_score_decreases = []
+        fix_score_increases = []
         for transformer_index, data_type_name in enumerate(self._transformer_inputs_to_check):
             report += (f"Issue {transformer_index}: {data_type_name}\n-\n")
             if extracted_plan_results[f"data-errors-corruption-made-changes-{transformer_index}"] is False:
@@ -593,11 +595,12 @@ class DataErrorRobustness(ShadowPipeline):
                     corrupt_result.append(
                         extracted_plan_results[f"data-errors-corrupt-{score_index}-{transformer_index}"])
                 max_score_decrease = get_relative_score_change(max_not_min=False, *orig_result, *corrupt_result)
+                corruption_score_decreases.append(max_score_decrease)
                 report += (
                     f"The original result was {orig_result}. After corrupting {self._corruption_fraction} of rows, "
                     f"the pipeline metric was {corrupt_result} (a relative change of {max_score_decrease} in the "
                     f"most extreme scenario).\n")
-                if max_score_decrease <= 0.99:
+                if max_score_decrease <= self._corruption_significant_relative_threshold:
                     report += "This indicates robustness problems you might want to take a look at!\n"
                     corrupted_data_types.append(data_type_name)
                 else:
@@ -638,6 +641,7 @@ class DataErrorRobustness(ShadowPipeline):
                                    "pipeline more robust (although other repair strategies Data Errors did not try "
                                    "might be even better).\n")
                         data_types_w_repairs.append(data_type_name)
+                        fix_score_increases.append(max_score_increase)
                     else:
                         report += ("This shows that the repair strategy Data Errors tried could not help with making "
                                    "your pipeline more robust. However, you might still want to fix the robustness "
@@ -648,10 +652,12 @@ class DataErrorRobustness(ShadowPipeline):
             report += "\n"
         if len(corrupted_data_types) > 0:
             report += (f"\n\nOverall, your pipeline does not seem very robust to the corruptions "
-                       f"{corrupted_data_types} that were tried!")
+                       f"{corrupted_data_types} that were tried (performance drops as extreme as "
+                       f"{min(corruption_score_decreases)})!")
             if len(data_types_w_repairs) > 0:
                 report += (f" However, for the cases {data_types_w_repairs}, data errors already found "
-                           f"a potential way to address them! (However, you might want to do more detailed experiments "
+                           f"a potential way to address them (that improve the performance on corrupted data by up to "
+                           f"{max(fix_score_increases)})! (However, you might want to do more detailed experiments "
                            f"yourself, but the suggestions by Data Errors might be a good starting point).")
             else:
                 report += (f" While Data Errors was not able to find a promising way to make your pipeline more "

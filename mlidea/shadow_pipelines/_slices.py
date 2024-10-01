@@ -654,8 +654,9 @@ class FairnessSlices(ShadowPipeline):
                             f"cannot help, it only means that Fairness Slices cannot find a promising "
                             f"repair strategy automatically.\n")
             if len(promising_fix_strategies) != 0:
-                report += (f"\n\nIt seems that the fix strategies {promising_fix_strategies} that Fairness Slices"
-                           f"  tried to improve the predictions for the problematic slice {slice_line_result[0]} "
+                report += (f"\n\nFairness Slices found the problematic slice {slice_line_result[0]}. "
+                           f"It seems that the fix strategies {promising_fix_strategies} that Fairness Slices"
+                           f" tried to improve the predictions for the problematic slice "
                            f"can lead to performance improvements. You could take a look at these.")
             else:
                 report += (f"While the slice {slice_line_result[0]} seems to be problematic, Fairness Slices"
