@@ -20,7 +20,7 @@ from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
     get_sorted_parent_nodes, duplicate_descendants, \
     get_typo_fixer, get_conditional_stop_node, filter_estimator_transformer_edges, get_transformer_operators_to_test, \
-    DataType, get_translate_transformer, get_max_relative_score_improvement
+    DataType, get_translate_transformer, get_relative_score_change
 from mlidea.monkeypatching._provenance_propagation import wrap_projection_func
 
 
@@ -636,7 +636,7 @@ class FairnessSlices(ShadowPipeline):
                         fix_result.append(
                             extracted_plan_results[f"fairness-slice-fixing-{score_index}-{fix_strategy_index}"])
 
-                    max_score_improvement = get_max_relative_score_improvement(*orig_result, *fix_result)
+                    max_score_improvement = get_relative_score_change(*orig_result, *fix_result)
                     report += (
                         f"After trying to automatically repair rows from this slice, "
                         f"the pipeline metric was {fix_result} (A change of {max_score_improvement}). "

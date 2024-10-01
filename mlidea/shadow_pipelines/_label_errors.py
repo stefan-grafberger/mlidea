@@ -14,7 +14,7 @@ from mlidea.analysis._analysis_utils import find_nodes_by_type
 from mlidea import OperatorType, DagNode, BasicCodeLocation, OperatorContext, DagNodeDetails
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
-    get_sorted_parent_nodes, get_conditional_stop_node, get_max_relative_score_improvement
+    get_sorted_parent_nodes, get_conditional_stop_node, get_relative_score_change
 from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
 from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
 
@@ -285,9 +285,9 @@ class LabelErrors(ShadowPipeline):
             report += (f".\nThe shapley values of the "
                        f"most likely mislabeled rows:\n{str(shapley_values)}")
             if self._proxy_model is True:
-                max_score_improvement = get_max_relative_score_improvement(*proxy_result, *flip_result)
+                max_score_improvement = get_relative_score_change(*proxy_result, *flip_result)
             else:
-                max_score_improvement = get_max_relative_score_improvement(*orig_result, *flip_result)
+                max_score_improvement = get_relative_score_change(*orig_result, *flip_result)
             if max_score_improvement > 1.:
                 report += (f"\n\nThe score increased by relabeling {self._cleaning_batch_size} rows by "
                            f"{max_score_improvement}. You probably want to take a look at "

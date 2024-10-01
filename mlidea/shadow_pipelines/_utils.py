@@ -367,8 +367,8 @@ def get_translate_transformer(column, database_path):
     return translate_transformer
 
 
-def get_max_relative_score_improvement(*old_scores_and_new_scores):
-    # This function compares all scores of the original pipeline and the corrupted pipeline
+def get_relative_score_change(*old_scores_and_new_scores, max_not_min=True):
+    # This function compares all scores of the original pipeline and the changed pipeline
     # So the number of scores in both pipeline variants should be equal
     assert len(old_scores_and_new_scores) % 2 == 0
     number_of_scores_each = int(len(old_scores_and_new_scores) / 2)
@@ -385,5 +385,13 @@ def get_max_relative_score_improvement(*old_scores_and_new_scores):
         else:
             raise NotImplementedError("TODO")
         score_differences.append(score_difference)
-    return max(score_differences)
+    if max_not_min is True:
+        result = max(score_differences)
+    else:
+        result = min(score_differences)
+    return result
+
+
+
+
 

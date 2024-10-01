@@ -17,7 +17,8 @@ from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
     get_sorted_parent_nodes, get_typo_adder, duplicate_descendants, \
-    get_typo_fixer, get_conditional_stop_node, DataType, get_transformer_operators_to_test
+    get_typo_fixer, get_conditional_stop_node, DataType, get_transformer_operators_to_test, \
+    get_relative_score_change
 
 
 class DataErrorRobustness(ShadowPipeline):
@@ -32,7 +33,7 @@ class DataErrorRobustness(ShadowPipeline):
         self._corruption_fraction = corruption_fraction
         self._shadow_pipeline_id = (corruption_fraction, corruption_significant_relative_threshold)
         self.score_operator_count = 0
-        self.transformer_inputs_to_check_count = 0
+        self._transformer_inputs_to_check = []
         self._corruption_significant_relative_threshold = corruption_significant_relative_threshold
 
     @property
@@ -76,9 +77,10 @@ class DataErrorRobustness(ShadowPipeline):
         self.score_operator_count = len(score_operators)
 
         data_parent_transformer_and_data_type = get_transformer_operators_to_test(dag)
-        self.transformer_inputs_to_check_count = len(data_parent_transformer_and_data_type)
+        self._transformer_inputs_to_check = []
 
         for data_type_index, (data_parent, transformer, data_type) in enumerate(data_parent_transformer_and_data_type):
+            self._transformer_inputs_to_check.append(data_type.value)
             processing_func = partial(DataErrorRobustness.corrupt_data,
                                       data_type=data_type,
                                       corruption_fraction=self._corruption_fraction)
@@ -344,7 +346,7 @@ class DataErrorRobustness(ShadowPipeline):
                                       "pattern!")
         DataErrorRobustness.add_orig_score_extraction_nodes(new_dag, score_operators)
         self.score_operator_count = len(score_operators)
-        self.transformer_inputs_to_check_count = 1
+        self._transformer_inputs_to_check = [DataType.TEXT.value]
 
         data_parent = test_data_operators[0]
         data_type = DataType.TEXT
@@ -569,8 +571,10 @@ class DataErrorRobustness(ShadowPipeline):
         for score_index in range(self.score_operator_count):
             orig_result.append(extracted_plan_results[f"label-errors-orig-{score_index}"])
         report = ""
-        for transformer_index in range(self.transformer_inputs_to_check_count):
-            report += (f"Issue {transformer_index}\n-\n")
+        corrupted_data_types = []
+        data_types_w_repairs = []
+        for transformer_index, data_type_name in enumerate(self._transformer_inputs_to_check):
+            report += (f"Issue {transformer_index}: {data_type_name}\n-\n")
             if extracted_plan_results[f"data-errors-corruption-made-changes-{transformer_index}"] is False:
                 report += "The corruption function did not make any changes."
             else:
@@ -588,10 +592,19 @@ class DataErrorRobustness(ShadowPipeline):
                 for score_index in range(self.score_operator_count):
                     corrupt_result.append(
                         extracted_plan_results[f"data-errors-corrupt-{score_index}-{transformer_index}"])
+                max_score_decrease = get_relative_score_change(max_not_min=False, *orig_result, *corrupt_result)
                 report += (
                     f"The original result was {orig_result}. After corrupting {self._corruption_fraction} of rows, "
-                    f"the pipeline metric was {corrupt_result}, indicating robustness problems. A sample of the corrupted "
-                    f"rows: {str(corruption_diff_df_sample)}. ")
+                    f"the pipeline metric was {corrupt_result} (a relative change of {max_score_decrease} in the "
+                    f"most extreme scenario).\n")
+                if max_score_decrease <= 0.99:
+                    report += "This indicates robustness problems you might want to take a look at!\n"
+                    corrupted_data_types.append(data_type_name)
+                else:
+                    report += ("This shows that your pipeline is relatively robust agaisnt the tested data quality "
+                               "problems. However, this doesn't mean that it is robust against other data quality "
+                               "problems!\n")
+                report += f"A sample of the corrupted rows: \n{str(corruption_diff_df_sample)}\n"
 
                 if extracted_plan_results[f"data-errors-corruption-significant-{transformer_index}"] is True:
                     corruption_diff_fix_df = extracted_plan_results[
@@ -613,16 +626,36 @@ class DataErrorRobustness(ShadowPipeline):
                 else:
                     report += (
                         "Fortunately, corruption function was not able to significantly affect the performance beyond "
-                        "the configured acceptable threshold.")
+                        "the configured acceptable threshold.\n")
                 if (extracted_plan_results[f"data-errors-corruption-significant-{transformer_index}"] is True and
                         extracted_plan_results[
                             f"data-errors-corruption-diff-fix-not-empty-{transformer_index}"] is True):
+                    max_score_increase = get_relative_score_change(*corrupt_result, *score_after_fixing)
                     report += (f"After adding a fix method, the pipeline metric was "
-                               f"{score_after_fixing}. A sample of the fixed rows: {str(corruption_diff_fix_df_sample)}")
+                               f"{score_after_fixing} (a relative change of {max_score_increase}).\n")
+                    if max_score_increase > 1.:
+                        report += ("This shows that the repair strategy Data Errors tried could help with making your "
+                                   "pipeline more robust (although other repair strategies Data Errors did not try "
+                                   "might be even better).\n")
+                        data_types_w_repairs.append(data_type_name)
+                    else:
+                        report += ("This shows that the repair strategy Data Errors tried could not help with making "
+                                   "your pipeline more robust. However, you might still want to fix the robustness "
+                                   "problems Data Errors found.\n")
+                    report += f"A sample of the fixed rows:\n{str(corruption_diff_fix_df_sample)}\n"
                 elif extracted_plan_results[f"data-errors-corruption-significant-{transformer_index}"] is True:
                     report += "Unfortunately, the fix method was not able to automatically address the corrupted rows."
             report += "\n"
-        # TODO: Add a final sentence with an action recommendation
+        if len(corrupted_data_types) > 0:
+            report += (f"\n\nOverall, your pipeline does not seem very robust to the corruptions "
+                       f"{corrupted_data_types} that were tried!")
+            if len(data_types_w_repairs) > 0:
+                report += (f" However, for the cases {data_types_w_repairs}, data errors already found "
+                           f"a potential way to address them! (However, you might want to do more detailed experiments "
+                           f"yourself, but the suggestions by Data Errors might be a good starting point).")
+            else:
+                report += (f" While Data Errors was not able to find a promising way to make your pipeline more "
+                           f"robust, you might want to investigate this issue yourself.")
         return report
 
     @staticmethod
