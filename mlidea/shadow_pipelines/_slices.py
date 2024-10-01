@@ -604,6 +604,7 @@ class FairnessSlices(ShadowPipeline):
             report += f"The problematic slice that was found is {slice_line_result[0]}.\n"
 
             promising_fix_strategies = []
+            performance_increases = []
             for fix_strategy_index, fix_strategy_name in enumerate(self.fix_strategy_names):
                 report += f"-\nRepair strategy {fix_strategy_index}: {fix_strategy_name}\n-\n"
                 if extracted_plan_results[f"fairness-slices-fixing-made-changes-{fix_strategy_index}"] is False:
@@ -637,6 +638,7 @@ class FairnessSlices(ShadowPipeline):
                             extracted_plan_results[f"fairness-slice-fixing-{score_index}-{fix_strategy_index}"])
 
                     max_score_improvement = get_relative_score_change(*orig_result, *fix_result)
+                    performance_increases.append(max_score_improvement)
                     report += (
                         f"After trying to automatically repair rows from this slice, "
                         f"the pipeline metric was {fix_result} (A change of {max_score_improvement}). "
@@ -657,7 +659,8 @@ class FairnessSlices(ShadowPipeline):
                 report += (f"\n\nFairness Slices found the problematic slice {slice_line_result[0]}. "
                            f"It seems that the fix strategies {promising_fix_strategies} that Fairness Slices"
                            f" tried to improve the predictions for the problematic slice "
-                           f"can lead to performance improvements. You could take a look at these.")
+                           f"can lead to performance improvements by up to {max(performance_increases)}. "
+                           f"You could take a look at these.")
             else:
                 report += (f"While the slice {slice_line_result[0]} seems to be problematic, Fairness Slices"
                            f" cannot find any promising repair strategy automatically. However, you could try finding"
