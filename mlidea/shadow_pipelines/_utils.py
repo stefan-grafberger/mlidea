@@ -13,7 +13,7 @@ from fairlearn.metrics import MetricFrame
 from sklearn.preprocessing import FunctionTransformer
 
 from mlidea.instrumentation._operator_types import ConditionalResult
-from mlidea import DagNode, OperatorContext, OperatorType, DagNodeDetails
+from mlidea import DagNode, OperatorContext, OperatorType, DagNodeDetails, BasicCodeLocation
 from mlidea.shadow_pipelines.cached_text_transformer import CachedTextTransformer
 from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
 from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
@@ -511,3 +511,26 @@ def prov_join_with_data_source(intermediate_df, data_source):
     result = wrap_in_mlinspect_array_if_necessary(result)
     result._mlinspect_provenance = intermediate_df_prov
     return result
+
+
+def get_diff_filter_node(singleton, shadow_pipeline_name):
+    new_fix_diff_filter_node = DagNode(singleton.get_next_op_id(),
+                                       BasicCodeLocation(shadow_pipeline_name, None),
+                                       OperatorContext(OperatorType.SELECTION, None),
+                                       DagNodeDetails(
+                                           "Filter for diff only",
+                                           None),
+                                       None,
+                                       apply_diff_filter)
+    return new_fix_diff_filter_node
+
+
+def get_changed_indices_node(singleton, shadow_pipeline_name):
+    new_changed_indices_node = DagNode(singleton.get_next_op_id(),
+                                       BasicCodeLocation(shadow_pipeline_name, None),
+                                       OperatorContext(OperatorType.GROUP_BY_AGG, None),
+                                       DagNodeDetails(
+                                           "Detect changed indices", None),
+                                       None,
+                                       changed_data_diff_detection)
+    return new_changed_indices_node

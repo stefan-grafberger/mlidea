@@ -17,8 +17,9 @@ from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
     get_sorted_parent_nodes, get_typo_adder, duplicate_descendants, \
     get_typo_fixer, get_conditional_stop_node, DataType, get_transformer_operators_to_test, \
-    get_relative_score_change, add_orig_score_extraction_nodes, apply_diff_filter, changed_data_diff_detection, \
-    update_prediction_diff, fix_data_diff_detection_mask_only, fix_data_mask_to_indices, rag_join_update
+    get_relative_score_change, add_orig_score_extraction_nodes, update_prediction_diff, \
+    fix_data_diff_detection_mask_only, fix_data_mask_to_indices, rag_join_update, \
+    get_diff_filter_node, get_changed_indices_node
 
 
 class DataErrorRobustness(ShadowPipeline):
@@ -93,13 +94,7 @@ class DataErrorRobustness(ShadowPipeline):
                                           processing_func)
             new_dag.add_edge(data_parent, new_corruption_node, arg_index=0)
 
-            new_corruption_diff_node = DagNode(singleton.get_next_op_id(),
-                                               BasicCodeLocation("Data Errors", None),
-                                               OperatorContext(OperatorType.GROUP_BY_AGG, None),
-                                               DagNodeDetails(
-                                                   "Detect changed indices from corrupting", None),
-                                               None,
-                                               changed_data_diff_detection)
+            new_corruption_diff_node = get_changed_indices_node(singleton, "Data Errors")
             new_dag.add_edge(data_parent, new_corruption_diff_node, arg_index=0)
             new_dag.add_edge(new_corruption_node, new_corruption_diff_node, arg_index=1)
 
@@ -109,14 +104,7 @@ class DataErrorRobustness(ShadowPipeline):
                 "Check if corrupt function made changes", new_corruption_diff_node)
             new_dag.add_edge(new_corruption_diff_node, conditional_corruption_made_changes_node, arg_index=1)
 
-            new_corruption_diff_filter_node = DagNode(singleton.get_next_op_id(),
-                                                      BasicCodeLocation("Data Errors", None),
-                                                      OperatorContext(OperatorType.SELECTION, None),
-                                                      DagNodeDetails(
-                                                          "Filter for diff only",
-                                                          None),
-                                                      None,
-                                                      apply_diff_filter)
+            new_corruption_diff_filter_node = get_diff_filter_node(singleton, "Data Errors")
             new_dag.add_edge(new_corruption_node, new_corruption_diff_filter_node, arg_index=0)
             new_dag.add_edge(new_corruption_diff_node, new_corruption_diff_filter_node, arg_index=1)
             new_dag.add_edge(conditional_corruption_made_changes_node, new_corruption_diff_filter_node, arg_index=2)
@@ -142,14 +130,7 @@ class DataErrorRobustness(ShadowPipeline):
                         if concat_parent not in new_nodes:
                             edge_data = new_dag.get_edge_data(concat_parent, concat)
                             new_dag.remove_edge(concat_parent, concat)
-                            new_concat_parent_filter_node = DagNode(singleton.get_next_op_id(),
-                                                                    BasicCodeLocation("Data Errors", None),
-                                                                    OperatorContext(OperatorType.SELECTION, None),
-                                                                    DagNodeDetails(
-                                                                        "Filter for diff only",
-                                                                        None),
-                                                                    None,
-                                                                    apply_diff_filter)
+                            new_concat_parent_filter_node = get_diff_filter_node(singleton, "Data Errors")
                             new_dag.add_edge(concat_parent, new_concat_parent_filter_node, arg_index=0)
                             new_dag.add_edge(new_corruption_diff_node, new_concat_parent_filter_node, arg_index=1)
                             new_dag.add_edge(conditional_corruption_made_changes_node, new_concat_parent_filter_node,
@@ -215,14 +196,7 @@ class DataErrorRobustness(ShadowPipeline):
             new_dag.add_edge(new_corruption_diff_node, new_fix_node, arg_index=1)
             new_dag.add_edge(conditional_corruption_significant_node, new_fix_node, arg_index=2)
 
-            new_fix_with_corruption_change_filter_node = DagNode(singleton.get_next_op_id(),
-                                                                 BasicCodeLocation("Data Errors", None),
-                                                                 OperatorContext(OperatorType.SELECTION, None),
-                                                                 DagNodeDetails(
-                                                                     "Filter for diff only",
-                                                                     None),
-                                                                 None,
-                                                                 apply_diff_filter)
+            new_fix_with_corruption_change_filter_node = get_diff_filter_node(singleton, "Data Errors")
             new_dag.add_edge(new_fix_node, new_fix_with_corruption_change_filter_node, arg_index=0)
             new_dag.add_edge(new_corruption_diff_node, new_fix_with_corruption_change_filter_node, arg_index=1)
             new_dag.add_edge(conditional_corruption_made_changes_node, new_fix_with_corruption_change_filter_node,
@@ -257,14 +231,7 @@ class DataErrorRobustness(ShadowPipeline):
                 "Check if fix function made changes", new_fix_diff_indices_node)
             new_dag.add_edge(new_fix_diff_indices_node, conditional_fixes_changed_something_node, arg_index=0)
 
-            new_fix_diff_filter_node = DagNode(singleton.get_next_op_id(),
-                                               BasicCodeLocation("Data Errors", None),
-                                               OperatorContext(OperatorType.SELECTION, None),
-                                               DagNodeDetails(
-                                                   "Filter for diff only",
-                                                   None),
-                                               None,
-                                               apply_diff_filter)
+            new_fix_diff_filter_node = get_diff_filter_node(singleton, "Data Errors")
             new_dag.add_edge(new_fix_node, new_fix_diff_filter_node, arg_index=0)
             new_dag.add_edge(new_fix_diff_indices_node, new_fix_diff_filter_node, arg_index=1)
             new_dag.add_edge(conditional_fixes_changed_something_node, new_fix_diff_filter_node, arg_index=2)
@@ -286,14 +253,7 @@ class DataErrorRobustness(ShadowPipeline):
                         if concat_parent not in new_nodes:
                             edge_data = new_dag.get_edge_data(concat_parent, concat)
                             new_dag.remove_edge(concat_parent, concat)
-                            new_concat_parent_filter_node = DagNode(singleton.get_next_op_id(),
-                                                                    BasicCodeLocation("Data Errors", None),
-                                                                    OperatorContext(OperatorType.SELECTION, None),
-                                                                    DagNodeDetails(
-                                                                        "Filter for diff only",
-                                                                        None),
-                                                                    None,
-                                                                    apply_diff_filter)
+                            new_concat_parent_filter_node = get_diff_filter_node(singleton, "Data Errors")
                             new_dag.add_edge(concat_parent, new_concat_parent_filter_node, arg_index=0)
                             new_dag.add_edge(new_fix_diff_indices_node, new_concat_parent_filter_node, arg_index=1)
                             new_dag.add_edge(new_concat_parent_filter_node, concat, **edge_data)
@@ -363,13 +323,7 @@ class DataErrorRobustness(ShadowPipeline):
                                       processing_func)
         new_dag.add_edge(data_parent, new_corruption_node, arg_index=0)
 
-        new_corruption_diff_node = DagNode(singleton.get_next_op_id(),
-                                           BasicCodeLocation("Data Errors", None),
-                                           OperatorContext(OperatorType.GROUP_BY_AGG, None),
-                                           DagNodeDetails(
-                                               "Detect changed indices from corrupting", None),
-                                           None,
-                                           changed_data_diff_detection)
+        new_corruption_diff_node = get_changed_indices_node(singleton, "Data Errors")
         new_dag.add_edge(data_parent, new_corruption_diff_node, arg_index=0)
         new_dag.add_edge(new_corruption_node, new_corruption_diff_node, arg_index=1)
 
@@ -379,14 +333,7 @@ class DataErrorRobustness(ShadowPipeline):
             "Check if corrupt function made changes", new_corruption_diff_node)
         new_dag.add_edge(new_corruption_diff_node, conditional_corruption_made_changes_node, arg_index=1)
 
-        new_corruption_diff_filter_node = DagNode(singleton.get_next_op_id(),
-                                                  BasicCodeLocation("Data Errors", None),
-                                                  OperatorContext(OperatorType.SELECTION, None),
-                                                  DagNodeDetails(
-                                                      "Filter for diff only",
-                                                      None),
-                                                  None,
-                                                  apply_diff_filter)
+        new_corruption_diff_filter_node = get_diff_filter_node(singleton, "Data Errors")
         new_dag.add_edge(new_corruption_node, new_corruption_diff_filter_node, arg_index=0)
         new_dag.add_edge(new_corruption_diff_node, new_corruption_diff_filter_node, arg_index=1)
         new_dag.add_edge(conditional_corruption_made_changes_node, new_corruption_diff_filter_node, arg_index=2)
@@ -463,14 +410,7 @@ class DataErrorRobustness(ShadowPipeline):
         new_dag.add_edge(new_corruption_diff_node, new_fix_node, arg_index=1)
         new_dag.add_edge(conditional_corruption_significant_node, new_fix_node, arg_index=2)
 
-        new_fix_with_corruption_change_filter_node = DagNode(singleton.get_next_op_id(),
-                                                             BasicCodeLocation("Data Errors", None),
-                                                             OperatorContext(OperatorType.SELECTION, None),
-                                                             DagNodeDetails(
-                                                                 "Filter for diff only",
-                                                                 None),
-                                                             None,
-                                                             apply_diff_filter)
+        new_fix_with_corruption_change_filter_node = get_diff_filter_node(singleton, "Data Errors")
         new_dag.add_edge(new_fix_node, new_fix_with_corruption_change_filter_node, arg_index=0)
         new_dag.add_edge(new_corruption_diff_node, new_fix_with_corruption_change_filter_node, arg_index=1)
         new_dag.add_edge(conditional_corruption_made_changes_node, new_fix_with_corruption_change_filter_node,
@@ -506,14 +446,7 @@ class DataErrorRobustness(ShadowPipeline):
             "Check if fix function made changes", new_fix_diff_indices_node)
         new_dag.add_edge(new_fix_diff_indices_node, conditional_fixes_changed_something_node, arg_index=0)
 
-        new_fix_diff_filter_node = DagNode(singleton.get_next_op_id(),
-                                           BasicCodeLocation("Data Errors", None),
-                                           OperatorContext(OperatorType.SELECTION, None),
-                                           DagNodeDetails(
-                                               "Filter for diff only",
-                                               None),
-                                           None,
-                                           apply_diff_filter)
+        new_fix_diff_filter_node = get_diff_filter_node(singleton, "Data Errors")
         new_dag.add_edge(new_fix_node, new_fix_diff_filter_node, arg_index=0)
         new_dag.add_edge(new_fix_diff_indices_node, new_fix_diff_filter_node, arg_index=1)
         new_dag.add_edge(conditional_fixes_changed_something_node, new_fix_diff_filter_node, arg_index=2)
