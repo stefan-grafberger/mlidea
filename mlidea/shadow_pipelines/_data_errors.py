@@ -18,7 +18,8 @@ from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
     get_sorted_parent_nodes, get_typo_adder, duplicate_descendants, \
     get_typo_fixer, get_conditional_stop_node, DataType, get_transformer_operators_to_test, \
-    get_relative_score_change, add_orig_score_extraction_nodes, apply_diff_filter, changed_data_diff_detection
+    get_relative_score_change, add_orig_score_extraction_nodes, apply_diff_filter, changed_data_diff_detection, \
+    update_prediction_diff, fix_data_diff_detection_mask_only, fix_data_mask_to_indices
 
 
 class DataErrorRobustness(ShadowPipeline):
@@ -167,7 +168,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                                "Merge corruption diff with old predictions",
                                                                None),
                                                            None,
-                                                           DataErrorRobustness.update_prediction_diff)
+                                                           update_prediction_diff)
             new_dag.add_edge(old_predict, new_corrupt_predict_diff_update_node, arg_index=0)
             new_dag.add_edge(test_predict, new_corrupt_predict_diff_update_node, arg_index=1)
             new_dag.add_edge(new_corruption_diff_node, new_corrupt_predict_diff_update_node, arg_index=2)
@@ -238,7 +239,7 @@ class DataErrorRobustness(ShadowPipeline):
                                              DagNodeDetails(
                                                  "Compute change mask from fixing", None),
                                              None,
-                                             DataErrorRobustness.fix_data_diff_detection_mask_only)
+                                             fix_data_diff_detection_mask_only)
             new_dag.add_edge(fix_input_node, new_fix_diff_mask_node, arg_index=0)
             new_dag.add_edge(new_fix_node, new_fix_diff_mask_node, arg_index=1)
 
@@ -248,7 +249,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                 DagNodeDetails(
                                                     "Compute changed indices from fixing", None),
                                                 None,
-                                                DataErrorRobustness.fix_data_mask_to_indices)
+                                                fix_data_mask_to_indices)
             new_dag.add_edge(new_fix_diff_mask_node, new_fix_diff_indices_node, arg_index=0)
 
             condition_fix_function = lambda np_array: len(np_array) != 0
@@ -309,7 +310,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                            "Merge fix diff with old predictions",
                                                            None),
                                                        None,
-                                                       DataErrorRobustness.update_prediction_diff)
+                                                       update_prediction_diff)
             new_dag.add_edge(new_corrupt_predict_diff_update_node, new_fix_predict_diff_update_node, arg_index=0)
             new_dag.add_edge(test_predict, new_fix_predict_diff_update_node, arg_index=1)
             new_dag.add_edge(prediction_filter_index_node, new_fix_predict_diff_update_node, arg_index=2)
@@ -417,7 +418,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                            "Merge corruption diff with old predictions",
                                                            None),
                                                        None,
-                                                       DataErrorRobustness.update_prediction_diff)
+                                                       update_prediction_diff)
         new_dag.add_edge(old_predict, new_corrupt_predict_diff_update_node, arg_index=0)
         new_dag.add_edge(test_predict, new_corrupt_predict_diff_update_node, arg_index=1)
         new_dag.add_edge(new_corruption_diff_node, new_corrupt_predict_diff_update_node, arg_index=2)
@@ -487,7 +488,7 @@ class DataErrorRobustness(ShadowPipeline):
                                          DagNodeDetails(
                                              "Compute change mask from fixing", None),
                                          None,
-                                         DataErrorRobustness.fix_data_diff_detection_mask_only)
+                                         fix_data_diff_detection_mask_only)
         new_dag.add_edge(fix_input_node, new_fix_diff_mask_node, arg_index=0)
         new_dag.add_edge(new_fix_node, new_fix_diff_mask_node, arg_index=1)
 
@@ -497,7 +498,7 @@ class DataErrorRobustness(ShadowPipeline):
                                             DagNodeDetails(
                                                 "Compute changed indices from fixing", None),
                                             None,
-                                            DataErrorRobustness.fix_data_mask_to_indices)
+                                            fix_data_mask_to_indices)
         new_dag.add_edge(new_fix_diff_mask_node, new_fix_diff_indices_node, arg_index=0)
 
         condition_fix_function = lambda np_array: len(np_array) != 0
@@ -541,7 +542,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                        "Merge fix diff with old predictions",
                                                        None),
                                                    None,
-                                                   DataErrorRobustness.update_prediction_diff)
+                                                   update_prediction_diff)
         new_dag.add_edge(new_corrupt_predict_diff_update_node, new_fix_predict_diff_update_node, arg_index=0)
         new_dag.add_edge(test_predict, new_fix_predict_diff_update_node, arg_index=1)
         new_dag.add_edge(prediction_filter_index_node, new_fix_predict_diff_update_node, arg_index=2)
@@ -701,12 +702,6 @@ class DataErrorRobustness(ShadowPipeline):
         return corrupted_result
 
     @staticmethod
-    def update_prediction_diff(old_predictions, prediction_diff, prediction_index):
-        updated_predictions = numpy.array(old_predictions.copy())
-        updated_predictions[prediction_index] = prediction_diff
-        return updated_predictions
-
-    @staticmethod
     def fix_data(input_df, only_fix_indices=None, data_type=None):
         fixed_corrupted = input_df.copy()
         if data_type == DataType.TEXT:
@@ -769,29 +764,6 @@ class DataErrorRobustness(ShadowPipeline):
         fixed_corrupted._mlinspect_provenance = None
 
         return fixed_corrupted
-
-    @staticmethod
-    def fix_data_diff_detection_mask_only(input_df, corrupted_result):
-        if isinstance(input_df, (pandas.Series, pandas.DataFrame)):
-            input_df = input_df.reset_index(drop=True)
-        elif isinstance(input_df, list):
-            input_df = numpy.array(input_df)
-        if isinstance(corrupted_result, (pandas.Series, pandas.DataFrame)):
-            corrupted_result = corrupted_result.reset_index(drop=True)
-        elif isinstance(corrupted_result, list):
-            corrupted_result = numpy.array(corrupted_result)
-        if isinstance(input_df, pandas.Series):
-            corrupt_diff_mask = (corrupted_result != input_df).to_numpy()
-        elif len(input_df.shape) == 2:
-            corrupt_diff_mask = numpy.any(corrupted_result != input_df, axis=1)
-        else:
-            corrupt_diff_mask = corrupted_result != input_df
-        return corrupt_diff_mask
-
-    @staticmethod
-    def fix_data_mask_to_indices(corrupt_diff_mask):
-        changed_indices_corrupt = numpy.where(corrupt_diff_mask)[0]
-        return changed_indices_corrupt
 
     @staticmethod
     def rag_join_update(rag_join_result, inputs):

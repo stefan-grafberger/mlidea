@@ -158,7 +158,7 @@ def test_multiple_shadow_pipelines(tmpdir):
     report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
     assert "the pipeline metric was" in report_label_errors
     assert "the pipeline metric was" in report_data_errors
-    assert "The problematic slice that was found is" in report_fairness_slices
+    assert "The original result" in report_fairness_slices
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 

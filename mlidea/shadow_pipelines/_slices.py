@@ -21,7 +21,7 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     get_sorted_parent_nodes, duplicate_descendants, \
     get_typo_fixer, get_conditional_stop_node, filter_estimator_transformer_edges, get_transformer_operators_to_test, \
     DataType, get_translate_transformer, get_relative_score_change, add_orig_score_extraction_nodes, apply_diff_filter, \
-    projection, changed_data_diff_detection
+    projection, changed_data_diff_detection, update_prediction_diff
 from mlidea.monkeypatching._provenance_propagation import wrap_projection_func
 
 
@@ -314,7 +314,7 @@ class FairnessSlices(ShadowPipeline):
                                                                "Merge fixing diff with old predictions",
                                                                None),
                                                            None,
-                                                           FairnessSlices.update_prediction_diff)
+                                                           update_prediction_diff)
                 new_dag.add_edge(old_predict, new_fix_predict_diff_update_node, arg_index=0)
                 new_dag.add_edge(test_predict, new_fix_predict_diff_update_node, arg_index=1)
                 new_dag.add_edge(new_fix_diff_node, new_fix_predict_diff_update_node, arg_index=2)
@@ -535,7 +535,7 @@ class FairnessSlices(ShadowPipeline):
                                                            "Merge fixing diff with old predictions",
                                                            None),
                                                        None,
-                                                       FairnessSlices.update_prediction_diff)
+                                                       update_prediction_diff)
             new_dag.add_edge(old_predict, new_fix_predict_diff_update_node, arg_index=0)
             new_dag.add_edge(test_predict, new_fix_predict_diff_update_node, arg_index=1)
             new_dag.add_edge(new_fix_diff_node, new_fix_predict_diff_update_node, arg_index=2)
@@ -660,12 +660,6 @@ class FairnessSlices(ShadowPipeline):
                            f" cannot find any promising repair strategy automatically. However, you could try finding"
                            f" one on your own.")
         return report
-
-    @staticmethod
-    def update_prediction_diff(old_predictions, prediction_diff, prediction_index):
-        updated_predictions = numpy.array(old_predictions.copy())
-        updated_predictions[prediction_index] = prediction_diff
-        return updated_predictions
 
     @staticmethod
     def fix_data(input_df, only_fix_indices=None, fix_strategy=None, database_path=None):

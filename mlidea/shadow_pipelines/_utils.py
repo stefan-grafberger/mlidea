@@ -433,15 +433,35 @@ def projection(column_names, input):
 
 
 def changed_data_diff_detection(input_df, corrupted_result):
+    corrupt_diff_mask = fix_data_diff_detection_mask_only(input_df, corrupted_result)
+    changed_indices_corrupt = fix_data_mask_to_indices(corrupt_diff_mask)
+    return changed_indices_corrupt
+
+
+def fix_data_diff_detection_mask_only(input_df, corrupted_result):
     if isinstance(input_df, (pandas.Series, pandas.DataFrame)):
         input_df = input_df.reset_index(drop=True)
+    elif isinstance(input_df, list):
+        input_df = numpy.array(input_df)
     if isinstance(corrupted_result, (pandas.Series, pandas.DataFrame)):
         corrupted_result = corrupted_result.reset_index(drop=True)
+    elif isinstance(corrupted_result, list):
+        corrupted_result = numpy.array(corrupted_result)
     if isinstance(input_df, pandas.Series):
         corrupt_diff_mask = (corrupted_result != input_df).to_numpy()
-    elif isinstance(input_df, list):
-        corrupt_diff_mask = numpy.array(corrupted_result) != numpy.array(input_df)
-    else:
+    elif len(input_df.shape) == 2:
         corrupt_diff_mask = numpy.any(corrupted_result != input_df, axis=1)
+    else:
+        corrupt_diff_mask = corrupted_result != input_df
+    return corrupt_diff_mask
+
+
+def fix_data_mask_to_indices(corrupt_diff_mask):
     changed_indices_corrupt = numpy.where(corrupt_diff_mask)[0]
     return changed_indices_corrupt
+
+
+def update_prediction_diff(old_predictions, prediction_diff, prediction_index):
+    updated_predictions = numpy.array(old_predictions.copy())
+    updated_predictions[prediction_index] = prediction_diff
+    return updated_predictions

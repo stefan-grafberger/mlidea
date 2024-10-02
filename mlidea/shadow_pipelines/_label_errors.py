@@ -15,7 +15,7 @@ from mlidea import OperatorType, DagNode, BasicCodeLocation, OperatorContext, Da
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
     get_sorted_parent_nodes, get_conditional_stop_node, get_relative_score_change, add_orig_score_extraction_nodes, \
-    apply_diff_filter
+    apply_diff_filter, update_prediction_diff
 from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
 
 
@@ -244,7 +244,7 @@ class LabelErrors(ShadowPipeline):
                                                        "Merge fixing diff with old predictions",
                                                        None),
                                                    None,
-                                                   LabelErrors.update_prediction_diff)
+                                                   update_prediction_diff)
         new_dag.add_edge(predict_operators[0], new_fix_predict_diff_update_node, arg_index=0)
         new_dag.add_edge(new_predict_node, new_fix_predict_diff_update_node, arg_index=1)
         new_dag.add_edge(new_label_flip_indices_node, new_fix_predict_diff_update_node, arg_index=2)
@@ -525,9 +525,3 @@ class LabelErrors(ShadowPipeline):
         estimator = make_classifier_func()
         estimator.fit(train_data, train_labels)
         return estimator
-
-    @staticmethod
-    def update_prediction_diff(old_predictions, prediction_diff, prediction_index):
-        updated_predictions = numpy.array(old_predictions.copy())
-        updated_predictions[prediction_index] = prediction_diff
-        return updated_predictions
