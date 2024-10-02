@@ -20,7 +20,8 @@ from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
     get_sorted_parent_nodes, duplicate_descendants, \
     get_typo_fixer, get_conditional_stop_node, filter_estimator_transformer_edges, get_transformer_operators_to_test, \
-    DataType, get_translate_transformer, get_relative_score_change, add_orig_score_extraction_nodes
+    DataType, get_translate_transformer, get_relative_score_change, add_orig_score_extraction_nodes, apply_diff_filter, \
+    projection, changed_data_diff_detection
 from mlidea.monkeypatching._provenance_propagation import wrap_projection_func
 
 
@@ -131,7 +132,7 @@ class FairnessSlices(ShadowPipeline):
 
         for data_source, column_names in data_sources_concat.items():
             projection_processing_func = wrap_projection_func(
-                partial(FairnessSlices.projection_processing_func, column_names))
+                partial(projection, column_names))
 
             projection_node = DagNode(singleton.get_next_op_id(),
                                       BasicCodeLocation("Fairness Slices", None),
@@ -145,7 +146,7 @@ class FairnessSlices(ShadowPipeline):
 
         for data_source, column_names in data_sources_prov_join.items():
             projection_processing_func = wrap_projection_func(
-                partial(FairnessSlices.projection_processing_func, column_names))
+                partial(projection, column_names))
 
             projection_node = DagNode(singleton.get_next_op_id(),
                                       BasicCodeLocation("Fairness Slices", None),
@@ -228,7 +229,7 @@ class FairnessSlices(ShadowPipeline):
                                             DagNodeDetails(
                                                 "Detect changed indices from fixing", None),
                                             None,
-                                            FairnessSlices.corrupt_data_diff_detection)
+                                            changed_data_diff_detection)
                 new_dag.add_edge(data_parent, new_fix_diff_node, arg_index=0)
                 new_dag.add_edge(new_fix_node, new_fix_diff_node, arg_index=1)
 
@@ -246,7 +247,7 @@ class FairnessSlices(ShadowPipeline):
                                                              "Apply slice finder mask",
                                                              None),
                                                          None,
-                                                         FairnessSlices.apply_diff_filter)
+                                                         apply_diff_filter)
                 new_dag.add_edge(data_parent, new_unmodified_fix_filter_node, arg_index=0)
                 new_dag.add_edge(new_fix_diff_node, new_unmodified_fix_filter_node, arg_index=1)
 
@@ -261,7 +262,7 @@ class FairnessSlices(ShadowPipeline):
                                                        "Filter for diff only",
                                                        None),
                                                    None,
-                                                   FairnessSlices.apply_diff_filter)
+                                                   apply_diff_filter)
                 new_dag.add_edge(new_fix_node, new_fix_diff_filter_node, arg_index=0)
                 new_dag.add_edge(new_fix_diff_node, new_fix_diff_filter_node, arg_index=1)
                 new_dag.add_edge(conditional_fix_function_made_changes_node, new_fix_diff_filter_node, arg_index=2)
@@ -294,7 +295,7 @@ class FairnessSlices(ShadowPipeline):
                                                                             "Filter for diff only",
                                                                             None),
                                                                         None,
-                                                                        FairnessSlices.apply_diff_filter)
+                                                                        apply_diff_filter)
                                 new_dag.add_edge(concat_parent, new_concat_parent_filter_node, arg_index=0)
                                 new_dag.add_edge(new_fix_diff_node, new_concat_parent_filter_node, arg_index=1)
                                 new_dag.add_edge(conditional_fix_function_made_changes_node,
@@ -375,7 +376,7 @@ class FairnessSlices(ShadowPipeline):
 
         for data_source, column_names in data_sources_concat.items():
             projection_processing_func = wrap_projection_func(
-                partial(FairnessSlices.projection_processing_func, column_names))
+                partial(projection, column_names))
 
             projection_node = DagNode(singleton.get_next_op_id(),
                                       BasicCodeLocation("Fairness Slices", None),
@@ -389,7 +390,7 @@ class FairnessSlices(ShadowPipeline):
 
         for data_source, column_names in data_sources_prov_join.items():
             projection_processing_func = wrap_projection_func(
-                partial(FairnessSlices.projection_processing_func, column_names))
+                partial(projection, column_names))
 
             projection_node = DagNode(singleton.get_next_op_id(),
                                       BasicCodeLocation("Fairness Slices", None),
@@ -470,7 +471,7 @@ class FairnessSlices(ShadowPipeline):
                                         DagNodeDetails(
                                             "Detect changed indices from fixing", None),
                                         None,
-                                        FairnessSlices.corrupt_data_diff_detection)
+                                        changed_data_diff_detection)
             new_dag.add_edge(data_parent, new_fix_diff_node, arg_index=0)
             new_dag.add_edge(new_fix_node, new_fix_diff_node, arg_index=1)
 
@@ -488,7 +489,7 @@ class FairnessSlices(ShadowPipeline):
                                                          "Apply slice finder mask",
                                                          None),
                                                      None,
-                                                     FairnessSlices.apply_diff_filter)
+                                                     apply_diff_filter)
             new_dag.add_edge(data_parent, new_unmodified_fix_filter_node, arg_index=0)
             new_dag.add_edge(new_fix_diff_node, new_unmodified_fix_filter_node, arg_index=1)
 
@@ -503,7 +504,7 @@ class FairnessSlices(ShadowPipeline):
                                                    "Filter for diff only",
                                                    None),
                                                None,
-                                               FairnessSlices.apply_diff_filter)
+                                               apply_diff_filter)
             new_dag.add_edge(new_fix_node, new_fix_diff_filter_node, arg_index=0)
             new_dag.add_edge(new_fix_diff_node, new_fix_diff_filter_node, arg_index=1)
             new_dag.add_edge(conditional_fix_made_changes_node, new_fix_diff_filter_node, arg_index=2)
@@ -661,24 +662,6 @@ class FairnessSlices(ShadowPipeline):
         return report
 
     @staticmethod
-    def apply_diff_filter(input_df, corrupted_index):
-        # TODO
-        if isinstance(input_df, (pandas.DataFrame, pandas.Series)):
-            input_df = input_df.reset_index(drop=True)
-        if isinstance(input_df, (pandas.DataFrame, pandas.Series)):
-            corrupted_diff = input_df.iloc[corrupted_index]
-        elif isinstance(input_df, list):
-            corrupted_diff = numpy.array(input_df)[corrupted_index]
-        else:
-            corrupted_diff = input_df[corrupted_index]
-        if isinstance(corrupted_diff, (pandas.Series, pandas.DataFrame)):
-            corrupted_diff = corrupted_diff.reset_index(drop=True)
-        corrupted_diff = wrap_in_mlinspect_array_if_necessary(corrupted_diff)
-        corrupted_diff._mlinspect_provenance = None
-
-        return corrupted_diff
-
-    @staticmethod
     def update_prediction_diff(old_predictions, prediction_diff, prediction_index):
         updated_predictions = numpy.array(old_predictions.copy())
         updated_predictions[prediction_index] = prediction_diff
@@ -807,21 +790,6 @@ class FairnessSlices(ShadowPipeline):
         return fixed_corrupted
 
     @staticmethod
-    def corrupt_data_diff_detection(input_df, corrupted_result):
-        if isinstance(input_df, (pandas.Series, pandas.DataFrame)):
-            input_df = input_df.reset_index(drop=True)
-        if isinstance(corrupted_result, (pandas.Series, pandas.DataFrame)):
-            corrupted_result = corrupted_result.reset_index(drop=True)
-        if isinstance(input_df, pandas.Series):
-            corrupt_diff_mask = (corrupted_result != input_df).to_numpy()
-        elif isinstance(input_df, list):
-            corrupt_diff_mask = numpy.array(corrupted_result) != numpy.array(input_df)
-        else:
-            corrupt_diff_mask = numpy.any(corrupted_result != input_df, axis=1)
-        changed_indices_corrupt = numpy.where(corrupt_diff_mask)[0]
-        return changed_indices_corrupt
-
-    @staticmethod
     def rag_join_update(rag_join_result, inputs):
         vectorstore = rag_join_result[5]
         retrieval_index = rag_join_result[6]
@@ -868,13 +836,6 @@ class FairnessSlices(ShadowPipeline):
                 test_mask = test_mask & (side_info_df.iloc[:, column_index] == column_value).to_numpy()
         test_indices = numpy.where(test_mask)[0]
         return top_slice, test_indices
-
-    @staticmethod
-    def projection_processing_func(column_names, input):
-        # TODO: What if not all inputs are pandas dfs?
-        result = input[column_names]
-        result = wrap_in_mlinspect_array_if_necessary(result)
-        return result
 
     @staticmethod
     def prov_join_processing_func(target_data_source_id, left, right):

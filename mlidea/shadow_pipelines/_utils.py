@@ -1,4 +1,5 @@
 import warnings
+from copy import copy
 from enum import Enum
 from functools import partial
 
@@ -14,6 +15,7 @@ from sklearn.preprocessing import FunctionTransformer
 from mlidea.instrumentation._operator_types import ConditionalResult
 from mlidea import DagNode, OperatorContext, OperatorType, DagNodeDetails
 from mlidea.shadow_pipelines.cached_text_transformer import CachedTextTransformer
+from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
 
 
 def get_intermediate_extraction_node(singleton, dag_node, label: str):
@@ -397,3 +399,49 @@ def add_orig_score_extraction_nodes(singleton, new_dag, score_operators):
         orig_extraction_node = get_intermediate_extraction_node(singleton, score_operator,
                                                                 f"orig-{score_index}")
         new_dag.add_edge(score_operator, orig_extraction_node, arg_index=0)
+
+
+def apply_diff_filter(input_df, corrupted_index):
+    # TODO
+    if isinstance(input_df, (pandas.DataFrame, pandas.Series)):
+        input_df = input_df.reset_index(drop=True)
+    if isinstance(input_df, (pandas.DataFrame, pandas.Series)):
+        corrupted_diff = input_df.iloc[corrupted_index]
+    elif isinstance(input_df, list):
+        corrupted_diff = numpy.array(input_df)[corrupted_index]
+    elif isinstance(input_df, tuple) and len(input_df) == 8:  # RAG Join Result
+        corrupted_diff = list(copy(input_df))
+        corrupted_diff[2] = list(numpy.array(corrupted_diff[2])[corrupted_index])
+        corrupted_diff[3] = list(numpy.array(corrupted_diff[3])[corrupted_index])
+        corrupted_diff[6] = corrupted_diff[6][corrupted_index, :]
+        corrupted_diff = tuple(corrupted_diff)
+    else:
+        corrupted_diff = input_df[corrupted_index]
+    if isinstance(corrupted_diff, (pandas.Series, pandas.DataFrame)):
+        corrupted_diff = corrupted_diff.reset_index(drop=True)
+    corrupted_diff = wrap_in_mlinspect_array_if_necessary(corrupted_diff)
+    corrupted_diff._mlinspect_provenance = None
+
+    return corrupted_diff
+
+
+def projection(column_names, input):
+    # TODO: What if not all inputs are pandas dfs?
+    result = input[column_names]
+    result = wrap_in_mlinspect_array_if_necessary(result)
+    return result
+
+
+def changed_data_diff_detection(input_df, corrupted_result):
+    if isinstance(input_df, (pandas.Series, pandas.DataFrame)):
+        input_df = input_df.reset_index(drop=True)
+    if isinstance(corrupted_result, (pandas.Series, pandas.DataFrame)):
+        corrupted_result = corrupted_result.reset_index(drop=True)
+    if isinstance(input_df, pandas.Series):
+        corrupt_diff_mask = (corrupted_result != input_df).to_numpy()
+    elif isinstance(input_df, list):
+        corrupt_diff_mask = numpy.array(corrupted_result) != numpy.array(input_df)
+    else:
+        corrupt_diff_mask = numpy.any(corrupted_result != input_df, axis=1)
+    changed_indices_corrupt = numpy.where(corrupt_diff_mask)[0]
+    return changed_indices_corrupt

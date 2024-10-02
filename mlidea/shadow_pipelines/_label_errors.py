@@ -14,9 +14,9 @@ from mlidea.analysis._analysis_utils import find_nodes_by_type
 from mlidea import OperatorType, DagNode, BasicCodeLocation, OperatorContext, DagNodeDetails
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
-    get_sorted_parent_nodes, get_conditional_stop_node, get_relative_score_change, add_orig_score_extraction_nodes
+    get_sorted_parent_nodes, get_conditional_stop_node, get_relative_score_change, add_orig_score_extraction_nodes, \
+    apply_diff_filter
 from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
-from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
 
 
 class LabelErrors(ShadowPipeline):
@@ -230,7 +230,7 @@ class LabelErrors(ShadowPipeline):
                                                "Filter for diff only",
                                                None),
                                            None,
-                                           LabelErrors.apply_diff_filter)
+                                           apply_diff_filter)
         new_dag.add_edge(new_label_flip_node, new_fix_diff_filter_node, arg_index=0)
         new_dag.add_edge(new_label_flip_indices_node, new_fix_diff_filter_node, arg_index=1)
 
@@ -531,27 +531,3 @@ class LabelErrors(ShadowPipeline):
         updated_predictions = numpy.array(old_predictions.copy())
         updated_predictions[prediction_index] = prediction_diff
         return updated_predictions
-
-    @staticmethod
-    def apply_diff_filter(input_df, corrupted_index):
-        # TODO
-        if isinstance(input_df, (pandas.DataFrame, pandas.Series)):
-            input_df = input_df.reset_index(drop=True)
-        if isinstance(input_df, (pandas.DataFrame, pandas.Series)):
-            corrupted_diff = input_df.iloc[corrupted_index]
-        elif isinstance(input_df, list):
-            corrupted_diff = numpy.array(input_df)[corrupted_index]
-        elif isinstance(input_df, tuple) and len(input_df) == 8:  # RAG Join Result
-            corrupted_diff = list(copy(input_df))
-            corrupted_diff[2] = list(numpy.array(corrupted_diff[2])[corrupted_index])
-            corrupted_diff[3] = list(numpy.array(corrupted_diff[3])[corrupted_index])
-            corrupted_diff[6] = corrupted_diff[6][corrupted_index, :]
-            corrupted_diff = tuple(corrupted_diff)
-        else:
-            corrupted_diff = input_df[corrupted_index]
-        if isinstance(corrupted_diff, (pandas.Series, pandas.DataFrame)):
-            corrupted_diff = corrupted_diff.reset_index(drop=True)
-        corrupted_diff = wrap_in_mlinspect_array_if_necessary(corrupted_diff)
-        corrupted_diff._mlinspect_provenance = None
-
-        return corrupted_diff

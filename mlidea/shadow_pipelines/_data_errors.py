@@ -18,7 +18,7 @@ from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
     get_sorted_parent_nodes, get_typo_adder, duplicate_descendants, \
     get_typo_fixer, get_conditional_stop_node, DataType, get_transformer_operators_to_test, \
-    get_relative_score_change, add_orig_score_extraction_nodes
+    get_relative_score_change, add_orig_score_extraction_nodes, apply_diff_filter, changed_data_diff_detection
 
 
 class DataErrorRobustness(ShadowPipeline):
@@ -99,7 +99,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                DagNodeDetails(
                                                    "Detect changed indices from corrupting", None),
                                                None,
-                                               DataErrorRobustness.corrupt_data_diff_detection)
+                                               changed_data_diff_detection)
             new_dag.add_edge(data_parent, new_corruption_diff_node, arg_index=0)
             new_dag.add_edge(new_corruption_node, new_corruption_diff_node, arg_index=1)
 
@@ -116,7 +116,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                           "Filter for diff only",
                                                           None),
                                                       None,
-                                                      DataErrorRobustness.apply_diff_filter)
+                                                      apply_diff_filter)
             new_dag.add_edge(new_corruption_node, new_corruption_diff_filter_node, arg_index=0)
             new_dag.add_edge(new_corruption_diff_node, new_corruption_diff_filter_node, arg_index=1)
             new_dag.add_edge(conditional_corruption_made_changes_node, new_corruption_diff_filter_node, arg_index=2)
@@ -149,7 +149,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                                         "Filter for diff only",
                                                                         None),
                                                                     None,
-                                                                    DataErrorRobustness.apply_diff_filter)
+                                                                    apply_diff_filter)
                             new_dag.add_edge(concat_parent, new_concat_parent_filter_node, arg_index=0)
                             new_dag.add_edge(new_corruption_diff_node, new_concat_parent_filter_node, arg_index=1)
                             new_dag.add_edge(conditional_corruption_made_changes_node, new_concat_parent_filter_node,
@@ -222,7 +222,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                                      "Filter for diff only",
                                                                      None),
                                                                  None,
-                                                                 DataErrorRobustness.apply_diff_filter)
+                                                                 apply_diff_filter)
             new_dag.add_edge(new_fix_node, new_fix_with_corruption_change_filter_node, arg_index=0)
             new_dag.add_edge(new_corruption_diff_node, new_fix_with_corruption_change_filter_node, arg_index=1)
             new_dag.add_edge(conditional_corruption_made_changes_node, new_fix_with_corruption_change_filter_node,
@@ -264,7 +264,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                    "Filter for diff only",
                                                    None),
                                                None,
-                                               DataErrorRobustness.apply_diff_filter)
+                                               apply_diff_filter)
             new_dag.add_edge(new_fix_node, new_fix_diff_filter_node, arg_index=0)
             new_dag.add_edge(new_fix_diff_indices_node, new_fix_diff_filter_node, arg_index=1)
             new_dag.add_edge(conditional_fixes_changed_something_node, new_fix_diff_filter_node, arg_index=2)
@@ -293,7 +293,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                                         "Filter for diff only",
                                                                         None),
                                                                     None,
-                                                                    DataErrorRobustness.apply_diff_filter)
+                                                                    apply_diff_filter)
                             new_dag.add_edge(concat_parent, new_concat_parent_filter_node, arg_index=0)
                             new_dag.add_edge(new_fix_diff_indices_node, new_concat_parent_filter_node, arg_index=1)
                             new_dag.add_edge(new_concat_parent_filter_node, concat, **edge_data)
@@ -369,7 +369,7 @@ class DataErrorRobustness(ShadowPipeline):
                                            DagNodeDetails(
                                                "Detect changed indices from corrupting", None),
                                            None,
-                                           DataErrorRobustness.corrupt_data_diff_detection)
+                                           changed_data_diff_detection)
         new_dag.add_edge(data_parent, new_corruption_diff_node, arg_index=0)
         new_dag.add_edge(new_corruption_node, new_corruption_diff_node, arg_index=1)
 
@@ -386,7 +386,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                       "Filter for diff only",
                                                       None),
                                                   None,
-                                                  DataErrorRobustness.apply_diff_filter)
+                                                  apply_diff_filter)
         new_dag.add_edge(new_corruption_node, new_corruption_diff_filter_node, arg_index=0)
         new_dag.add_edge(new_corruption_diff_node, new_corruption_diff_filter_node, arg_index=1)
         new_dag.add_edge(conditional_corruption_made_changes_node, new_corruption_diff_filter_node, arg_index=2)
@@ -470,7 +470,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                                  "Filter for diff only",
                                                                  None),
                                                              None,
-                                                             DataErrorRobustness.apply_diff_filter)
+                                                             apply_diff_filter)
         new_dag.add_edge(new_fix_node, new_fix_with_corruption_change_filter_node, arg_index=0)
         new_dag.add_edge(new_corruption_diff_node, new_fix_with_corruption_change_filter_node, arg_index=1)
         new_dag.add_edge(conditional_corruption_made_changes_node, new_fix_with_corruption_change_filter_node,
@@ -513,7 +513,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                "Filter for diff only",
                                                None),
                                            None,
-                                           DataErrorRobustness.apply_diff_filter)
+                                           apply_diff_filter)
         new_dag.add_edge(new_fix_node, new_fix_diff_filter_node, arg_index=0)
         new_dag.add_edge(new_fix_diff_indices_node, new_fix_diff_filter_node, arg_index=1)
         new_dag.add_edge(conditional_fixes_changed_something_node, new_fix_diff_filter_node, arg_index=2)
@@ -701,24 +701,6 @@ class DataErrorRobustness(ShadowPipeline):
         return corrupted_result
 
     @staticmethod
-    def apply_diff_filter(input_df, corrupted_index):
-        # TODO
-        if isinstance(input_df, (pandas.DataFrame, pandas.Series)):
-            input_df = input_df.reset_index(drop=True)
-        if isinstance(input_df, (pandas.DataFrame, pandas.Series)):
-            corrupted_diff = input_df.iloc[corrupted_index]
-        elif isinstance(input_df, list):
-            corrupted_diff = numpy.array(input_df)[corrupted_index]
-        else:
-            corrupted_diff = input_df[corrupted_index]
-        if isinstance(corrupted_diff, (pandas.Series, pandas.DataFrame)):
-            corrupted_diff = corrupted_diff.reset_index(drop=True)
-        corrupted_diff = wrap_in_mlinspect_array_if_necessary(corrupted_diff)
-        corrupted_diff._mlinspect_provenance = None
-
-        return corrupted_diff
-
-    @staticmethod
     def update_prediction_diff(old_predictions, prediction_diff, prediction_index):
         updated_predictions = numpy.array(old_predictions.copy())
         updated_predictions[prediction_index] = prediction_diff
@@ -787,21 +769,6 @@ class DataErrorRobustness(ShadowPipeline):
         fixed_corrupted._mlinspect_provenance = None
 
         return fixed_corrupted
-
-    @staticmethod
-    def corrupt_data_diff_detection(input_df, corrupted_result):
-        if isinstance(input_df, (pandas.Series, pandas.DataFrame)):
-            input_df = input_df.reset_index(drop=True)
-        if isinstance(corrupted_result, (pandas.Series, pandas.DataFrame)):
-            corrupted_result = corrupted_result.reset_index(drop=True)
-        if isinstance(input_df, pandas.Series):
-            corrupt_diff_mask = (corrupted_result != input_df).to_numpy()
-        elif isinstance(input_df, list):
-            corrupt_diff_mask = numpy.array(corrupted_result) != numpy.array(input_df)
-        else:
-            corrupt_diff_mask = numpy.any(corrupted_result != input_df, axis=1)
-        changed_indices_corrupt = numpy.where(corrupt_diff_mask)[0]
-        return changed_indices_corrupt
 
     @staticmethod
     def fix_data_diff_detection_mask_only(input_df, corrupted_result):
