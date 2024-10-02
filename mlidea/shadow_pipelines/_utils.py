@@ -392,6 +392,8 @@ def get_relative_score_change(*old_scores_and_new_scores, max_not_min=True):
     return result
 
 
-
-
-
+def add_orig_score_extraction_nodes(singleton, new_dag, score_operators):
+    for score_index, score_operator in enumerate(score_operators):
+        orig_extraction_node = get_intermediate_extraction_node(singleton, score_operator,
+                                                                f"orig-{score_index}")
+        new_dag.add_edge(score_operator, orig_extraction_node, arg_index=0)

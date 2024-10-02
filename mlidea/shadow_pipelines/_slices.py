@@ -20,7 +20,7 @@ from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
     get_sorted_parent_nodes, duplicate_descendants, \
     get_typo_fixer, get_conditional_stop_node, filter_estimator_transformer_edges, get_transformer_operators_to_test, \
-    DataType, get_translate_transformer, get_relative_score_change
+    DataType, get_translate_transformer, get_relative_score_change, add_orig_score_extraction_nodes
 from mlidea.monkeypatching._provenance_propagation import wrap_projection_func
 
 
@@ -67,7 +67,7 @@ class FairnessSlices(ShadowPipeline):
 
     @property
     def simple_name(self):
-        return "data_errors"
+        return "slices"
 
     @staticmethod
     def is_column_sensitive(column_name, additional_column_names):
@@ -107,7 +107,7 @@ class FairnessSlices(ShadowPipeline):
                 or len(test_data_operators) != 1 or len(test_labels_operators) < 1:
             raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
                                       "pattern!")
-        FairnessSlices.add_orig_score_extraction_nodes(new_dag, score_operators)
+        add_orig_score_extraction_nodes(singleton, new_dag, score_operators)
         self.score_operator_count = len(score_operators)
 
         if len(data_sources_concat) == 0 and len(data_sources_prov_join) == 0:
@@ -351,7 +351,7 @@ class FairnessSlices(ShadowPipeline):
                 or len(test_data_operators) != 1 or len(test_labels_operators) < 1:
             raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
                                       "pattern!")
-        FairnessSlices.add_orig_score_extraction_nodes(new_dag, score_operators)
+        add_orig_score_extraction_nodes(singleton, new_dag, score_operators)
         self.score_operator_count = len(score_operators)
 
         if len(data_sources_concat) == 0 and len(data_sources_prov_join) == 0:
@@ -581,18 +581,11 @@ class FairnessSlices(ShadowPipeline):
 
         return data_sources_concat, data_sources_prov_join
 
-    @staticmethod
-    def add_orig_score_extraction_nodes(new_dag, score_operators):
-        for score_index, score_operator in enumerate(score_operators):
-            orig_extraction_node = get_intermediate_extraction_node(singleton, score_operator,
-                                                                    f"label-errors-orig-{score_index}")
-            new_dag.add_edge(score_operator, orig_extraction_node, arg_index=0)
-
     def generate_final_report(self, extracted_plan_results: dict[str, any]) -> any:
         report = ""
         orig_result = []
         for score_index in range(self.score_operator_count):
-            orig_result.append(extracted_plan_results[f"label-errors-orig-{score_index}"])
+            orig_result.append(extracted_plan_results[f"orig-{score_index}"])
         report += f"The original result was {orig_result}.\n"
         if self.sensitive_column_count == 0:
             report += "Slice finding could not be applied since no sensitive column could be found!"

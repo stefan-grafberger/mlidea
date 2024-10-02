@@ -14,7 +14,7 @@ from mlidea.analysis._analysis_utils import find_nodes_by_type
 from mlidea import OperatorType, DagNode, BasicCodeLocation, OperatorContext, DagNodeDetails
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
-    get_sorted_parent_nodes, get_conditional_stop_node, get_relative_score_change
+    get_sorted_parent_nodes, get_conditional_stop_node, get_relative_score_change, add_orig_score_extraction_nodes
 from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
 from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
 
@@ -76,7 +76,7 @@ class LabelErrors(ShadowPipeline):
                 or len(test_data_operators) != 1 or len(test_labels_operators) < 1:
             raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
                                       "pattern!")
-        LabelErrors.add_orig_score_extraction_nodes(new_dag, score_operators)
+        add_orig_score_extraction_nodes(singleton, new_dag, score_operators)
         self.score_operator_count = len(score_operators)
 
         processing_func = partial(LabelErrors.shapley_top_k_func_ml,
@@ -169,7 +169,7 @@ class LabelErrors(ShadowPipeline):
         train_labels_dict_conversion = list(new_dag.predecessors(train_labels_operators[0]))[0]
         train_labels_before_dict = list(new_dag.predecessors(train_labels_dict_conversion))[0]
 
-        LabelErrors.add_orig_score_extraction_nodes(new_dag, score_operators)
+        add_orig_score_extraction_nodes(singleton, new_dag, score_operators)
 
         processing_func = partial(LabelErrors.shapley_top_k_func_llm,
                                   train_fraction_to_consider=self._train_fraction_to_consider,
@@ -253,18 +253,11 @@ class LabelErrors(ShadowPipeline):
                                                              test_labels_operators, "label-errors-flip-retrain")
         return new_dag
 
-    @staticmethod
-    def add_orig_score_extraction_nodes(new_dag, score_operators):
-        for score_index, score_operator in enumerate(score_operators):
-            orig_extraction_node = get_intermediate_extraction_node(singleton, score_operator,
-                                                                    f"label-errors-orig-{score_index}")
-            new_dag.add_edge(score_operator, orig_extraction_node, arg_index=0)
-
     def generate_final_report(self, extracted_plan_results: dict[str, any]) -> any:
         report = ""
         orig_result = []
         for score_index in range(self.score_operator_count):
-            orig_result.append(extracted_plan_results[f"label-errors-orig-{score_index}"])
+            orig_result.append(extracted_plan_results[f"orig-{score_index}"])
         report += f"The original result was {orig_result}.\n"
         proxy_result = []
         if self._proxy_model is True:
