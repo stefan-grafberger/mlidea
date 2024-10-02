@@ -479,3 +479,35 @@ def rag_join_update(rag_join_result, inputs):
     new_rag_join_result = (rag_join_result[0], rag_join_result[1], new_rag_join_text_result, list(inputs),
                            None, rag_join_result[5], diff_retrieval_index, rag_join_result[7])
     return new_rag_join_result
+
+
+def prov_join_with_data_source(intermediate_df, data_source):
+    # TODO: What if not all inputs are pandas dfs?
+    assert data_source._mlinspect_provenance
+    assert intermediate_df._mlinspect_provenance
+    data_source_prov = data_source._mlinspect_provenance
+    intermediate_df_prov = intermediate_df._mlinspect_provenance
+
+    data_source = data_source.copy()
+    assert len(data_source_prov) == 1
+    target_data_source_id, _ = list(data_source_prov.keys())[0].rsplit('_', 1)
+    target_data_source_id = int(target_data_source_id)
+    prov_value = list(data_source_prov.values())[0]
+    data_source['join_prov'] = prov_value
+
+    intermediate_df_prov_columns = []
+    intermediate_df_prov_dict = {}
+    for prov_key, prov_values in intermediate_df_prov.items():
+        current_data_source, _ = prov_key.rsplit('_', 1)
+        if int(current_data_source) == target_data_source_id:
+            intermediate_df_prov_columns.append(prov_key)
+            intermediate_df_prov_dict[prov_key] = prov_values
+    assert len(intermediate_df_prov_dict) == 1
+    intermediate_df_prov_df = pandas.DataFrame({'join_prov': list(intermediate_df_prov.values())[0]})
+
+    result = pandas.merge(intermediate_df_prov_df, data_source, how="inner", on="join_prov")
+    assert len(result) == len(list(intermediate_df_prov.values())[0])
+    result = result.drop("join_prov", axis=1)
+    result = wrap_in_mlinspect_array_if_necessary(result)
+    result._mlinspect_provenance = intermediate_df_prov
+    return result

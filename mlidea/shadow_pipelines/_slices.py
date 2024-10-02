@@ -20,7 +20,7 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     get_sorted_parent_nodes, duplicate_descendants, \
     get_typo_fixer, get_conditional_stop_node, filter_estimator_transformer_edges, get_transformer_operators_to_test, \
     DataType, get_translate_transformer, get_relative_score_change, add_orig_score_extraction_nodes, apply_diff_filter, \
-    projection, changed_data_diff_detection, update_prediction_diff, rag_join_update
+    projection, changed_data_diff_detection, update_prediction_diff, rag_join_update, prov_join_with_data_source
 from mlidea.monkeypatching._provenance_propagation import wrap_projection_func
 
 
@@ -156,16 +156,15 @@ class FairnessSlices(ShadowPipeline):
                                       projection_processing_func)
             new_dag.add_edge(data_source, projection_node, arg_index=0)
 
-            join_processing_func = partial(FairnessSlices.prov_join_processing_func, data_source.node_id)
             join_node = DagNode(singleton.get_next_op_id(),
                                 BasicCodeLocation("Fairness Slices", None),
                                 OperatorContext(OperatorType.JOIN, None),
                                 DagNodeDetails(
                                     "Join on provenance", None),
                                 None,
-                                join_processing_func)
+                                prov_join_with_data_source)
             new_dag.add_edge(test_data_operators[0], join_node, arg_index=0)
-            new_dag.add_edge(projection_node, join_node, arg_index=0)
+            new_dag.add_edge(projection_node, join_node, arg_index=1)
 
             new_dag.add_edge(join_node, concat_node, arg_index=0)
 
@@ -400,16 +399,15 @@ class FairnessSlices(ShadowPipeline):
                                       projection_processing_func)
             new_dag.add_edge(data_source, projection_node, arg_index=0)
 
-            join_processing_func = partial(FairnessSlices.prov_join_processing_func, data_source.node_id)
             join_node = DagNode(singleton.get_next_op_id(),
                                 BasicCodeLocation("Fairness Slices", None),
                                 OperatorContext(OperatorType.JOIN, None),
                                 DagNodeDetails(
                                     "Join on provenance", None),
                                 None,
-                                join_processing_func)
+                                prov_join_with_data_source)
             new_dag.add_edge(test_data_operators[0], join_node, arg_index=0)
-            new_dag.add_edge(projection_node, join_node, arg_index=0)
+            new_dag.add_edge(projection_node, join_node, arg_index=1)
 
             new_dag.add_edge(join_node, concat_node, arg_index=0)
 
@@ -809,33 +807,3 @@ class FairnessSlices(ShadowPipeline):
                 test_mask = test_mask & (side_info_df.iloc[:, column_index] == column_value).to_numpy()
         test_indices = numpy.where(test_mask)[0]
         return top_slice, test_indices
-
-    @staticmethod
-    def prov_join_processing_func(target_data_source_id, left, right):
-        # TODO: What if not all inputs are pandas dfs?
-        assert left._mlinspect_provenance
-        assert right._mlinspect_provenance
-        left_prov = left._mlinspect_provenance
-        right_prov = right._mlinspect_provenance
-
-        right_prov_columns = []
-        right_prov_dict = {}
-        for prov_key, prov_values in right_prov.items():
-            current_data_source, _ = prov_key.rsplit('_', 1)
-            if int(current_data_source) == target_data_source_id:
-                right_prov_columns.append(prov_key)
-                right_prov_dict[prov_key] = prov_values
-        assert len(right_prov_dict) == 1
-        right_prov_df = pandas.DataFrame({'join_prov': list(right_prov.values())[0]})
-
-        left_copy = left.copy()
-        assert len(left_prov) == 1
-        prov_value = list(left_prov.values())[0]
-        left_copy['join_prov'] = prov_value
-
-        result = pandas.merge(right_prov_df, left_copy, how="inner", on="join_prov")
-        assert len(result) == len(list(right_prov.values())[0])
-        result = result.drop("join_prov", axis=1)
-        result = wrap_in_mlinspect_array_if_necessary(result)
-        result._mlinspect_provenance = right_prov
-        return result
