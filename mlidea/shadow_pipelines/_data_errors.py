@@ -17,9 +17,9 @@ from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
     get_sorted_parent_nodes, get_typo_adder, duplicate_descendants, \
     get_typo_fixer, get_conditional_stop_node, DataType, get_transformer_operators_to_test, \
-    get_relative_score_change, add_orig_score_extraction_nodes, update_prediction_diff, \
-    fix_data_diff_detection_mask_only, fix_data_mask_to_indices, rag_join_update, \
-    get_diff_filter_node, get_changed_indices_node
+    get_relative_score_change, add_orig_score_extraction_nodes, fix_data_diff_detection_mask_only, \
+    fix_data_mask_to_indices, rag_join_update, \
+    get_diff_filter_node, get_changed_indices_node, merge_prediction_diff_with_old_predictions
 
 
 class DataErrorRobustness(ShadowPipeline):
@@ -141,14 +141,7 @@ class DataErrorRobustness(ShadowPipeline):
             old_predict = [node for node in old_copied_nodes
                            if node.operator_info.operator == OperatorType.PREDICT][0]
 
-            new_corrupt_predict_diff_update_node = DagNode(singleton.get_next_op_id(),
-                                                           BasicCodeLocation("Data Errors", None),
-                                                           OperatorContext(OperatorType.SELECTION, None),
-                                                           DagNodeDetails(
-                                                               "Merge corruption diff with old predictions",
-                                                               None),
-                                                           None,
-                                                           update_prediction_diff)
+            new_corrupt_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, "Data Errors")
             new_dag.add_edge(old_predict, new_corrupt_predict_diff_update_node, arg_index=0)
             new_dag.add_edge(test_predict, new_corrupt_predict_diff_update_node, arg_index=1)
             new_dag.add_edge(new_corruption_diff_node, new_corrupt_predict_diff_update_node, arg_index=2)
@@ -262,14 +255,7 @@ class DataErrorRobustness(ShadowPipeline):
 
             prediction_filter_index_node = new_fix_diff_indices_node
 
-            new_fix_predict_diff_update_node = DagNode(singleton.get_next_op_id(),
-                                                       BasicCodeLocation("Data Errors", None),
-                                                       OperatorContext(OperatorType.SELECTION, None),
-                                                       DagNodeDetails(
-                                                           "Merge fix diff with old predictions",
-                                                           None),
-                                                       None,
-                                                       update_prediction_diff)
+            new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, "Data Errors")
             new_dag.add_edge(new_corrupt_predict_diff_update_node, new_fix_predict_diff_update_node, arg_index=0)
             new_dag.add_edge(test_predict, new_fix_predict_diff_update_node, arg_index=1)
             new_dag.add_edge(prediction_filter_index_node, new_fix_predict_diff_update_node, arg_index=2)
@@ -357,14 +343,7 @@ class DataErrorRobustness(ShadowPipeline):
         new_dag.add_edge(new_rag_join_update_node, test_predict, arg_index=0)
         old_predict = predict_operators[0]
 
-        new_corrupt_predict_diff_update_node = DagNode(singleton.get_next_op_id(),
-                                                       BasicCodeLocation("Data Errors", None),
-                                                       OperatorContext(OperatorType.SELECTION, None),
-                                                       DagNodeDetails(
-                                                           "Merge corruption diff with old predictions",
-                                                           None),
-                                                       None,
-                                                       update_prediction_diff)
+        new_corrupt_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, "Data Errors")
         new_dag.add_edge(old_predict, new_corrupt_predict_diff_update_node, arg_index=0)
         new_dag.add_edge(test_predict, new_corrupt_predict_diff_update_node, arg_index=1)
         new_dag.add_edge(new_corruption_diff_node, new_corrupt_predict_diff_update_node, arg_index=2)
@@ -467,14 +446,7 @@ class DataErrorRobustness(ShadowPipeline):
 
         prediction_filter_index_node = new_fix_diff_indices_node
 
-        new_fix_predict_diff_update_node = DagNode(singleton.get_next_op_id(),
-                                                   BasicCodeLocation("Data Errors", None),
-                                                   OperatorContext(OperatorType.SELECTION, None),
-                                                   DagNodeDetails(
-                                                       "Merge fix diff with old predictions",
-                                                       None),
-                                                   None,
-                                                   update_prediction_diff)
+        new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, "Data Errors")
         new_dag.add_edge(new_corrupt_predict_diff_update_node, new_fix_predict_diff_update_node, arg_index=0)
         new_dag.add_edge(test_predict, new_fix_predict_diff_update_node, arg_index=1)
         new_dag.add_edge(prediction_filter_index_node, new_fix_predict_diff_update_node, arg_index=2)

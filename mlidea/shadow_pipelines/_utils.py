@@ -426,9 +426,9 @@ def apply_diff_filter(input_df, corrupted_index):
     return corrupted_diff
 
 
-def projection(column_names, input):
+def projection(column_names, input_df):
     # TODO: What if not all inputs are pandas dfs?
-    result = input[column_names]
+    result = input_df[column_names]
     result = wrap_in_mlinspect_array_if_necessary(result)
     return result
 
@@ -534,3 +534,15 @@ def get_changed_indices_node(singleton, shadow_pipeline_name):
                                        None,
                                        changed_data_diff_detection)
     return new_changed_indices_node
+
+
+def merge_prediction_diff_with_old_predictions(singleton, shadow_pipeline_name):
+    new_fix_predict_diff_update_node = DagNode(singleton.get_next_op_id(),
+                                               BasicCodeLocation(shadow_pipeline_name, None),
+                                               OperatorContext(OperatorType.SELECTION, None),
+                                               DagNodeDetails(
+                                                   "Merge prediction diff with old predictions",
+                                                   None),
+                                               None,
+                                               update_prediction_diff)
+    return new_fix_predict_diff_update_node

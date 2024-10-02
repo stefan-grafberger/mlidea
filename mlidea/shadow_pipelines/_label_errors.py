@@ -15,7 +15,7 @@ from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
     get_sorted_parent_nodes, get_conditional_stop_node, get_relative_score_change, add_orig_score_extraction_nodes, \
-    update_prediction_diff, get_diff_filter_node
+    get_diff_filter_node, merge_prediction_diff_with_old_predictions
 
 
 class LabelErrors(ShadowPipeline):
@@ -229,14 +229,7 @@ class LabelErrors(ShadowPipeline):
         new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
         new_dag.add_edge(new_fix_diff_filter_node, new_predict_node, arg_index=0)
 
-        new_fix_predict_diff_update_node = DagNode(singleton.get_next_op_id(),
-                                                   BasicCodeLocation("Label Errors", None),
-                                                   OperatorContext(OperatorType.SELECTION, None),
-                                                   DagNodeDetails(
-                                                       "Merge fixing diff with old predictions",
-                                                       None),
-                                                   None,
-                                                   update_prediction_diff)
+        new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, "Label Errors")
         new_dag.add_edge(predict_operators[0], new_fix_predict_diff_update_node, arg_index=0)
         new_dag.add_edge(new_predict_node, new_fix_predict_diff_update_node, arg_index=1)
         new_dag.add_edge(new_label_flip_indices_node, new_fix_predict_diff_update_node, arg_index=2)

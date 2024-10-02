@@ -21,8 +21,8 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     get_sorted_parent_nodes, duplicate_descendants, \
     get_typo_fixer, get_conditional_stop_node, filter_estimator_transformer_edges, get_transformer_operators_to_test, \
     DataType, get_translate_transformer, get_relative_score_change, add_orig_score_extraction_nodes, projection, \
-    update_prediction_diff, rag_join_update, prov_join_with_data_source, \
-    get_diff_filter_node, get_changed_indices_node
+    rag_join_update, prov_join_with_data_source, \
+    get_diff_filter_node, get_changed_indices_node, merge_prediction_diff_with_old_predictions
 
 
 class FixType(Enum):
@@ -61,6 +61,7 @@ class FairnessSlices(ShadowPipeline):
         self.database_path = database_path
         self.slice_finder_alpha = slice_finder_alpha
         self.fix_strategy_names = []
+        self.sensitive_columns = []
 
     @property
     def shadow_pipeline_id(self):
@@ -110,6 +111,7 @@ class FairnessSlices(ShadowPipeline):
                                       "pattern!")
         add_orig_score_extraction_nodes(singleton, new_dag, score_operators)
         self.score_operator_count = len(score_operators)
+        self.sensitive_columns = []
 
         if len(data_sources_concat) == 0 and len(data_sources_prov_join) == 0:
             return new_dag
@@ -131,6 +133,7 @@ class FairnessSlices(ShadowPipeline):
                               concat_processing_func)
 
         for data_source, column_names in data_sources_concat.items():
+            self.sensitive_columns.extend(column_names)
             projection_processing_func = wrap_projection_func(
                 partial(projection, column_names))
 
@@ -145,6 +148,7 @@ class FairnessSlices(ShadowPipeline):
             new_dag.add_edge(projection_node, concat_node, arg_index=0)
 
         for data_source, column_names in data_sources_prov_join.items():
+            self.sensitive_columns.extend(column_names)
             projection_processing_func = wrap_projection_func(
                 partial(projection, column_names))
 
@@ -279,14 +283,7 @@ class FairnessSlices(ShadowPipeline):
                 old_predict = [node for node in old_copied_nodes
                                if node.operator_info.operator == OperatorType.PREDICT][0]
 
-                new_fix_predict_diff_update_node = DagNode(singleton.get_next_op_id(),
-                                                           BasicCodeLocation("Fairness Slices", None),
-                                                           OperatorContext(OperatorType.SELECTION, None),
-                                                           DagNodeDetails(
-                                                               "Merge fixing diff with old predictions",
-                                                               None),
-                                                           None,
-                                                           update_prediction_diff)
+                new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, "Fairness Slices")
                 new_dag.add_edge(old_predict, new_fix_predict_diff_update_node, arg_index=0)
                 new_dag.add_edge(test_predict, new_fix_predict_diff_update_node, arg_index=1)
                 new_dag.add_edge(new_fix_diff_node, new_fix_predict_diff_update_node, arg_index=2)
@@ -479,14 +476,7 @@ class FairnessSlices(ShadowPipeline):
             new_dag.add_edge(new_rag_join_update_node, test_predict, arg_index=0)
             old_predict = predict_operators[0]
 
-            new_fix_predict_diff_update_node = DagNode(singleton.get_next_op_id(),
-                                                       BasicCodeLocation("Fairness Slices", None),
-                                                       OperatorContext(OperatorType.SELECTION, None),
-                                                       DagNodeDetails(
-                                                           "Merge fixing diff with old predictions",
-                                                           None),
-                                                       None,
-                                                       update_prediction_diff)
+            new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, "Fairness Slices")
             new_dag.add_edge(old_predict, new_fix_predict_diff_update_node, arg_index=0)
             new_dag.add_edge(test_predict, new_fix_predict_diff_update_node, arg_index=1)
             new_dag.add_edge(new_fix_diff_node, new_fix_predict_diff_update_node, arg_index=2)
@@ -546,7 +536,12 @@ class FairnessSlices(ShadowPipeline):
                        "there are no fairness problems, Fairness Slices only could not find any with the given config.")
         else:
             slice_line_result = extracted_plan_results["fairness-slices-slice-line-result"]
-            report += f"The problematic slice that was found is {slice_line_result[0]}.\n"
+            readable_slice_result = []
+            for sensitive_column, column_value in zip(self.sensitive_columns, list(slice_line_result[0])):
+                readable_slice_result.append(f"{sensitive_column}={column_value}")
+            readable_slice_result = ", ".join(readable_slice_result)
+            readable_slice_result = f"[{readable_slice_result}]"
+            report += f"The problematic slice that was found is {readable_slice_result}.\n"
 
             promising_fix_strategies = []
             performance_increases = []
@@ -601,13 +596,13 @@ class FairnessSlices(ShadowPipeline):
                             f"cannot help, it only means that Fairness Slices cannot find a promising "
                             f"repair strategy automatically.\n")
             if len(promising_fix_strategies) != 0:
-                report += (f"\n\nFairness Slices found the problematic slice {slice_line_result[0]}. "
+                report += (f"\n\nFairness Slices found the problematic slice {readable_slice_result}. "
                            f"It seems that the fix strategies {promising_fix_strategies} that Fairness Slices"
                            f" tried to improve the predictions for the problematic slice "
                            f"can lead to performance improvements by up to {max(performance_increases)}. "
                            f"You could take a look at these.")
             else:
-                report += (f"While the slice {slice_line_result[0]} seems to be problematic, Fairness Slices"
+                report += (f"While the slice {readable_slice_result} seems to be problematic, Fairness Slices"
                            f" cannot find any promising repair strategy automatically. However, you could try finding"
                            f" one on your own.")
         return report
