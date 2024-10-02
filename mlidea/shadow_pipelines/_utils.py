@@ -16,6 +16,7 @@ from mlidea.instrumentation._operator_types import ConditionalResult
 from mlidea import DagNode, OperatorContext, OperatorType, DagNodeDetails
 from mlidea.shadow_pipelines.cached_text_transformer import CachedTextTransformer
 from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
+from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
 
 
 def get_intermediate_extraction_node(singleton, dag_node, label: str):
@@ -465,3 +466,16 @@ def update_prediction_diff(old_predictions, prediction_diff, prediction_index):
     updated_predictions = numpy.array(old_predictions.copy())
     updated_predictions[prediction_index] = prediction_diff
     return updated_predictions
+
+
+def rag_join_update(rag_join_result, inputs):
+    vectorstore = rag_join_result[5]
+
+    diff_rag_result, diff_retrieval_index = RunnableSequencePatching.execute_rag_join_diff(
+        rag_join_result[7], list(inputs), vectorstore)
+    new_rag_join_text_result = list(diff_rag_result)
+
+    # TODO: Should we propagate provenance here? Might be important for explanations later
+    new_rag_join_result = (rag_join_result[0], rag_join_result[1], new_rag_join_text_result, list(inputs),
+                           None, rag_join_result[5], diff_retrieval_index, rag_join_result[7])
+    return new_rag_join_result

@@ -15,13 +15,12 @@ from mlidea.analysis._analysis_utils import find_nodes_by_type
 from mlidea.analysis._cleaning_methods import detect_outlier_interquartile_range
 from mlidea.execution._pipeline_executor import singleton
 from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
-from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
     get_sorted_parent_nodes, duplicate_descendants, \
     get_typo_fixer, get_conditional_stop_node, filter_estimator_transformer_edges, get_transformer_operators_to_test, \
     DataType, get_translate_transformer, get_relative_score_change, add_orig_score_extraction_nodes, apply_diff_filter, \
-    projection, changed_data_diff_detection, update_prediction_diff
+    projection, changed_data_diff_detection, update_prediction_diff, rag_join_update
 from mlidea.monkeypatching._provenance_propagation import wrap_projection_func
 
 
@@ -520,7 +519,7 @@ class FairnessSlices(ShadowPipeline):
                                                OperatorContext(OperatorType.RAG_JOIN, None),
                                                DagNodeDetails("RAG join for test set diff", None),
                                                None,
-                                               FairnessSlices.rag_join_update)
+                                               rag_join_update)
             new_dag.add_edge(rag_join_operators[0], new_rag_join_update_node, arg_index=0)
             new_dag.add_edge(new_fix_diff_filter_node, new_rag_join_update_node, arg_index=1)
             # Duplicate predict operator and connect with rag join result update and prediction update
@@ -782,26 +781,6 @@ class FairnessSlices(ShadowPipeline):
         fixed_corrupted._mlinspect_provenance = None
 
         return fixed_corrupted
-
-    @staticmethod
-    def rag_join_update(rag_join_result, inputs):
-        vectorstore = rag_join_result[5]
-        retrieval_index = rag_join_result[6]
-
-        pandas_retrieval_index_df = pandas.DataFrame(retrieval_index,
-                                                     columns=['train_retrieved_1', 'train_retrieved_2',
-                                                              'train_retrieved_3', 'train_retrieved_4'])
-        pandas_retrieval_index_df['prediction_id'] = list(range(len(rag_join_result[2])))
-        diff_inputs = list(numpy.array(inputs))
-
-        diff_rag_result, diff_retrieval_index = RunnableSequencePatching.execute_rag_join_diff(
-            rag_join_result[7], diff_inputs, vectorstore)
-        new_rag_join_text_result = list(diff_rag_result)
-
-        # TODO: Should we propagate provenance here? Might be important for explanations later
-        new_rag_join_result = (rag_join_result[0], rag_join_result[1], new_rag_join_text_result, list(inputs),
-                               None, rag_join_result[5], diff_retrieval_index, rag_join_result[7])
-        return new_rag_join_result
 
     @staticmethod
     def get_slice_finder_slice_and_indices(side_info_df, encoded_test_labels, predicted_test_labels, alpha):

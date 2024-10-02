@@ -1,4 +1,3 @@
-from copy import copy
 from functools import partial
 
 import duckdb
@@ -9,14 +8,14 @@ from numba import prange, njit
 from scipy.sparse import csr_matrix
 from sklearn.linear_model import SGDClassifier
 
-from mlidea.execution._pipeline_executor import singleton
-from mlidea.analysis._analysis_utils import find_nodes_by_type
 from mlidea import OperatorType, DagNode, BasicCodeLocation, OperatorContext, DagNodeDetails
+from mlidea.analysis._analysis_utils import find_nodes_by_type
+from mlidea.execution._pipeline_executor import singleton
+from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
     get_sorted_parent_nodes, get_conditional_stop_node, get_relative_score_change, add_orig_score_extraction_nodes, \
     apply_diff_filter, update_prediction_diff
-from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
 
 
 class LabelErrors(ShadowPipeline):
