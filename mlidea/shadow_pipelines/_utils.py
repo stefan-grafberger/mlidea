@@ -10,6 +10,7 @@ import pandas
 from autocorrect import Speller
 from deep_translator import GoogleTranslator
 from fairlearn.metrics import MetricFrame
+from sklearn.linear_model import SGDClassifier
 from sklearn.preprocessing import FunctionTransformer
 
 from mlidea.instrumentation._operator_types import ConditionalResult
@@ -660,3 +661,24 @@ def prov_join_node_with_data_sources(singleton, data_sources_with_sensitive_colu
 
         new_dag.add_edge(join_node, concat_node, arg_index=0)
     return concat_node
+
+
+def get_proxy_model_node(executor_singleton, old_estimator_node):
+    model_function = partial(SGDClassifier, loss='log_loss', max_iter=30, n_jobs=1)
+    new_processing_func = partial(_fit_model_variant, make_classifier_func=model_function)
+    new_description = "Fast proxy model"
+    new_estimator_node = DagNode(executor_singleton.get_next_op_id(),
+                                 old_estimator_node.code_location,
+                                 old_estimator_node.operator_info,
+                                 DagNodeDetails(new_description, old_estimator_node.details.columns,
+                                                old_estimator_node.details.optimizer_info),
+                                 old_estimator_node.optional_code_info,
+                                 new_processing_func)
+    return new_estimator_node
+
+
+def _fit_model_variant(train_data, train_labels, make_classifier_func):
+    """Create the classifier and fit it"""
+    estimator = make_classifier_func()
+    estimator.fit(train_data, train_labels)
+    return estimator
