@@ -314,7 +314,6 @@ def get_transformer_operators_to_test(dag):
     selection we do not need to worry about finding corresponding test set operations.
     """
     # This only works for traditional ML of course and not LLMs
-    # pylint: disable=redefined-variable-type
     search_start_node = find_train_or_test_pipeline_part_end(dag, False)
     nodes_to_search = set(networkx.ancestors(dag, search_start_node))
     # Maybe start with outliers and text typos
@@ -360,10 +359,8 @@ def get_translate_transformer(column, database_path):
     translate = partial(translate, bound_column=column)
     warnings.filterwarnings('ignore')
     translate_transformer = FunctionTransformer(translate)
-    # TODO: What to do with this? Where to store this savefile?
-    translate_transformer = CachedTextTransformer(translate_transformer,
-                                                  database_path=database_path)
-    return translate_transformer
+    caching_translate_transformer = CachedTextTransformer(translate_transformer, database_path=database_path)
+    return caching_translate_transformer
 
 
 def get_relative_score_change(*old_scores_and_new_scores, max_not_min=True):
@@ -407,11 +404,11 @@ def apply_diff_filter(input_df, corrupted_index):
     elif isinstance(input_df, list):
         corrupted_diff = numpy.array(input_df)[corrupted_index]
     elif isinstance(input_df, tuple) and len(input_df) == 8:  # RAG Join Result
-        corrupted_diff = list(copy(input_df))
-        corrupted_diff[2] = list(numpy.array(corrupted_diff[2])[corrupted_index])
-        corrupted_diff[3] = list(numpy.array(corrupted_diff[3])[corrupted_index])
-        corrupted_diff[6] = corrupted_diff[6][corrupted_index, :]
-        corrupted_diff = tuple(corrupted_diff)
+        corrupted_diff_list = list(copy(input_df))
+        corrupted_diff_list[2] = list(numpy.array(corrupted_diff_list[2])[corrupted_index])
+        corrupted_diff_list[3] = list(numpy.array(corrupted_diff_list[3])[corrupted_index])
+        corrupted_diff_list[6] = corrupted_diff_list[6][corrupted_index, :]
+        corrupted_diff = tuple(corrupted_diff_list)
     else:
         corrupted_diff = input_df[corrupted_index]
     if isinstance(corrupted_diff, (pandas.Series, pandas.DataFrame)):

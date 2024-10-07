@@ -89,7 +89,6 @@ class PipelineExecutor:
         """
         Instrument and execute the pipeline and evaluate all checks
         """
-        # pylint: disable=too-many-locals
         self.analysis_results.pipeline_executor = self
         if reset_state:
             # reset_state=False should only be used internally for performance experiments etc!
@@ -123,29 +122,10 @@ class PipelineExecutor:
             # TODO: Do we ever need the captured output from the original pipeline version?
             #  Maybe this gets relevant once we add the DAG as input to mlwhat in case there are multiple executions
             # captured_output = stdout_output.getvalue()
-            orig_instrumented_exec_duration = (time.time() - orig_instrumented_exec_start -
-                                               singleton.monkey_patch_duration)
-            self.analysis_results.runtime_info.original_pipeline_without_importing_and_monkeypatching = \
-                orig_instrumented_exec_duration * 1000
-
-            original_estimator_runtime = [node.details.optimizer_info.runtime
-                                          for node in self.analysis_results.original_dag.nodes
-                                          if node.operator_info.operator == OperatorType.ESTIMATOR]
-            self.analysis_results.runtime_info.original_model_training = sum(original_estimator_runtime)
-            train_data_nodes = [node for node in self.analysis_results.original_dag.nodes
-                                if node.operator_info.operator == OperatorType.TRAIN_DATA]
-            if len(train_data_nodes) != 0:
-                train_data_node = train_data_nodes[0]
-                self.analysis_results.runtime_info.original_pipeline_train_data_shape = \
-                    train_data_node.details.optimizer_info.shape
-            test_data_nodes = [node for node in self.analysis_results.original_dag.nodes
-                               if node.operator_info.operator == OperatorType.TEST_DATA]
-            if len(test_data_nodes) != 0:
-                test_data_node = test_data_nodes[0]
-                self.analysis_results.runtime_info.original_pipeline_test_data_shape = \
-                    test_data_node.details.optimizer_info.shape
+            self.prepare_runtime_info(orig_instrumented_exec_start)
             # FIXME: Training Data Matrix shape
-            logger.info(f'---RUNTIME: Original pipeline execution took {orig_instrumented_exec_duration * 1000} ms '
+            pipeline_exec_time = self.analysis_results.runtime_info.original_pipeline_without_importing_and_monkeypatching
+            logger.info(f'---RUNTIME: Original pipeline execution took {pipeline_exec_time} ms '
                         f'(excluding imports and monkey-patching)')
         else:
             logger.info('Reusing DAG extraction results results from previously instrumented pipeline...')
@@ -168,6 +148,28 @@ class PipelineExecutor:
 
         logger.info('Done!')
         return self.analysis_results
+
+    def prepare_runtime_info(self, orig_instrumented_exec_start):
+        orig_instrumented_exec_duration = (time.time() - orig_instrumented_exec_start -
+                                           singleton.monkey_patch_duration)
+        self.analysis_results.runtime_info.original_pipeline_without_importing_and_monkeypatching = \
+            orig_instrumented_exec_duration * 1000
+        original_estimator_runtime = [node.details.optimizer_info.runtime
+                                      for node in self.analysis_results.original_dag.nodes
+                                      if node.operator_info.operator == OperatorType.ESTIMATOR]
+        self.analysis_results.runtime_info.original_model_training = sum(original_estimator_runtime)
+        train_data_nodes = [node for node in self.analysis_results.original_dag.nodes
+                            if node.operator_info.operator == OperatorType.TRAIN_DATA]
+        if len(train_data_nodes) != 0:
+            train_data_node = train_data_nodes[0]
+            self.analysis_results.runtime_info.original_pipeline_train_data_shape = \
+                train_data_node.details.optimizer_info.shape
+        test_data_nodes = [node for node in self.analysis_results.original_dag.nodes
+                           if node.operator_info.operator == OperatorType.TEST_DATA]
+        if len(test_data_nodes) != 0:
+            test_data_node = test_data_nodes[0]
+            self.analysis_results.runtime_info.original_pipeline_test_data_shape = \
+                test_data_node.details.optimizer_info.shape
 
     def gen_and_exec_shadow_pipelines(self):
         for shadow_pipeline in self.shadow_pipelines:

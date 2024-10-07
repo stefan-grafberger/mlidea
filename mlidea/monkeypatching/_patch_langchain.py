@@ -49,12 +49,13 @@ call_info_singleton = LangchainCallInfo()
 def execute_embedding_similarity_join(retrieval_corpus_X, retrieval_corpus_y, embedding, inputs: list[Input]):
     # pylint: disable=too-many-locals
     Chroma(collection_name=Chroma._LANGCHAIN_DEFAULT_COLLECTION_NAME).delete_collection()
+    document_indices = [str(index) for index in range(len(retrieval_corpus_X))]
     if singleton.prov_enabled is False:
         retrieval_corpus_y = retrieval_corpus_y.copy()
-        for row, index in zip(retrieval_corpus_y, list(map(str, range(len(retrieval_corpus_X))))):
+        for row, index in zip(retrieval_corpus_y, document_indices):
             row['_metadata_ids'] = index
         filled_vectorstore = Chroma.from_texts(texts=retrieval_corpus_X, metadatas=retrieval_corpus_y,
-                                               embedding=embedding, ids=list(map(str, range(len(retrieval_corpus_X))))
+                                               embedding=embedding, ids=document_indices
                                                ).as_retriever()
     else:
         # TODO: Make this more general, what if it isn't a dict with only one entry
@@ -75,17 +76,16 @@ def execute_embedding_similarity_join(retrieval_corpus_X, retrieval_corpus_y, em
         #     all_prov_value_str.append(new_prov_value_str)
         # TODO: Improve performance here
         metadatas_with_prov = []
-        for row_metadatas, row_prov_id in zip(retrieval_corpus_y, range(len(list(prov_str_dict.items())[0][1]))):
+        for row_metadatas, row_prov_id in zip(retrieval_corpus_y, range(len(retrieval_corpus_X))):
             new_dict_for_row = row_metadatas
             for prov_key, prov_value in list(prov_str_dict.items()):
                 new_dict_for_row = new_dict_for_row | {prov_key: prov_value[row_prov_id]}
             metadatas_with_prov.append(new_dict_for_row)
-        for row, index in zip(metadatas_with_prov, list(map(str, range(len(retrieval_corpus_X))))):
+        for row, index in zip(metadatas_with_prov, document_indices):
             row['_metadata_ids'] = index
         filled_vectorstore = Chroma.from_texts(texts=retrieval_corpus_X, metadatas=metadatas_with_prov,
                                                embedding=embedding,
-                                               # TODO: Not sure if ids is really necessary in addition to metadatas prov
-                                               ids=list(map(str, range(len(retrieval_corpus_X))))).as_retriever()
+                                               ids=document_indices).as_retriever()
     results = filled_vectorstore.batch(inputs)
     results = wrap_in_mlinspect_array_if_necessary(results)
     results._mlinspect_provenance = {}
