@@ -682,3 +682,17 @@ def _fit_model_variant(train_data, train_labels, make_classifier_func):
     estimator = make_classifier_func()
     estimator.fit(train_data, train_labels)
     return estimator
+
+
+def get_top_n_df_rows(corruption_diff_fix_df, sample_size):
+    if isinstance(corruption_diff_fix_df, (pandas.DataFrame, pandas.Series)):
+        corruption_diff_fix_df_sample = corruption_diff_fix_df.head(sample_size)
+    elif (isinstance(corruption_diff_fix_df, numpy.ndarray) and
+          corruption_diff_fix_df.ndim == 2):
+        corruption_diff_fix_df_sample = corruption_diff_fix_df[:sample_size, :]
+    elif (isinstance(corruption_diff_fix_df, numpy.ndarray) and
+          corruption_diff_fix_df.ndim == 1):
+        corruption_diff_fix_df_sample = corruption_diff_fix_df[:sample_size]
+    else:
+        raise NotImplementedError("TODO")
+    return corruption_diff_fix_df_sample

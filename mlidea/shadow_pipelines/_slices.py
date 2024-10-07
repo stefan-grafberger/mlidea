@@ -111,32 +111,45 @@ class FairnessSlices(ShadowPipeline):
         if len(data_sources_with_sensitive_columns) == 0:
             return new_dag
 
-        concat_node = prov_join_node_with_data_sources(singleton, data_sources_with_sensitive_columns, new_dag,
-                                                       test_data_operators[0])
+        new_slice_finder_node = self._add_slice_finder_computation(data_sources_with_sensitive_columns, new_dag,
+                                                                   predict_operators, test_data_operators,
+                                                                   test_labels_operators)
 
-        slice_finder_process_func = partial(FairnessSlices.get_slice_finder_slice_and_indices,
-                                            alpha=self.slice_finder_alpha)
-        new_slice_finder_node = DagNode(singleton.get_next_op_id(),
-                                        BasicCodeLocation("Fairness Slices", None),
-                                        OperatorContext(OperatorType.GROUP_BY_AGG, None),
-                                        DagNodeDetails(
-                                            "Run Slice Finder", None),
-                                        None,
-                                        slice_finder_process_func)
-        new_dag.add_edge(concat_node, new_slice_finder_node, arg_index=0)
-        new_dag.add_edge(test_labels_operators[0], new_slice_finder_node, arg_index=1)
-        new_dag.add_edge(predict_operators[0], new_slice_finder_node, arg_index=2)
-        extraction_node = get_intermediate_extraction_node(singleton, new_slice_finder_node,
-                                                           "fairness-slices-slice-line-result")
-        new_dag.add_edge(new_slice_finder_node, extraction_node, arg_index=0)
+        conditional_slices_found_node = self._get_slice_found_conditional_node(new_dag, new_slice_finder_node)
 
-        problematic_slice_found_func = lambda slice_finder_result: (slice_finder_result[0] is not None and
-                                                                    slice_finder_result[1] is not None)
-        conditional_slices_found_node = get_conditional_stop_node(
-            singleton, problematic_slice_found_func, "fairness-slices-slice-line-problematic-slice-found",
-            "Check if problematic slice was found", new_slice_finder_node)
-        new_dag.add_edge(new_slice_finder_node, conditional_slices_found_node, arg_index=0)
+        self._add_fix_computation_ml(conditional_slices_found_node, dag, new_dag, new_slice_finder_node,
+                                     score_operators)
 
+        return new_dag
+
+    def get_llm_rag_dag(self, dag, data_sources_with_sensitive_columns):
+        new_dag = dag.copy()
+        assert_standard_llm_shape(dag, "Fairness Slices")
+
+        predict_operators = find_nodes_by_type(dag, OperatorType.PREDICT)
+        score_operators = find_nodes_by_type(dag, OperatorType.SCORE)
+        rag_join_operators = find_nodes_by_type(dag, OperatorType.RAG_JOIN)
+        test_data_operators = find_nodes_by_type(dag, OperatorType.TEST_DATA)
+        test_labels_operators = find_nodes_by_type(dag, OperatorType.TEST_LABELS)
+        add_orig_score_extraction_nodes(singleton, new_dag, score_operators)
+        self.score_operator_count = len(score_operators)
+
+        if len(data_sources_with_sensitive_columns) == 0:
+            return new_dag
+
+        new_slice_finder_node = self._add_slice_finder_computation(data_sources_with_sensitive_columns, new_dag,
+                                                                   predict_operators, test_data_operators,
+                                                                   test_labels_operators)
+
+        conditional_slices_found_node = self._get_slice_found_conditional_node(new_dag, new_slice_finder_node)
+
+        self._add_fix_computation_llm(conditional_slices_found_node, new_dag, new_slice_finder_node, predict_operators,
+                                      rag_join_operators, score_operators, test_data_operators)
+
+        return new_dag
+
+    def _add_fix_computation_ml(self, conditional_slices_found_node, dag, new_dag, new_slice_finder_node,
+                                score_operators):
         process_func = lambda slice_finder_result: slice_finder_result[1]
         slice_finder_indices_node = DagNode(singleton.get_next_op_id(),
                                             BasicCodeLocation("Fairness Slices", None),
@@ -147,7 +160,6 @@ class FairnessSlices(ShadowPipeline):
                                             process_func)
         new_dag.add_edge(new_slice_finder_node, slice_finder_indices_node, arg_index=0)
         new_dag.add_edge(conditional_slices_found_node, slice_finder_indices_node, arg_index=1)
-
         data_parent_transformer_and_data_type = get_transformer_parents_with_data_types(dag)
         fix_strategy_index = 0
         for data_parent, data_type in data_parent_transformer_and_data_type:
@@ -235,26 +247,10 @@ class FairnessSlices(ShadowPipeline):
                                                          f"fairness-slice-fixing-{fix_strategy_index}")
                 fix_strategy_index += 1
 
-        return new_dag
-
-    def get_llm_rag_dag(self, dag, data_sources_with_sensitive_columns):
-        new_dag = dag.copy()
-        assert_standard_llm_shape(dag, "Fairness Slices")
-
-        predict_operators = find_nodes_by_type(dag, OperatorType.PREDICT)
-        score_operators = find_nodes_by_type(dag, OperatorType.SCORE)
-        rag_join_operators = find_nodes_by_type(dag, OperatorType.RAG_JOIN)
-        test_data_operators = find_nodes_by_type(dag, OperatorType.TEST_DATA)
-        test_labels_operators = find_nodes_by_type(dag, OperatorType.TEST_LABELS)
-        add_orig_score_extraction_nodes(singleton, new_dag, score_operators)
-        self.score_operator_count = len(score_operators)
-
-        if len(data_sources_with_sensitive_columns) == 0:
-            return new_dag
-
+    def _add_slice_finder_computation(self, data_sources_with_sensitive_columns, new_dag, predict_operators,
+                                      test_data_operators, test_labels_operators):
         concat_node = prov_join_node_with_data_sources(singleton, data_sources_with_sensitive_columns, new_dag,
                                                        test_data_operators[0])
-
         slice_finder_process_func = partial(FairnessSlices.get_slice_finder_slice_and_indices,
                                             alpha=self.slice_finder_alpha)
         new_slice_finder_node = DagNode(singleton.get_next_op_id(),
@@ -270,14 +266,10 @@ class FairnessSlices(ShadowPipeline):
         extraction_node = get_intermediate_extraction_node(singleton, new_slice_finder_node,
                                                            "fairness-slices-slice-line-result")
         new_dag.add_edge(new_slice_finder_node, extraction_node, arg_index=0)
+        return new_slice_finder_node
 
-        problematic_slice_found_func = lambda slice_finder_result: (slice_finder_result[0] is not None and
-                                                                    slice_finder_result[1] is not None)
-        conditional_fix_made_changes_node = get_conditional_stop_node(
-            singleton, problematic_slice_found_func, "fairness-slices-slice-line-problematic-slice-found",
-            "Check if problematic slice was found", new_slice_finder_node)
-        new_dag.add_edge(new_slice_finder_node, conditional_fix_made_changes_node, arg_index=0)
-
+    def _add_fix_computation_llm(self, conditional_slices_found_node, new_dag, new_slice_finder_node, predict_operators,
+                                 rag_join_operators, score_operators, test_data_operators):
         process_func = lambda slice_finder_result: slice_finder_result[1]
         slice_finder_indices_node = DagNode(singleton.get_next_op_id(),
                                             BasicCodeLocation("Fairness Slices", None),
@@ -287,8 +279,7 @@ class FairnessSlices(ShadowPipeline):
                                             None,
                                             process_func)
         new_dag.add_edge(new_slice_finder_node, slice_finder_indices_node, arg_index=0)
-        new_dag.add_edge(conditional_fix_made_changes_node, slice_finder_indices_node, arg_index=1)
-
+        new_dag.add_edge(conditional_slices_found_node, slice_finder_indices_node, arg_index=1)
         data_parent = test_data_operators[0]
         data_type = DataType.TEXT
         fix_strategy_index = 0
@@ -360,7 +351,14 @@ class FairnessSlices(ShadowPipeline):
                                                      score_operators, f"fairness-slice-fixing-{fix_strategy_index}")
             fix_strategy_index += 1
 
-        return new_dag
+    def _get_slice_found_conditional_node(self, new_dag, new_slice_finder_node):
+        problematic_slice_found_func = lambda slice_finder_result: (slice_finder_result[0] is not None and
+                                                                    slice_finder_result[1] is not None)
+        conditional_fix_made_changes_node = get_conditional_stop_node(
+            singleton, problematic_slice_found_func, "fairness-slices-slice-line-problematic-slice-found",
+            "Check if problematic slice was found", new_slice_finder_node)
+        new_dag.add_edge(new_slice_finder_node, conditional_fix_made_changes_node, arg_index=0)
+        return conditional_fix_made_changes_node
 
     @staticmethod
     def get_data_sources_to_sensitive_columns(dag, additional_column_names):
