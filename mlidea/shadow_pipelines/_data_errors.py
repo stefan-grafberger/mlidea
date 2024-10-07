@@ -19,7 +19,8 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     get_typo_fixer, get_conditional_stop_node, DataType, get_transformer_operators_to_test, \
     get_relative_score_change, add_orig_score_extraction_nodes, fix_data_diff_detection_mask_only, \
     fix_data_mask_to_indices, rag_join_update, \
-    get_diff_filter_node, get_changed_indices_node, merge_prediction_diff_with_old_predictions
+    get_diff_filter_node, get_changed_indices_node, merge_prediction_diff_with_old_predictions, \
+    add_new_score_and_score_extraction_nodes, update_copied_scores_and_add_extraction_nodes
 
 
 class DataErrorRobustness(ShadowPipeline):
@@ -151,15 +152,9 @@ class DataErrorRobustness(ShadowPipeline):
             if len(new_score_nodes) < 1:
                 raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
                                           "pattern!")
-            for score_index, score_operator in enumerate(new_score_nodes):
-                edge_data = new_dag.get_edge_data(test_predict, score_operator)
-                new_dag.remove_edge(test_predict, score_operator)
-                new_dag.add_edge(new_corrupt_predict_diff_update_node, score_operator, **edge_data)
-
-                extraction_node = get_intermediate_extraction_node(singleton, score_operator,
-                                                                   f"data-errors-corrupt-{score_index}-{data_type_index}")
-                new_dag.add_edge(score_operator, extraction_node, arg_index=0)
-
+            update_copied_scores_and_add_extraction_nodes(singleton, new_dag, new_corrupt_predict_diff_update_node,
+                                                          new_score_nodes, f"data-errors-corrupt-{data_type_index}",
+                                                          test_predict)
             condition_processing_func = partial(DataErrorRobustness.condition_corruption_significant_function,
                                                 self._corruption_significant_relative_threshold)
             conditional_corruption_significant_node = get_conditional_stop_node(
@@ -264,14 +259,10 @@ class DataErrorRobustness(ShadowPipeline):
             if len(new_score_nodes) < 1:
                 raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
                                           "pattern!")
-            for score_index, score_operator in enumerate(new_score_nodes):
-                edge_data = new_dag.get_edge_data(test_predict, score_operator)
-                new_dag.remove_edge(test_predict, score_operator)
-                new_dag.add_edge(new_fix_predict_diff_update_node, score_operator, **edge_data)
 
-                extraction_node = get_intermediate_extraction_node(singleton, score_operator,
-                                                                   f"data-errors-corrupt-fix-{score_index}-{data_type_index}")
-                new_dag.add_edge(score_operator, extraction_node, arg_index=0)
+            update_copied_scores_and_add_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
+                                                          new_score_nodes, f"data-errors-corrupt-fix-{data_type_index}",
+                                                          test_predict)
             # End evaluate
         return new_dag
 
@@ -350,17 +341,9 @@ class DataErrorRobustness(ShadowPipeline):
         new_dag.add_edge(conditional_corruption_made_changes_node, new_corrupt_predict_diff_update_node,
                          arg_index=3)
 
-        new_score_nodes = []
-        for score_index, score_operator in enumerate(score_operators):
-            new_score_node = copy_node_with_new_id(singleton, score_operator)
-            new_score_nodes.append(new_score_node)
-            new_dag.add_edge(new_corrupt_predict_diff_update_node, new_score_node, arg_index=0)
-            for parent in get_sorted_parent_nodes(dag, score_operator)[1:]:
-                edge_data = new_dag.get_edge_data(parent, score_operator)
-                new_dag.add_edge(parent, new_score_node, **edge_data)
-            extraction_node = get_intermediate_extraction_node(singleton, score_operator,
-                                                               f"data-errors-corrupt-{score_index}-0")
-            new_dag.add_edge(score_operator, extraction_node, arg_index=0)
+        new_score_nodes = add_new_score_and_score_extraction_nodes(singleton, new_dag,
+                                                                   new_corrupt_predict_diff_update_node,
+                                                                   score_operators, "data-errors-corrupt-0")
 
         condition_processing_func = partial(DataErrorRobustness.condition_corruption_significant_function,
                                             self._corruption_significant_relative_threshold)
@@ -452,15 +435,8 @@ class DataErrorRobustness(ShadowPipeline):
         new_dag.add_edge(prediction_filter_index_node, new_fix_predict_diff_update_node, arg_index=2)
         new_dag.add_edge(conditional_fixes_changed_something_node, new_fix_predict_diff_update_node, arg_index=3)
 
-        for score_index, score_operator in enumerate(score_operators):
-            new_score_node = copy_node_with_new_id(singleton, score_operator)
-            new_dag.add_edge(new_fix_predict_diff_update_node, new_score_node, arg_index=0)
-            for parent in get_sorted_parent_nodes(dag, score_operator)[1:]:
-                edge_data = new_dag.get_edge_data(parent, score_operator)
-                new_dag.add_edge(parent, new_score_node, **edge_data)
-            extraction_node = get_intermediate_extraction_node(singleton, score_operator,
-                                                               f"data-errors-corrupt-fix-{score_index}-0")
-            new_dag.add_edge(score_operator, extraction_node, arg_index=0)
+        add_new_score_and_score_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
+                                                 score_operators, "data-errors-corrupt-fix-0")
         # End evaluate
         return new_dag
 
@@ -491,7 +467,7 @@ class DataErrorRobustness(ShadowPipeline):
                 corrupt_result = []
                 for score_index in range(self.score_operator_count):
                     corrupt_result.append(
-                        extracted_plan_results[f"data-errors-corrupt-{score_index}-{transformer_index}"])
+                        extracted_plan_results[f"data-errors-corrupt-{transformer_index}-{score_index}"])
                 max_score_decrease = get_relative_score_change(max_not_min=False, *orig_result, *corrupt_result)
                 corruption_score_decreases.append(max_score_decrease)
                 report += (
@@ -523,7 +499,7 @@ class DataErrorRobustness(ShadowPipeline):
                     score_after_fixing = []
                     for score_index in range(self.score_operator_count):
                         score_after_fixing.append(
-                            extracted_plan_results[f"data-errors-corrupt-fix-{score_index}-{transformer_index}"])
+                            extracted_plan_results[f"data-errors-corrupt-fix-{transformer_index}-{score_index}"])
                 else:
                     report += (
                         "Fortunately, corruption function was not able to significantly affect the performance beyond "

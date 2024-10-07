@@ -22,7 +22,8 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     get_typo_fixer, get_conditional_stop_node, filter_estimator_transformer_edges, get_transformer_operators_to_test, \
     DataType, get_translate_transformer, get_relative_score_change, add_orig_score_extraction_nodes, projection, \
     rag_join_update, prov_join_with_data_source, \
-    get_diff_filter_node, get_changed_indices_node, merge_prediction_diff_with_old_predictions
+    get_diff_filter_node, get_changed_indices_node, merge_prediction_diff_with_old_predictions, \
+    add_new_score_and_score_extraction_nodes, update_copied_scores_and_add_extraction_nodes
 
 
 class FixType(Enum):
@@ -87,6 +88,11 @@ class FairnessSlices(ShadowPipeline):
 
         rag_join_operators = find_nodes_by_type(dag, OperatorType.RAG_JOIN)
 
+        for data_source, column_names in data_sources_concat.items():
+            self.sensitive_columns.extend(column_names)
+        for data_source, column_names in data_sources_prov_join.items():
+            self.sensitive_columns.extend(column_names)
+
         if len(rag_join_operators) == 0:
             new_dag = self.get_traditional_ml_dag(dag, data_sources_concat, data_sources_prov_join)
         else:
@@ -111,7 +117,6 @@ class FairnessSlices(ShadowPipeline):
                                       "pattern!")
         add_orig_score_extraction_nodes(singleton, new_dag, score_operators)
         self.score_operator_count = len(score_operators)
-        self.sensitive_columns = []
 
         if len(data_sources_concat) == 0 and len(data_sources_prov_join) == 0:
             return new_dag
@@ -133,7 +138,6 @@ class FairnessSlices(ShadowPipeline):
                               concat_processing_func)
 
         for data_source, column_names in data_sources_concat.items():
-            self.sensitive_columns.extend(column_names)
             projection_processing_func = wrap_projection_func(
                 partial(projection, column_names))
 
@@ -148,7 +152,6 @@ class FairnessSlices(ShadowPipeline):
             new_dag.add_edge(projection_node, concat_node, arg_index=0)
 
         for data_source, column_names in data_sources_prov_join.items():
-            self.sensitive_columns.extend(column_names)
             projection_processing_func = wrap_projection_func(
                 partial(projection, column_names))
 
@@ -283,7 +286,8 @@ class FairnessSlices(ShadowPipeline):
                 old_predict = [node for node in old_copied_nodes
                                if node.operator_info.operator == OperatorType.PREDICT][0]
 
-                new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, "Fairness Slices")
+                new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton,
+                                                                                              "Fairness Slices")
                 new_dag.add_edge(old_predict, new_fix_predict_diff_update_node, arg_index=0)
                 new_dag.add_edge(test_predict, new_fix_predict_diff_update_node, arg_index=1)
                 new_dag.add_edge(new_fix_diff_node, new_fix_predict_diff_update_node, arg_index=2)
@@ -294,14 +298,10 @@ class FairnessSlices(ShadowPipeline):
                     raise NotImplementedError(
                         "Currently, Label Errors only supports pipelines following a very specific "
                         "pattern!")
-                for score_index, score_operator in enumerate(new_score_nodes):
-                    edge_data = new_dag.get_edge_data(test_predict, score_operator)
-                    new_dag.remove_edge(test_predict, score_operator)
-                    new_dag.add_edge(new_fix_predict_diff_update_node, score_operator, **edge_data)
-
-                    extraction_node = get_intermediate_extraction_node(singleton, score_operator,
-                                                                       f"fairness-slice-fixing-{score_index}-{fix_strategy_index}")
-                    new_dag.add_edge(score_operator, extraction_node, arg_index=0)
+                update_copied_scores_and_add_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
+                                                              new_score_nodes,
+                                                              f"fairness-slice-fixing-{fix_strategy_index}",
+                                                              test_predict)
                 fix_strategy_index += 1
 
         return new_dag
@@ -483,18 +483,8 @@ class FairnessSlices(ShadowPipeline):
             new_dag.add_edge(conditional_fix_made_changes_node, new_fix_predict_diff_update_node,
                              arg_index=3)
 
-            new_score_nodes = []
-            for score_index, score_operator in enumerate(score_operators):
-                new_score_node = copy_node_with_new_id(singleton, score_operator)
-                new_score_nodes.append(new_score_node)
-                new_dag.add_edge(new_fix_predict_diff_update_node, new_score_node, arg_index=0)
-                for parent in get_sorted_parent_nodes(dag, score_operator)[1:]:
-                    edge_data = new_dag.get_edge_data(parent, score_operator)
-                    new_dag.add_edge(parent, new_score_node, **edge_data)
-                extraction_node = get_intermediate_extraction_node(singleton, score_operator,
-                                                                   f"fairness-slice-fixing-{score_index}-"
-                                                                   f"{fix_strategy_index}")
-                new_dag.add_edge(score_operator, extraction_node, arg_index=0)
+            add_new_score_and_score_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
+                                                     score_operators, f"fairness-slice-fixing-{fix_strategy_index}")
             fix_strategy_index += 1
 
         return new_dag
@@ -575,7 +565,7 @@ class FairnessSlices(ShadowPipeline):
                     fix_result = []
                     for score_index in range(self.score_operator_count):
                         fix_result.append(
-                            extracted_plan_results[f"fairness-slice-fixing-{score_index}-{fix_strategy_index}"])
+                            extracted_plan_results[f"fairness-slice-fixing-{fix_strategy_index}-{score_index}"])
 
                     max_score_improvement = get_relative_score_change(*orig_result, *fix_result)
                     performance_increases.append(max_score_improvement)

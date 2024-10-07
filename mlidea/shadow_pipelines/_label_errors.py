@@ -15,7 +15,7 @@ from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
     get_sorted_parent_nodes, get_conditional_stop_node, get_relative_score_change, add_orig_score_extraction_nodes, \
-    get_diff_filter_node, merge_prediction_diff_with_old_predictions
+    get_diff_filter_node, merge_prediction_diff_with_old_predictions, add_new_score_and_score_extraction_nodes
 
 
 class LabelErrors(ShadowPipeline):
@@ -123,8 +123,8 @@ class LabelErrors(ShadowPipeline):
             new_dag.add_edge(new_model_node, new_predict_node, arg_index=0)
             new_dag.add_edge(test_data_operators[0], new_predict_node, arg_index=1)
             new_dag.add_edge(likely_mislabeled_rows_condition_node, new_predict_node, arg_index=2)
-            LabelErrors.add_new_score_and_score_extraction_nodes(new_dag, new_predict_node, score_operators,
-                                                                 test_labels_operators, "label-errors-proxy")
+            add_new_score_and_score_extraction_nodes(singleton, new_dag, new_predict_node, score_operators,
+                                                     "label-errors-proxy")
 
         if self._proxy_model is False:
             new_model_node = copy_node_with_new_id(singleton, model_operators[0])
@@ -135,8 +135,8 @@ class LabelErrors(ShadowPipeline):
         new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
         new_dag.add_edge(new_model_node, new_predict_node, arg_index=0)
         new_dag.add_edge(test_data_operators[0], new_predict_node, arg_index=1)
-        LabelErrors.add_new_score_and_score_extraction_nodes(new_dag, new_predict_node, score_operators,
-                                                             test_labels_operators, "label-errors-flip-retrain")
+        add_new_score_and_score_extraction_nodes(singleton, new_dag, new_predict_node, score_operators,
+                                                 "label-errors-flip-retrain")
 
         return new_dag
 
@@ -234,8 +234,8 @@ class LabelErrors(ShadowPipeline):
         new_dag.add_edge(new_predict_node, new_fix_predict_diff_update_node, arg_index=1)
         new_dag.add_edge(new_label_flip_indices_node, new_fix_predict_diff_update_node, arg_index=2)
 
-        LabelErrors.add_new_score_and_score_extraction_nodes(new_dag, new_fix_predict_diff_update_node, score_operators,
-                                                             test_labels_operators, "label-errors-flip-retrain")
+        add_new_score_and_score_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
+                                                 score_operators, "label-errors-flip-retrain")
         return new_dag
 
     def generate_final_report(self, extracted_plan_results: dict[str, any]) -> any:
@@ -473,22 +473,6 @@ class LabelErrors(ShadowPipeline):
         else:
             modified_encoded_train_labels[unfair_indices, :] = 1 - modified_encoded_train_labels[unfair_indices, :]
         return modified_encoded_train_labels
-
-    @staticmethod
-    def add_new_score_and_score_extraction_nodes(new_dag, new_predict_node, score_operators,
-                                                 test_labels_operators, label_prefix):
-        for score_index, score_operator in enumerate(score_operators):
-            new_score_node = copy_node_with_new_id(singleton, score_operator)
-            new_dag.add_edge(new_predict_node, new_score_node, arg_index=0)
-            new_dag.add_edge(test_labels_operators[0], new_score_node, arg_index=1)
-            parents = get_sorted_parent_nodes(new_dag, score_operator)[2:]
-            for parent_index, parent in enumerate(parents):
-                # TODO: There might be shadow pipeline edge cases where this does not work without further work
-                new_dag.add_edge(parent, new_score_node, arg_index=parent_index + 2)
-
-            retrain_extraction_node = get_intermediate_extraction_node(singleton, new_score_node,
-                                                                       f"{label_prefix}-{score_index}")
-            new_dag.add_edge(new_score_node, retrain_extraction_node, arg_index=0)
 
     @staticmethod
     def get_proxy_model_node(singleton, old_estimator_node):

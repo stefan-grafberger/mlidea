@@ -546,3 +546,32 @@ def merge_prediction_diff_with_old_predictions(singleton, shadow_pipeline_name):
                                                None,
                                                update_prediction_diff)
     return new_fix_predict_diff_update_node
+
+
+def add_new_score_and_score_extraction_nodes(singleton, new_dag, new_predict_node, score_operators, label_prefix):
+    new_score_nodes = []
+    for score_index, score_operator in enumerate(score_operators):
+        new_score_node = copy_node_with_new_id(singleton, score_operator)
+        new_score_nodes.append(new_score_node)
+        new_dag.add_edge(new_predict_node, new_score_node, arg_index=0)
+        parents = get_sorted_parent_nodes(new_dag, score_operator)[1:]
+        for parent_index, parent in enumerate(parents):
+            # TODO: There might be shadow pipeline edge cases where this does not work without further work
+            new_dag.add_edge(parent, new_score_node, arg_index=parent_index + 1)
+
+        retrain_extraction_node = get_intermediate_extraction_node(singleton, new_score_node,
+                                                                   f"{label_prefix}-{score_index}")
+        new_dag.add_edge(new_score_node, retrain_extraction_node, arg_index=0)
+    return new_score_nodes
+
+
+def update_copied_scores_and_add_extraction_nodes(singleton, new_dag, new_predict_node, new_score_nodes, label_prefix,
+                                                  test_predict):
+    for score_index, score_operator in enumerate(new_score_nodes):
+        edge_data = new_dag.get_edge_data(test_predict, score_operator)
+        new_dag.remove_edge(test_predict, score_operator)
+        new_dag.add_edge(new_predict_node, score_operator, **edge_data)
+
+        retrain_extraction_node = get_intermediate_extraction_node(singleton, score_operator,
+                                                                   f"{label_prefix}-{score_index}")
+        new_dag.add_edge(score_operator, retrain_extraction_node, arg_index=0)
