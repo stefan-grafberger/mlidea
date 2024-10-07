@@ -20,7 +20,7 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     get_relative_score_change, add_orig_score_extraction_nodes, fix_data_diff_detection_mask_only, \
     fix_data_mask_to_indices, rag_join_update, \
     get_diff_filter_node, get_changed_indices_node, merge_prediction_diff_with_old_predictions, \
-    add_new_score_and_score_extraction_nodes, update_copied_scores_and_add_extraction_nodes
+    add_new_score_and_score_extraction_nodes
 
 
 class DataErrorRobustness(ShadowPipeline):
@@ -115,7 +115,7 @@ class DataErrorRobustness(ShadowPipeline):
             new_dag.add_edge(new_corruption_diff_filter_node, extraction_node, arg_index=0)
 
             # Evaluate with corrupted data
-            old_copied_nodes, new_nodes, new_score_nodes = duplicate_descendants(
+            old_copied_nodes, new_nodes = duplicate_descendants(
                 dag, new_dag, data_parent, new_corruption_diff_filter_node, singleton)
 
             # Now apply filter to all other concatenation inputs
@@ -149,12 +149,10 @@ class DataErrorRobustness(ShadowPipeline):
             new_dag.add_edge(conditional_corruption_made_changes_node, new_corrupt_predict_diff_update_node,
                              arg_index=3)
 
-            if len(new_score_nodes) < 1:
-                raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
-                                          "pattern!")
-            update_copied_scores_and_add_extraction_nodes(singleton, new_dag, new_corrupt_predict_diff_update_node,
-                                                          new_score_nodes, f"data-errors-corrupt-{data_type_index}",
-                                                          test_predict)
+            new_score_nodes = add_new_score_and_score_extraction_nodes(singleton, new_dag,
+                                                                       new_corrupt_predict_diff_update_node,
+                                                                       score_operators,
+                                                                       f"data-errors-corrupt-{data_type_index}")
             condition_processing_func = partial(DataErrorRobustness.condition_corruption_significant_function,
                                                 self._corruption_significant_relative_threshold)
             conditional_corruption_significant_node = get_conditional_stop_node(
@@ -225,7 +223,7 @@ class DataErrorRobustness(ShadowPipeline):
             new_dag.add_edge(conditional_fixes_changed_something_node, new_fix_diff_filter_node, arg_index=2)
 
             # Evaluate with fixed data
-            old_copied_nodes, new_nodes, new_score_nodes = duplicate_descendants(
+            old_copied_nodes, new_nodes = duplicate_descendants(
                 dag, new_dag, data_parent, new_fix_diff_filter_node, singleton)
 
             # Now apply filter to all other concatenation inputs
@@ -256,13 +254,8 @@ class DataErrorRobustness(ShadowPipeline):
             new_dag.add_edge(prediction_filter_index_node, new_fix_predict_diff_update_node, arg_index=2)
             new_dag.add_edge(conditional_fixes_changed_something_node, new_fix_predict_diff_update_node, arg_index=3)
 
-            if len(new_score_nodes) < 1:
-                raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
-                                          "pattern!")
-
-            update_copied_scores_and_add_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
-                                                          new_score_nodes, f"data-errors-corrupt-fix-{data_type_index}",
-                                                          test_predict)
+            add_new_score_and_score_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
+                                                     score_operators, f"data-errors-corrupt-fix-{data_type_index}")
             # End evaluate
         return new_dag
 

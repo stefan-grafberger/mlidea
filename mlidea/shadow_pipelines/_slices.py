@@ -23,7 +23,7 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     DataType, get_translate_transformer, get_relative_score_change, add_orig_score_extraction_nodes, projection, \
     rag_join_update, prov_join_with_data_source, \
     get_diff_filter_node, get_changed_indices_node, merge_prediction_diff_with_old_predictions, \
-    add_new_score_and_score_extraction_nodes, update_copied_scores_and_add_extraction_nodes
+    add_new_score_and_score_extraction_nodes
 
 
 class FixType(Enum):
@@ -258,7 +258,7 @@ class FairnessSlices(ShadowPipeline):
                 new_dag.add_edge(new_fix_diff_filter_node, extraction_node, arg_index=0)
 
                 # Evaluate with updated data
-                old_copied_nodes, new_nodes, new_score_nodes = duplicate_descendants(
+                old_copied_nodes, new_nodes = duplicate_descendants(
                     dag, new_dag, data_parent, new_fix_diff_filter_node, singleton)
 
                 # Now apply filter to all other concatenation inputs
@@ -294,14 +294,9 @@ class FairnessSlices(ShadowPipeline):
                 new_dag.add_edge(conditional_fix_function_made_changes_node, new_fix_predict_diff_update_node,
                                  arg_index=3)
 
-                if len(new_score_nodes) < 1:
-                    raise NotImplementedError(
-                        "Currently, Label Errors only supports pipelines following a very specific "
-                        "pattern!")
-                update_copied_scores_and_add_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
-                                                              new_score_nodes,
-                                                              f"fairness-slice-fixing-{fix_strategy_index}",
-                                                              test_predict)
+                add_new_score_and_score_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
+                                                         score_operators,
+                                                         f"fairness-slice-fixing-{fix_strategy_index}")
                 fix_strategy_index += 1
 
         return new_dag

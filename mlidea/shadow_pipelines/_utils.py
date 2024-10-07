@@ -244,7 +244,7 @@ def duplicate_descendants(original_dag, new_dag, original_node, modified_copy, s
 
     # Copy the edges from the original subgraph to the duplicate subgraph, maintaining edge attributes
     for node in queue:
-        if node.operator_info.operator != OperatorType.EXTRACT_RESULT:
+        if node.operator_info.operator not in {OperatorType.EXTRACT_RESULT, OperatorType.SCORE}:
             new_node = mapping[node]
 
             # Replicate edges from the original parents to the new duplicate nodes, preserving edge attributes
@@ -256,11 +256,7 @@ def duplicate_descendants(original_dag, new_dag, original_node, modified_copy, s
                     edge_data = original_dag.get_edge_data(parent, node)
                     new_dag.add_edge(parent, new_node, **edge_data)
 
-    ordered_new_scores = [new_node for _, new_node in
-                          sorted(list(mapping.items()), key=lambda old_new_tuple: old_new_tuple[0].node_id)
-                          if new_node.operator_info.operator == OperatorType.SCORE]
-
-    return set(mapping.keys()), set(mapping.values()), ordered_new_scores
+    return set(mapping.keys()), set(mapping.values())
 
 
 def filter_estimator_transformer_edges(parent, child):
@@ -563,15 +559,3 @@ def add_new_score_and_score_extraction_nodes(singleton, new_dag, new_predict_nod
                                                                    f"{label_prefix}-{score_index}")
         new_dag.add_edge(new_score_node, retrain_extraction_node, arg_index=0)
     return new_score_nodes
-
-
-def update_copied_scores_and_add_extraction_nodes(singleton, new_dag, new_predict_node, new_score_nodes, label_prefix,
-                                                  test_predict):
-    for score_index, score_operator in enumerate(new_score_nodes):
-        edge_data = new_dag.get_edge_data(test_predict, score_operator)
-        new_dag.remove_edge(test_predict, score_operator)
-        new_dag.add_edge(new_predict_node, score_operator, **edge_data)
-
-        retrain_extraction_node = get_intermediate_extraction_node(singleton, score_operator,
-                                                                   f"{label_prefix}-{score_index}")
-        new_dag.add_edge(score_operator, retrain_extraction_node, arg_index=0)
