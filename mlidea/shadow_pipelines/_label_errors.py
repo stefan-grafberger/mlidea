@@ -15,7 +15,8 @@ from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
     get_conditional_stop_node, get_relative_score_change, add_orig_score_extraction_nodes, \
-    get_diff_filter_node, merge_prediction_diff_with_old_predictions, add_new_score_and_score_extraction_nodes
+    get_diff_filter_node, merge_prediction_diff_with_old_predictions, add_new_score_and_score_extraction_nodes, \
+    assert_standard_llm_shape, assert_standard_ml_shape
 
 
 class LabelErrors(ShadowPipeline):
@@ -61,6 +62,7 @@ class LabelErrors(ShadowPipeline):
 
     def get_traditional_ml_dag(self, dag):
         new_dag = dag.copy()
+        assert_standard_ml_shape(dag, "Label Errors")
 
         predict_operators = find_nodes_by_type(dag, OperatorType.PREDICT)
         score_operators = find_nodes_by_type(dag, OperatorType.SCORE)
@@ -69,11 +71,6 @@ class LabelErrors(ShadowPipeline):
         train_labels_operators = find_nodes_by_type(dag, OperatorType.TRAIN_LABELS)
         test_data_operators = find_nodes_by_type(dag, OperatorType.TEST_DATA)
         test_labels_operators = find_nodes_by_type(dag, OperatorType.TEST_LABELS)
-        if len(predict_operators) != 1 or len(score_operators) < 1 or len(model_operators) != 1 \
-                or len(train_data_operators) != 1 or len(train_labels_operators) != 1 \
-                or len(test_data_operators) != 1 or len(test_labels_operators) < 1:
-            raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
-                                      "pattern!")
         add_orig_score_extraction_nodes(singleton, new_dag, score_operators)
         self.score_operator_count = len(score_operators)
 
@@ -143,20 +140,14 @@ class LabelErrors(ShadowPipeline):
         if self._proxy_model is True:
             raise ValueError("Proxy model is not supported for LLM pipelines!")
         new_dag = dag.copy()
+        assert_standard_llm_shape(dag, "Label Errors")
 
         predict_operators = find_nodes_by_type(dag, OperatorType.PREDICT)
         score_operators = find_nodes_by_type(dag, OperatorType.SCORE)
         rag_join_operators = find_nodes_by_type(dag, OperatorType.RAG_JOIN)
-        train_data_operators = find_nodes_by_type(dag, OperatorType.TRAIN_DATA)
         train_labels_operators = find_nodes_by_type(dag, OperatorType.TRAIN_LABELS)
         test_data_operators = find_nodes_by_type(dag, OperatorType.TEST_DATA)
         test_labels_operators = find_nodes_by_type(dag, OperatorType.TEST_LABELS)
-
-        if len(predict_operators) != 1 or len(score_operators) < 1 or len(rag_join_operators) != 1 \
-                or len(train_data_operators) != 1 or len(train_labels_operators) != 1 \
-                or len(test_data_operators) != 1 or len(test_labels_operators) < 1:
-            raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
-                                      "pattern!")
         label_encoder_operators = list(new_dag.predecessors(test_labels_operators[0]))
         if len(label_encoder_operators) != 1 or "label_binarize" not in label_encoder_operators[0].details.description:
             raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "

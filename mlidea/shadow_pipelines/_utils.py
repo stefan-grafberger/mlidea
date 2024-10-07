@@ -17,6 +17,7 @@ from mlidea import DagNode, OperatorContext, OperatorType, DagNodeDetails, Basic
 from mlidea.shadow_pipelines.cached_text_transformer import CachedTextTransformer
 from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
 from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
+from mlidea.monkeypatching._provenance_propagation import wrap_projection_func
 
 
 def get_intermediate_extraction_node(singleton, dag_node, label: str):
@@ -556,3 +557,106 @@ def add_new_score_and_score_extraction_nodes(singleton, new_dag, new_predict_nod
                                                                    f"{label_prefix}-{score_index}")
         new_dag.add_edge(new_score_node, retrain_extraction_node, arg_index=0)
     return new_score_nodes
+
+
+def assert_standard_llm_shape(dag, shadow_pipeline_name):
+    predict_operators = find_nodes_by_type(dag, OperatorType.PREDICT)
+    score_operators = find_nodes_by_type(dag, OperatorType.SCORE)
+    rag_join_operators = find_nodes_by_type(dag, OperatorType.RAG_JOIN)
+    train_data_operators = find_nodes_by_type(dag, OperatorType.TRAIN_DATA)
+    train_labels_operators = find_nodes_by_type(dag, OperatorType.TRAIN_LABELS)
+    test_data_operators = find_nodes_by_type(dag, OperatorType.TEST_DATA)
+    test_labels_operators = find_nodes_by_type(dag, OperatorType.TEST_LABELS)
+    # pylint: disable=too-many-boolean-expressions
+    if len(predict_operators) != 1 or len(score_operators) < 1 or len(rag_join_operators) != 1 \
+            or len(train_data_operators) != 1 or len(train_labels_operators) != 1 \
+            or len(test_data_operators) != 1 or len(test_labels_operators) < 1:
+        raise NotImplementedError(f"Currently, {shadow_pipeline_name} only supports pipelines following a "
+                                  f"very specific pattern!")
+
+
+def assert_standard_ml_shape(dag, shadow_pipeline_name):
+    predict_operators = find_nodes_by_type(dag, OperatorType.PREDICT)
+    score_operators = find_nodes_by_type(dag, OperatorType.SCORE)
+    model_operators = find_nodes_by_type(dag, OperatorType.ESTIMATOR)
+    train_data_operators = find_nodes_by_type(dag, OperatorType.TRAIN_DATA)
+    train_labels_operators = find_nodes_by_type(dag, OperatorType.TRAIN_LABELS)
+    test_data_operators = find_nodes_by_type(dag, OperatorType.TEST_DATA)
+    test_labels_operators = find_nodes_by_type(dag, OperatorType.TEST_LABELS)
+    # pylint: disable=too-many-boolean-expressions
+    if len(predict_operators) != 1 or len(score_operators) < 1 or len(model_operators) != 1 \
+            or len(train_data_operators) != 1 or len(train_labels_operators) != 1 \
+            or len(test_data_operators) != 1 or len(test_labels_operators) < 1:
+        raise NotImplementedError(f"Currently, {shadow_pipeline_name} only supports pipelines following a very "
+                                  f"specific pattern!")
+
+
+def concat_func(*inputs):
+    # TODO: What if not all inputs are pandas dfs?
+    result = pandas.concat(inputs, axis=1)
+    result = wrap_in_mlinspect_array_if_necessary(result)
+    # Not sure if this might be necessary at some point
+    # result._mlinspect_provenance = ...
+    return result
+
+
+def prov_join_node_with_data_sources(singleton, data_sources_with_sensitive_columns, new_dag,
+                                     node_requiring_side_info):
+    dag_to_consider = networkx.subgraph_view(new_dag, filter_edge=filter_estimator_transformer_edges)
+    data_sources_concat = {}
+    data_sources_prov_join = {}
+    for data_source, columns in list(data_sources_with_sensitive_columns.items()):
+        paths = list(networkx.all_simple_paths(dag_to_consider, source=data_source, target=node_requiring_side_info))
+        if len(paths) != 0:
+            nodes_in_paths = set(node for path in paths for node in path)
+            if len([node for node in nodes_in_paths if
+                    node.operator_info.operator in {OperatorType.SELECTION, OperatorType.JOIN}]) == 0:
+                data_sources_concat[data_source] = columns
+            else:
+                data_sources_prov_join[data_source] = columns
+
+    concat_node = DagNode(singleton.get_next_op_id(),
+                          BasicCodeLocation("Data Errors", None),
+                          OperatorContext(OperatorType.CONCATENATION, None),
+                          DagNodeDetails(
+                              "Concat sensitive attributes", None),
+                          None,
+                          concat_func)
+    for data_source, column_names in data_sources_concat.items():
+        projection_processing_func = wrap_projection_func(
+            partial(projection, column_names))
+
+        projection_node = DagNode(singleton.get_next_op_id(),
+                                  BasicCodeLocation("Fairness Slices", None),
+                                  OperatorContext(OperatorType.PROJECTION, None),
+                                  DagNodeDetails(
+                                      "Select sensitive attributes", None),
+                                  None,
+                                  projection_processing_func)
+        new_dag.add_edge(data_source, projection_node, arg_index=0)
+        new_dag.add_edge(projection_node, concat_node, arg_index=0)
+    for data_source, column_names in data_sources_prov_join.items():
+        projection_processing_func = wrap_projection_func(
+            partial(projection, column_names))
+
+        projection_node = DagNode(singleton.get_next_op_id(),
+                                  BasicCodeLocation("Fairness Slices", None),
+                                  OperatorContext(OperatorType.PROJECTION, None),
+                                  DagNodeDetails(
+                                      "Select sensitive attributes", None),
+                                  None,
+                                  projection_processing_func)
+        new_dag.add_edge(data_source, projection_node, arg_index=0)
+
+        join_node = DagNode(singleton.get_next_op_id(),
+                            BasicCodeLocation("Fairness Slices", None),
+                            OperatorContext(OperatorType.JOIN, None),
+                            DagNodeDetails(
+                                "Join on provenance", None),
+                            None,
+                            prov_join_with_data_source)
+        new_dag.add_edge(node_requiring_side_info, join_node, arg_index=0)
+        new_dag.add_edge(projection_node, join_node, arg_index=1)
+
+        new_dag.add_edge(join_node, concat_node, arg_index=0)
+    return concat_node

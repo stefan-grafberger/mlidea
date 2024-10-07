@@ -20,7 +20,7 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     get_relative_score_change, add_orig_score_extraction_nodes, fix_data_diff_detection_mask_only, \
     fix_data_mask_to_indices, rag_join_update, \
     get_diff_filter_node, get_changed_indices_node, merge_prediction_diff_with_old_predictions, \
-    add_new_score_and_score_extraction_nodes
+    add_new_score_and_score_extraction_nodes, assert_standard_llm_shape, assert_standard_ml_shape
 
 
 class DataErrorRobustness(ShadowPipeline):
@@ -61,19 +61,9 @@ class DataErrorRobustness(ShadowPipeline):
 
     def get_traditional_ml_dag(self, dag):
         new_dag = dag.copy()
+        assert_standard_ml_shape(dag, "Data Errors")
 
-        predict_operators = find_nodes_by_type(dag, OperatorType.PREDICT)
         score_operators = find_nodes_by_type(dag, OperatorType.SCORE)
-        model_operators = find_nodes_by_type(dag, OperatorType.ESTIMATOR)
-        train_data_operators = find_nodes_by_type(dag, OperatorType.TRAIN_DATA)
-        train_labels_operators = find_nodes_by_type(dag, OperatorType.TRAIN_LABELS)
-        test_data_operators = find_nodes_by_type(dag, OperatorType.TEST_DATA)
-        test_labels_operators = find_nodes_by_type(dag, OperatorType.TEST_LABELS)
-        if len(predict_operators) != 1 or len(score_operators) < 1 or len(model_operators) != 1 \
-                or len(train_data_operators) != 1 or len(train_labels_operators) != 1 \
-                or len(test_data_operators) != 1 or len(test_labels_operators) < 1:
-            raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
-                                      "pattern!")
         add_orig_score_extraction_nodes(singleton, new_dag, score_operators)
         self.score_operator_count = len(score_operators)
 
@@ -260,19 +250,13 @@ class DataErrorRobustness(ShadowPipeline):
 
     def get_llm_rag_dag(self, dag):
         new_dag = dag.copy()
+        assert_standard_llm_shape(dag, "Data Errors")
 
         predict_operators = find_nodes_by_type(dag, OperatorType.PREDICT)
         score_operators = find_nodes_by_type(dag, OperatorType.SCORE)
         rag_join_operators = find_nodes_by_type(dag, OperatorType.RAG_JOIN)
-        train_data_operators = find_nodes_by_type(dag, OperatorType.TRAIN_DATA)
-        train_labels_operators = find_nodes_by_type(dag, OperatorType.TRAIN_LABELS)
         test_data_operators = find_nodes_by_type(dag, OperatorType.TEST_DATA)
-        test_labels_operators = find_nodes_by_type(dag, OperatorType.TEST_LABELS)
-        if len(predict_operators) != 1 or len(score_operators) < 1 or len(rag_join_operators) != 1 \
-                or len(train_data_operators) != 1 or len(train_labels_operators) != 1 \
-                or len(test_data_operators) != 1 or len(test_labels_operators) < 1:
-            raise NotImplementedError("Currently, Label Errors only supports pipelines following a very specific "
-                                      "pattern!")
+
         add_orig_score_extraction_nodes(singleton, new_dag, score_operators)
         self.score_operator_count = len(score_operators)
         self._transformer_inputs_to_check = [DataType.TEXT.value]
