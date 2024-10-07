@@ -307,7 +307,7 @@ TRANSFORMER_TO_DATA_TYPES = {
 }
 
 
-def get_transformer_operators_to_test(dag):
+def get_transformer_parents_with_data_types(dag):
     """
     For now, we will ignore project modifies and focus on selections and transformers.
     This is because for transformers it is easy to find the corresponding test set operation and for the
@@ -326,7 +326,7 @@ def get_transformer_operators_to_test(dag):
         for transformer_desc, data_type in TRANSFORMER_TO_DATA_TYPES.items():
             if transformer_desc in transformer.details.description:
                 data_parent = get_sorted_parent_nodes(dag, transformer)[1]
-                data_parent_and_data_type.append((data_parent, transformer, data_type))
+                data_parent_and_data_type.append((data_parent, data_type))
 
     # A simple heuristic for now to detect embedding operations in FunctionTransformers in pipelines like
     #  anhedonia_ml
@@ -337,7 +337,7 @@ def get_transformer_operators_to_test(dag):
         data_parent = get_sorted_parent_nodes(dag, function_transformer)[1]
         if (data_parent.details.optimizer_info.shape[1] == 1 and
                 function_transformer.details.optimizer_info.shape[1] >= 100):
-            data_parent_and_data_type.append((data_parent, function_transformer, DataType.TEXT))
+            data_parent_and_data_type.append((data_parent, DataType.TEXT))
     return data_parent_and_data_type
 
 

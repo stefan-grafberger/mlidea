@@ -16,7 +16,7 @@ from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
     get_sorted_parent_nodes, get_typo_adder, duplicate_descendants, \
-    get_typo_fixer, get_conditional_stop_node, DataType, get_transformer_operators_to_test, \
+    get_typo_fixer, get_conditional_stop_node, DataType, get_transformer_parents_with_data_types, \
     get_relative_score_change, add_orig_score_extraction_nodes, fix_data_diff_detection_mask_only, \
     fix_data_mask_to_indices, rag_join_update, \
     get_diff_filter_node, get_changed_indices_node, merge_prediction_diff_with_old_predictions, \
@@ -47,7 +47,6 @@ class DataErrorRobustness(ShadowPipeline):
         return "data_errors"
 
     def generate_shadow_pipeline_dag(self, dag: networkx.DiGraph) -> networkx.DiGraph:
-        # pylint: disable=too-many-locals,too-many-statements
         # TODO: Maybe it would be better to delete all unrelated DAG nodes here that are not specifically mentioned
         #  below. But this only works once intermediate resutl caching is implemented
 
@@ -78,10 +77,10 @@ class DataErrorRobustness(ShadowPipeline):
         add_orig_score_extraction_nodes(singleton, new_dag, score_operators)
         self.score_operator_count = len(score_operators)
 
-        data_parent_transformer_and_data_type = get_transformer_operators_to_test(dag)
+        data_parent_transformer_and_data_type = get_transformer_parents_with_data_types(dag)
         self._transformer_inputs_to_check = []
 
-        for data_type_index, (data_parent, transformer, data_type) in enumerate(data_parent_transformer_and_data_type):
+        for data_type_index, (data_parent, data_type) in enumerate(data_parent_transformer_and_data_type):
             self._transformer_inputs_to_check.append(data_type.value)
             processing_func = partial(DataErrorRobustness.corrupt_data,
                                       data_type=data_type,
@@ -527,8 +526,8 @@ class DataErrorRobustness(ShadowPipeline):
                            f"{max(fix_score_increases)})! (However, you might want to do more detailed experiments "
                            f"yourself, but the suggestions by Data Errors might be a good starting point).")
             else:
-                report += (f" While Data Errors was not able to find a promising way to make your pipeline more "
-                           f"robust, you might want to investigate this issue yourself.")
+                report += (" While Data Errors was not able to find a promising way to make your pipeline more "
+                           "robust, you might want to investigate this issue yourself.")
         return report
 
     @staticmethod

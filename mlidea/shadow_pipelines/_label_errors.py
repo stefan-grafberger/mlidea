@@ -14,7 +14,7 @@ from mlidea.execution._pipeline_executor import singleton
 from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
-    get_sorted_parent_nodes, get_conditional_stop_node, get_relative_score_change, add_orig_score_extraction_nodes, \
+    get_conditional_stop_node, get_relative_score_change, add_orig_score_extraction_nodes, \
     get_diff_filter_node, merge_prediction_diff_with_old_predictions, add_new_score_and_score_extraction_nodes
 
 
@@ -47,7 +47,6 @@ class LabelErrors(ShadowPipeline):
         return "label_errors"
 
     def generate_shadow_pipeline_dag(self, dag: networkx.DiGraph) -> networkx.DiGraph:
-        # pylint: disable=too-many-locals,too-many-statements
         # TODO: Maybe it would be better to delete all unrelated DAG nodes here that are not specifically mentioned
         #  below. But this only works once intermediate resutl caching is implemented
 
@@ -284,7 +283,7 @@ class LabelErrors(ShadowPipeline):
     @staticmethod
     @njit(fastmath=True, parallel=True, cache=True)
     def _compute_shapley_values(X_train, y_train, X_test, y_test, K=1):
-        # pylint: disable=invalid-name,too-many-locals
+        # pylint: disable=invalid-name
         """Compute approximate shapley values as presented in the DataScope paper. Here, we only do it for the
         estimator input data though and not for the input data of the surrounding pipeline.
         """
@@ -325,7 +324,7 @@ class LabelErrors(ShadowPipeline):
 
         vectorstore = rag_join_result[5]
         train_data_sample = numpy.array(vectorstore.get(
-            ids=list(map(str, train_indices_to_consider)), include=["embeddings"])['embeddings'])
+            ids=[str(index) for index in train_indices_to_consider], include=["embeddings"])['embeddings'])
         to_label_encode = train_labels_before_dict.iloc[train_indices_to_consider, 0]
         to_label_encode._mlinspect_provenance = None
         train_label_sample = label_encoding_op.processing_func(to_label_encode)
@@ -391,7 +390,7 @@ class LabelErrors(ShadowPipeline):
     @staticmethod
     def get_rows_to_flip_llm(rag_join_result, shapley_result):
         retrieval_index = rag_join_result[6]
-        changed_df = shapley_result[['train_id']]
+        changed_df = shapley_result[['train_id']]  # pylint: disable=unused-variable
         pandas_retrieval_index_df = pandas.DataFrame(retrieval_index,
                                                      columns=['train_retrieved_1', 'train_retrieved_2',
                                                               'train_retrieved_3', 'train_retrieved_4'])
@@ -420,18 +419,18 @@ class LabelErrors(ShadowPipeline):
             label_key, label_value = label_dict_items[0]
             classes.add(label_value)
             class_search_index += 1
-        classes = list(classes)
+        classes_list = list(classes)
         diff_encoded_train_labels = numpy.array(encoded_train_labels)[mislabeled_indices]
         for mislabeled_row in diff_encoded_train_labels:
             assert label_key is not None
             current_val = mislabeled_row[label_key]
-            current_val_index = classes.index(current_val)
-            mislabeled_row[label_key] = classes[1 - current_val_index]
+            current_val_index = classes_list.index(current_val)
+            mislabeled_row[label_key] = classes_list[1 - current_val_index]
         diff_encoded_train_labels = list(diff_encoded_train_labels)
 
         # Update the labels in the vectorstore
         vectorstore = rag_join_result[5]
-        vectorstore_ids = list(map(str, mislabeled_indices))
+        vectorstore_ids = [str(index) for index in mislabeled_indices]
         old_entries = vectorstore.get(ids=vectorstore_ids, include=["embeddings", "documents", "metadatas"])
         documents = old_entries['documents']
         embeddings = old_entries['embeddings']
@@ -447,14 +446,14 @@ class LabelErrors(ShadowPipeline):
 
         new_rag_join_text_result = numpy.array(rag_join_result[2])
         new_rag_join_text_result[all_predictions_to_rerun] = diff_rag_result
-        new_rag_join_text_result = list(new_rag_join_text_result)
+        new_rag_join_text_result_list = list(new_rag_join_text_result)
 
         new_retrieval_index = retrieval_index.copy()
         new_retrieval_index[all_predictions_to_rerun, :] = diff_retrieval_index
 
         # TODO: Should we propagate provenance here? Might be important for explanations later
-        new_rag_join_result = (rag_join_result[0], rag_join_result[1], new_rag_join_text_result, rag_join_result[3],
-                               None, rag_join_result[5], new_retrieval_index, rag_join_result[7])
+        new_rag_join_result = (rag_join_result[0], rag_join_result[1], new_rag_join_text_result_list,
+                               rag_join_result[3], None, rag_join_result[5], new_retrieval_index, rag_join_result[7])
         return new_rag_join_result
 
     @staticmethod
@@ -475,11 +474,11 @@ class LabelErrors(ShadowPipeline):
         return modified_encoded_train_labels
 
     @staticmethod
-    def get_proxy_model_node(singleton, old_estimator_node):
+    def get_proxy_model_node(executor_singleton, old_estimator_node):
         model_function = partial(SGDClassifier, loss='log_loss', max_iter=30, n_jobs=1)
         new_processing_func = partial(LabelErrors.fit_model_variant, make_classifier_func=model_function)
         new_description = "Fast proxy model"
-        new_estimator_node = DagNode(singleton.get_next_op_id(),
+        new_estimator_node = DagNode(executor_singleton.get_next_op_id(),
                                      old_estimator_node.code_location,
                                      old_estimator_node.operator_info,
                                      DagNodeDetails(new_description, old_estimator_node.details.columns,

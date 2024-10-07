@@ -19,7 +19,7 @@ from mlidea.monkeypatching._provenance_propagation import wrap_projection_func
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
     get_sorted_parent_nodes, duplicate_descendants, \
-    get_typo_fixer, get_conditional_stop_node, filter_estimator_transformer_edges, get_transformer_operators_to_test, \
+    get_typo_fixer, get_conditional_stop_node, filter_estimator_transformer_edges, get_transformer_parents_with_data_types, \
     DataType, get_translate_transformer, get_relative_score_change, add_orig_score_extraction_nodes, projection, \
     rag_join_update, prov_join_with_data_source, \
     get_diff_filter_node, get_changed_indices_node, merge_prediction_diff_with_old_predictions, \
@@ -78,7 +78,6 @@ class FairnessSlices(ShadowPipeline):
         return column_name in {"race", "gender", "age", "lang", "country", "sex"}.union(additional_column_names)
 
     def generate_shadow_pipeline_dag(self, dag: networkx.DiGraph) -> networkx.DiGraph:
-        # pylint: disable=too-many-locals,too-many-statements
         # TODO: Maybe it would be better to delete all unrelated DAG nodes here that are not specifically mentioned
         #  below. But this only works once intermediate resutl caching is implemented
 
@@ -88,9 +87,9 @@ class FairnessSlices(ShadowPipeline):
 
         rag_join_operators = find_nodes_by_type(dag, OperatorType.RAG_JOIN)
 
-        for data_source, column_names in data_sources_concat.items():
+        for _, column_names in data_sources_concat.items():
             self.sensitive_columns.extend(column_names)
-        for data_source, column_names in data_sources_prov_join.items():
+        for _, column_names in data_sources_prov_join.items():
             self.sensitive_columns.extend(column_names)
 
         if len(rag_join_operators) == 0:
@@ -212,9 +211,9 @@ class FairnessSlices(ShadowPipeline):
         new_dag.add_edge(new_slice_finder_node, slice_finder_indices_node, arg_index=0)
         new_dag.add_edge(conditional_slices_found_node, slice_finder_indices_node, arg_index=1)
 
-        data_parent_transformer_and_data_type = get_transformer_operators_to_test(dag)
+        data_parent_transformer_and_data_type = get_transformer_parents_with_data_types(dag)
         fix_strategy_index = 0
-        for data_parent, _, data_type in data_parent_transformer_and_data_type:
+        for data_parent, data_type in data_parent_transformer_and_data_type:
             for fix_strategy in DATA_TYPE_TO_FIX_STRATEGY[data_type]:
                 self.fix_strategy_names.append(fix_strategy.value)
                 processing_func = partial(FairnessSlices.fix_data, fix_strategy=fix_strategy,
@@ -521,10 +520,10 @@ class FairnessSlices(ShadowPipeline):
                        "there are no fairness problems, Fairness Slices only could not find any with the given config.")
         else:
             slice_line_result = extracted_plan_results["fairness-slices-slice-line-result"]
-            readable_slice_result = []
+            column_with_slice_value = []
             for sensitive_column, column_value in zip(self.sensitive_columns, list(slice_line_result[0])):
-                readable_slice_result.append(f"{sensitive_column}={column_value}")
-            readable_slice_result = ", ".join(readable_slice_result)
+                column_with_slice_value.append(f"{sensitive_column}={column_value}")
+            readable_slice_result = ", ".join(column_with_slice_value)
             readable_slice_result = f"[{readable_slice_result}]"
             report += f"The problematic slice that was found is {readable_slice_result}.\n"
 
@@ -581,13 +580,13 @@ class FairnessSlices(ShadowPipeline):
                             f"cannot help, it only means that Fairness Slices cannot find a promising "
                             f"repair strategy automatically.\n")
             if len(promising_fix_strategies) != 0:
-                report += (f"\n\nFairness Slices found the problematic slice {readable_slice_result}. "
+                report += (f"\n\nFairness Slices found the problematic slice {column_with_slice_value}. "
                            f"It seems that the fix strategies {promising_fix_strategies} that Fairness Slices"
                            f" tried to improve the predictions for the problematic slice "
                            f"can lead to performance improvements by up to {max(performance_increases)}. "
                            f"You could take a look at these.")
             else:
-                report += (f"While the slice {readable_slice_result} seems to be problematic, Fairness Slices"
+                report += (f"While the slice {column_with_slice_value} seems to be problematic, Fairness Slices"
                            f" cannot find any promising repair strategy automatically. However, you could try finding"
                            f" one on your own.")
         return report
@@ -597,7 +596,7 @@ class FairnessSlices(ShadowPipeline):
         # For now, this function is the same as in data_errors. Might want to consider different things here
         #  at some point
         fixed_corrupted = input_df.copy()
-        if fix_strategy == FixType.TEXT_TRANSLATE:
+        if fix_strategy in {FixType.TEXT_TRANSLATE, FixType.TEXT_SPELLCHECK}:
             was_series = False
             was_numpy = False
             series_column_name = None
@@ -610,36 +609,24 @@ class FairnessSlices(ShadowPipeline):
             elif isinstance(fixed_corrupted, (numpy.ndarray, list)):
                 fixed_corrupted = pandas.DataFrame({"column": fixed_corrupted})
                 was_numpy = True
+
             for column_index, column in enumerate(fixed_corrupted.columns):
                 if fixed_corrupted[column].dtype == object:
-                    translate_transformer = get_translate_transformer(column, database_path)
-                    fixed_corrupted.iloc[only_fix_indices, [column_index]] = translate_transformer.fit_transform(
-                        fixed_corrupted.iloc[only_fix_indices, [column_index]])
+                    if fix_strategy == FixType.TEXT_TRANSLATE:
+                        translate_transformer = get_translate_transformer(column, database_path)
+                        fixed_corrupted.iloc[only_fix_indices, [column_index]] = translate_transformer.fit_transform(
+                            fixed_corrupted.iloc[only_fix_indices, [column_index]])
+                    elif fix_strategy == FixType.TEXT_SPELLCHECK:
+                        typo_fixer = get_typo_fixer(column)
+                        fixed_corrupted.iloc[only_fix_indices, [column_index]] = typo_fixer.fit_transform(
+                            fixed_corrupted.iloc[only_fix_indices, [column_index]])
+                    else:
+                        raise NotImplementedError("TODO")
             if was_series is True:
                 fixed_corrupted = fixed_corrupted[series_column_name]
             elif was_numpy is True:
                 fixed_corrupted = fixed_corrupted["column"].to_numpy()
-        elif fix_strategy == FixType.TEXT_SPELLCHECK:
-            was_series = False
-            was_numpy = False
-            if isinstance(fixed_corrupted, pandas.Series):
-                fixed_corrupted = pandas.DataFrame(fixed_corrupted)
-                was_series = True
-            elif isinstance(fixed_corrupted, (numpy.ndarray, list)):
-                fixed_corrupted = pandas.DataFrame({"column": fixed_corrupted})
-                was_numpy = True
-            for column_index, column in enumerate(fixed_corrupted.columns):
-                if fixed_corrupted[column].dtype == object:
-                    typo_fixer = get_typo_fixer(column)
-                    fixed_corrupted.iloc[only_fix_indices, [column_index]] = typo_fixer.fit_transform(
-                        fixed_corrupted.iloc[only_fix_indices, [column_index]])
-            if was_series is True:
-                fixed_corrupted = fixed_corrupted[column]
-            elif was_numpy is True:
-                fixed_corrupted = fixed_corrupted["column"].to_numpy()
         elif fix_strategy == FixType.CAT:
-            # maybe use IsolationForest and? imputer?
-
             is_dataframe = isinstance(fixed_corrupted, pandas.DataFrame)
             fixed_corrupted = input_df.copy()
             if is_dataframe:
