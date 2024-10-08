@@ -181,7 +181,6 @@ def add_typos(column, fraction_to_typo, df):
 
 
 def get_typo_adder(column, fraction_to_typo):
-
     warnings.filterwarnings('ignore')
     processing_func = partial(add_typos, column, fraction_to_typo)
     typo_adder = FunctionTransformer(processing_func)
@@ -696,3 +695,26 @@ def get_top_n_df_rows(corruption_diff_fix_df, sample_size):
     else:
         raise NotImplementedError("TODO")
     return corruption_diff_fix_df_sample
+
+
+def indices_filter_computation_for_duplicated_concat_inputs(singleton, changed_indices_node, conditional_node, new_dag,
+                                                            new_nodes, shadow_pipeline_name):
+    concats = [node for node in new_nodes if node.operator_info.operator == OperatorType.CONCATENATION]
+    if len(concats) > 1:
+        raise NotImplementedError(
+            "Currently, Label Errors only supports pipelines following a very specific "
+            "pattern!")
+    if len(concats) == 1:
+        for concat in concats:
+            concat_parents = get_sorted_parent_nodes(new_dag, concat)
+            for concat_parent in concat_parents:
+                if concat_parent not in new_nodes:
+                    edge_data = new_dag.get_edge_data(concat_parent, concat)
+                    new_dag.remove_edge(concat_parent, concat)
+                    new_concat_parent_filter_node = get_diff_filter_node(singleton, shadow_pipeline_name)
+                    new_dag.add_edge(concat_parent, new_concat_parent_filter_node, arg_index=0)
+                    new_dag.add_edge(changed_indices_node, new_concat_parent_filter_node, arg_index=1)
+                    new_dag.add_edge(conditional_node,
+                                     new_concat_parent_filter_node,
+                                     arg_index=2)
+                    new_dag.add_edge(new_concat_parent_filter_node, concat, **edge_data)

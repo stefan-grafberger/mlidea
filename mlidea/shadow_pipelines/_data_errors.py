@@ -20,7 +20,8 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     get_relative_score_change, add_orig_score_extraction_nodes, fix_data_diff_detection_mask_only, \
     fix_data_mask_to_indices, rag_join_update, \
     get_diff_filter_node, get_changed_indices_node, merge_prediction_diff_with_old_predictions, \
-    add_new_score_and_score_extraction_nodes, assert_standard_llm_shape, assert_standard_ml_shape, get_top_n_df_rows
+    add_new_score_and_score_extraction_nodes, assert_standard_llm_shape, assert_standard_ml_shape, get_top_n_df_rows, \
+    indices_filter_computation_for_duplicated_concat_inputs
 
 
 class DataErrorRobustness(ShadowPipeline):
@@ -257,23 +258,9 @@ class DataErrorRobustness(ShadowPipeline):
         # Evaluate with fixed data
         _, new_nodes = duplicate_descendants(
             dag, new_dag, data_parent, new_fix_diff_filter_node, singleton)
-        # Now apply filter to all other concatenation inputs
-        concats = [node for node in new_nodes if node.operator_info.operator == OperatorType.CONCATENATION]
-        if len(concats) >= 1:
-            if len(concats) != 1:
-                raise NotImplementedError(
-                    "Currently, Label Errors only supports pipelines following a very specific "
-                    "pattern!")
-            for concat in concats:
-                concat_parents = get_sorted_parent_nodes(new_dag, concat)
-                for concat_parent in concat_parents:
-                    if concat_parent not in new_nodes:
-                        edge_data = new_dag.get_edge_data(concat_parent, concat)
-                        new_dag.remove_edge(concat_parent, concat)
-                        new_concat_parent_filter_node = get_diff_filter_node(singleton, "Data Errors")
-                        new_dag.add_edge(concat_parent, new_concat_parent_filter_node, arg_index=0)
-                        new_dag.add_edge(new_fix_diff_indices_node, new_concat_parent_filter_node, arg_index=1)
-                        new_dag.add_edge(new_concat_parent_filter_node, concat, **edge_data)
+        indices_filter_computation_for_duplicated_concat_inputs(
+            singleton, new_fix_diff_indices_node, conditional_fixes_changed_something_node, new_dag, new_nodes,
+            "Data Errors")
         test_predict = [node for node in new_nodes
                         if node.operator_info.operator == OperatorType.PREDICT][0]
         prediction_filter_index_node = new_fix_diff_indices_node

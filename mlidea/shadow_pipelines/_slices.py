@@ -17,13 +17,12 @@ from mlidea.execution._pipeline_executor import singleton
 from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
-    get_sorted_parent_nodes, duplicate_descendants, \
-    get_typo_fixer, get_conditional_stop_node, filter_estimator_transformer_edges, \
+    duplicate_descendants, get_typo_fixer, get_conditional_stop_node, filter_estimator_transformer_edges, \
     get_transformer_parents_with_data_types, \
     DataType, get_translate_transformer, get_relative_score_change, add_orig_score_extraction_nodes, rag_join_update, \
     get_diff_filter_node, get_changed_indices_node, merge_prediction_diff_with_old_predictions, \
     add_new_score_and_score_extraction_nodes, assert_standard_llm_shape, assert_standard_ml_shape, \
-    prov_join_node_with_data_sources
+    prov_join_node_with_data_sources, indices_filter_computation_for_duplicated_concat_inputs
 
 
 class FixType(Enum):
@@ -208,27 +207,9 @@ class FairnessSlices(ShadowPipeline):
                 # Evaluate with updated data
                 old_copied_nodes, new_nodes = duplicate_descendants(
                     dag, new_dag, data_parent, new_fix_diff_filter_node, singleton)
-
-                # Now apply filter to all other concatenation inputs
-                concats = [node for node in new_nodes if node.operator_info.operator == OperatorType.CONCATENATION]
-                if len(concats) >= 1:
-                    if len(concats) != 1:
-                        raise NotImplementedError(
-                            "Currently, Label Errors only supports pipelines following a very specific "
-                            "pattern!")
-                    for concat in concats:
-                        concat_parents = get_sorted_parent_nodes(new_dag, concat)
-                        for concat_parent in concat_parents:
-                            if concat_parent not in new_nodes:
-                                edge_data = new_dag.get_edge_data(concat_parent, concat)
-                                new_dag.remove_edge(concat_parent, concat)
-                                new_concat_parent_filter_node = get_diff_filter_node(singleton, "Data Errors")
-                                new_dag.add_edge(concat_parent, new_concat_parent_filter_node, arg_index=0)
-                                new_dag.add_edge(new_fix_diff_node, new_concat_parent_filter_node, arg_index=1)
-                                new_dag.add_edge(conditional_fix_function_made_changes_node,
-                                                 new_concat_parent_filter_node,
-                                                 arg_index=2)
-                                new_dag.add_edge(new_concat_parent_filter_node, concat, **edge_data)
+                indices_filter_computation_for_duplicated_concat_inputs(
+                    singleton, new_fix_diff_node, conditional_fix_function_made_changes_node, new_dag, new_nodes,
+                    "Fairness Slices")
                 test_predict = [node for node in new_nodes
                                 if node.operator_info.operator == OperatorType.PREDICT][0]
                 old_predict = [node for node in old_copied_nodes
