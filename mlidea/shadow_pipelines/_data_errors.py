@@ -124,7 +124,8 @@ class DataErrorRobustness(ShadowPipeline):
         fix_score_increases = []
         for transformer_index, data_type_name in enumerate(self._transformer_inputs_to_check):
             report += self._add_data_type_results_to_report(corrupted_data_types, corruption_score_decreases,
-                                                            data_type_name, data_types_w_repairs, extracted_plan_results,
+                                                            data_type_name, data_types_w_repairs,
+                                                            extracted_plan_results,
                                                             fix_score_increases, orig_result, transformer_index)
         if len(corrupted_data_types) > 0:
             report += (f"\n\nOverall, your pipeline does not seem very robust to the corruptions "
@@ -207,55 +208,27 @@ class DataErrorRobustness(ShadowPipeline):
                                 corruption_diff_node, corruption_node, dag, data_parent, data_type, data_type_index,
                                 new_dag, score_operators):
         # pylint: disable=too-many-arguments
-        # This is important so the non-text-based fix functions can also see the clean data if necessary
-        fix_input_node = corruption_node
-        processing_func = partial(DataErrorRobustness.fix_data, data_type=data_type)
-        new_fix_node = DagNode(singleton.get_next_op_id(),
-                               BasicCodeLocation("Data Errors", None),
-                               OperatorContext(OperatorType.ESTIMATOR, None),
-                               DagNodeDetails(
-                                   f"Fix {self._corruption_fraction} of {data_type.value} values", None),
-                               None,
-                               processing_func)
-        new_dag.add_edge(fix_input_node, new_fix_node, arg_index=0)
-        new_dag.add_edge(corruption_diff_node, new_fix_node, arg_index=1)
-        new_dag.add_edge(conditional_corruption_significant_node, new_fix_node, arg_index=2)
-        new_fix_with_corruption_change_filter_node = get_diff_filter_node(singleton, "Data Errors")
-        new_dag.add_edge(new_fix_node, new_fix_with_corruption_change_filter_node, arg_index=0)
-        new_dag.add_edge(corruption_diff_node, new_fix_with_corruption_change_filter_node, arg_index=1)
-        new_dag.add_edge(conditional_corruption_significant_node, new_fix_with_corruption_change_filter_node,
-                         arg_index=2)
-        fix_node_to_extract = new_fix_with_corruption_change_filter_node
-        extraction_node = get_intermediate_extraction_node(singleton, new_fix_node,
-                                                           f"data-errors-corruption-diff-fix-{data_type_index}")
-        new_dag.add_edge(fix_node_to_extract, extraction_node, arg_index=0)
-        new_fix_diff_mask_node = DagNode(singleton.get_next_op_id(),
-                                         BasicCodeLocation("Data Errors", None),
-                                         OperatorContext(OperatorType.PROJECTION_MODIFY, None),
-                                         DagNodeDetails(
-                                             "Compute change mask from fixing", None),
-                                         None,
-                                         fix_data_diff_detection_mask_only)
-        new_dag.add_edge(fix_input_node, new_fix_diff_mask_node, arg_index=0)
-        new_dag.add_edge(new_fix_node, new_fix_diff_mask_node, arg_index=1)
-        new_fix_diff_indices_node = DagNode(singleton.get_next_op_id(),
-                                            BasicCodeLocation("Data Errors", None),
-                                            OperatorContext(OperatorType.GROUP_BY_AGG, None),
-                                            DagNodeDetails(
-                                                "Compute changed indices from fixing", None),
-                                            None,
-                                            fix_data_mask_to_indices)
-        new_dag.add_edge(new_fix_diff_mask_node, new_fix_diff_indices_node, arg_index=0)
-        condition_fix_function = lambda np_array: len(np_array) != 0
-        conditional_fixes_changed_something_node = get_conditional_stop_node(
-            singleton, condition_fix_function, f"data-errors-corruption-diff-fix-not-empty-{data_type_index}",
-            "Check if fix function made changes", new_fix_diff_indices_node)
-        new_dag.add_edge(new_fix_diff_indices_node, conditional_fixes_changed_something_node, arg_index=0)
+        new_fix_diff_indices_node, new_fix_node = self._add_fix_function_computation(
+            conditional_corruption_significant_node, corruption_diff_node, corruption_node, data_type, data_type_index,
+            new_dag)
+
+        conditional_fixes_changed_something_node = DataErrorRobustness._get_fix_function_made_changes_conditional_node(
+            data_type_index, new_dag, new_fix_diff_indices_node)
+
+        DataErrorRobustness._add_fix_evaluation_computation_ml(conditional_fixes_changed_something_node,
+                                                               corrupted_predictions_node, dag, data_parent,
+                                                               data_type_index, new_dag, new_fix_diff_indices_node,
+                                                               new_fix_node, score_operators)
+
+    @staticmethod
+    def _add_fix_evaluation_computation_ml(conditional_fixes_changed_something_node, corrupted_predictions_node, dag,
+                                           data_parent, data_type_index, new_dag, new_fix_diff_indices_node,
+                                           new_fix_node,
+                                           score_operators):
         new_fix_diff_filter_node = get_diff_filter_node(singleton, "Data Errors")
         new_dag.add_edge(new_fix_node, new_fix_diff_filter_node, arg_index=0)
         new_dag.add_edge(new_fix_diff_indices_node, new_fix_diff_filter_node, arg_index=1)
         new_dag.add_edge(conditional_fixes_changed_something_node, new_fix_diff_filter_node, arg_index=2)
-        # Evaluate with fixed data
         _, new_nodes = duplicate_descendants(
             dag, new_dag, data_parent, new_fix_diff_filter_node, singleton)
         indices_filter_computation_for_duplicated_concat_inputs(
@@ -271,6 +244,42 @@ class DataErrorRobustness(ShadowPipeline):
         new_dag.add_edge(conditional_fixes_changed_something_node, new_fix_predict_diff_update_node, arg_index=3)
         add_new_score_and_score_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
                                                  score_operators, f"data-errors-corrupt-fix-{data_type_index}")
+
+    @staticmethod
+    def _get_fix_function_made_changes_conditional_node(data_type_index, new_dag, new_fix_diff_indices_node):
+        condition_fix_function = lambda np_array: len(np_array) != 0
+        conditional_fixes_changed_something_node = get_conditional_stop_node(
+            singleton, condition_fix_function, f"data-errors-corruption-diff-fix-not-empty-{data_type_index}",
+            "Check if fix function made changes", new_fix_diff_indices_node)
+        new_dag.add_edge(new_fix_diff_indices_node, conditional_fixes_changed_something_node, arg_index=0)
+        return conditional_fixes_changed_something_node
+
+    def _add_fix_function_computation(self, conditional_corruption_significant_node, corruption_diff_node,
+                                      corruption_node, data_type, data_type_index, new_dag):
+        processing_func = partial(DataErrorRobustness.fix_data, data_type=data_type)
+        new_fix_node = DagNode(singleton.get_next_op_id(),
+                               BasicCodeLocation("Data Errors", None),
+                               OperatorContext(OperatorType.ESTIMATOR, None),
+                               DagNodeDetails(
+                                   f"Fix {self._corruption_fraction} of {data_type.value} values", None),
+                               None,
+                               processing_func)
+        new_dag.add_edge(corruption_node, new_fix_node, arg_index=0)
+        new_dag.add_edge(corruption_diff_node, new_fix_node, arg_index=1)
+        new_dag.add_edge(conditional_corruption_significant_node, new_fix_node, arg_index=2)
+        new_fix_with_corruption_change_filter_node = get_diff_filter_node(singleton, "Data Errors")
+        new_dag.add_edge(new_fix_node, new_fix_with_corruption_change_filter_node, arg_index=0)
+        new_dag.add_edge(corruption_diff_node, new_fix_with_corruption_change_filter_node, arg_index=1)
+        new_dag.add_edge(conditional_corruption_significant_node, new_fix_with_corruption_change_filter_node,
+                         arg_index=2)
+        fix_node_to_extract = new_fix_with_corruption_change_filter_node
+        extraction_node = get_intermediate_extraction_node(singleton, new_fix_node,
+                                                           f"data-errors-corruption-diff-fix-{data_type_index}")
+        new_dag.add_edge(fix_node_to_extract, extraction_node, arg_index=0)
+        new_fix_diff_indices_node = get_changed_indices_node(singleton, "Data Errors")
+        new_dag.add_edge(corruption_node, new_fix_diff_indices_node, arg_index=0)
+        new_dag.add_edge(new_fix_node, new_fix_diff_indices_node, arg_index=1)
+        return new_fix_diff_indices_node, new_fix_node
 
     def _get_corruption_significant_conditional_node(self, data_type_index, new_dag, new_score_nodes, score_operators):
         condition_processing_func = partial(DataErrorRobustness.condition_corruption_significant_function,
@@ -356,50 +365,22 @@ class DataErrorRobustness(ShadowPipeline):
                                  conditional_corruption_significant_node,
                                  corrupted_predictions_node, corruption_diff_node, corruption_node,
                                  new_dag, predict_operators, rag_join_operators, score_operators):
-        fix_input_node = corruption_node
-        data_type = DataType.TEXT
-        processing_func = partial(DataErrorRobustness.fix_data, data_type=data_type)
-        new_fix_node = DagNode(singleton.get_next_op_id(),
-                               BasicCodeLocation("Data Errors", None),
-                               OperatorContext(OperatorType.ESTIMATOR, None),
-                               DagNodeDetails(
-                                   f"Fix {self._corruption_fraction} of {data_type.value} values", None),
-                               None,
-                               processing_func)
-        new_dag.add_edge(fix_input_node, new_fix_node, arg_index=0)
-        new_dag.add_edge(corruption_diff_node, new_fix_node, arg_index=1)
-        new_dag.add_edge(conditional_corruption_significant_node, new_fix_node, arg_index=2)
-        new_fix_with_corruption_change_filter_node = get_diff_filter_node(singleton, "Data Errors")
-        new_dag.add_edge(new_fix_node, new_fix_with_corruption_change_filter_node, arg_index=0)
-        new_dag.add_edge(corruption_diff_node, new_fix_with_corruption_change_filter_node, arg_index=1)
-        new_dag.add_edge(conditional_corruption_significant_node, new_fix_with_corruption_change_filter_node,
-                         arg_index=2)
-        fix_node_to_extract = new_fix_with_corruption_change_filter_node
-        extraction_node = get_intermediate_extraction_node(singleton, new_fix_node,
-                                                           "data-errors-corruption-diff-fix-0")
-        new_dag.add_edge(fix_node_to_extract, extraction_node, arg_index=0)
-        new_fix_diff_mask_node = DagNode(singleton.get_next_op_id(),
-                                         BasicCodeLocation("Data Errors", None),
-                                         OperatorContext(OperatorType.PROJECTION_MODIFY, None),
-                                         DagNodeDetails(
-                                             "Compute change mask from fixing", None),
-                                         None,
-                                         fix_data_diff_detection_mask_only)
-        new_dag.add_edge(fix_input_node, new_fix_diff_mask_node, arg_index=0)
-        new_dag.add_edge(new_fix_node, new_fix_diff_mask_node, arg_index=1)
-        new_fix_diff_indices_node = DagNode(singleton.get_next_op_id(),
-                                            BasicCodeLocation("Data Errors", None),
-                                            OperatorContext(OperatorType.GROUP_BY_AGG, None),
-                                            DagNodeDetails(
-                                                "Compute changed indices from fixing", None),
-                                            None,
-                                            fix_data_mask_to_indices)
-        new_dag.add_edge(new_fix_diff_mask_node, new_fix_diff_indices_node, arg_index=0)
-        condition_fix_function = lambda np_array: len(np_array) != 0
-        conditional_fixes_changed_something_node = get_conditional_stop_node(
-            singleton, condition_fix_function, "data-errors-corruption-diff-fix-not-empty-0",
-            "Check if fix function made changes", new_fix_diff_indices_node)
-        new_dag.add_edge(new_fix_diff_indices_node, conditional_fixes_changed_something_node, arg_index=0)
+        new_fix_diff_indices_node, new_fix_node = self._add_fix_function_computation(
+            conditional_corruption_significant_node, corruption_diff_node, corruption_node, DataType.TEXT, 0, new_dag)
+
+        conditional_fixes_changed_something_node = DataErrorRobustness._get_fix_function_made_changes_conditional_node(
+            0, new_dag, new_fix_diff_indices_node)
+
+        DataErrorRobustness._add_fix_evaluation_computation_llm(conditional_fixes_changed_something_node,
+                                                                corrupted_predictions_node,
+                                                                new_dag, new_fix_diff_indices_node, new_fix_node,
+                                                                predict_operators,
+                                                                rag_join_operators, score_operators)
+
+    @staticmethod
+    def _add_fix_evaluation_computation_llm(conditional_fixes_changed_something_node, corrupted_predictions_node,
+                                            new_dag, new_fix_diff_indices_node, new_fix_node, predict_operators,
+                                            rag_join_operators, score_operators):
         new_fix_diff_filter_node = get_diff_filter_node(singleton, "Data Errors")
         new_dag.add_edge(new_fix_node, new_fix_diff_filter_node, arg_index=0)
         new_dag.add_edge(new_fix_diff_indices_node, new_fix_diff_filter_node, arg_index=1)
