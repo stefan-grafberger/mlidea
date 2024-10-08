@@ -163,91 +163,18 @@ class FairnessSlices(ShadowPipeline):
         fix_strategy_index = 0
         for data_parent, data_type in data_parent_transformer_and_data_type:
             for fix_strategy in DATA_TYPE_TO_FIX_STRATEGY[data_type]:
-                self.fix_strategy_names.append(fix_strategy.value)
-                processing_func = partial(FairnessSlices.fix_data, fix_strategy=fix_strategy,
-                                          database_path=self.database_path)
-                new_fix_node = DagNode(singleton.get_next_op_id(),
-                                       BasicCodeLocation("Data Errors", None),
-                                       OperatorContext(OperatorType.ESTIMATOR, None),
-                                       DagNodeDetails(
-                                           "Trying to fix unfair slice data errors", None),
-                                       None,
-                                       processing_func)
-                new_dag.add_edge(data_parent, new_fix_node, arg_index=0)
-                new_dag.add_edge(slice_finder_indices_node, new_fix_node, arg_index=1)
+                new_fix_diff_node, new_fix_node = self.fix_function_computation_node(data_parent, fix_strategy, new_dag,
+                                                                                     slice_finder_indices_node)
 
-                new_fix_diff_node = get_changed_indices_node(singleton, "Fairness Slices")
-                new_dag.add_edge(data_parent, new_fix_diff_node, arg_index=0)
-                new_dag.add_edge(new_fix_node, new_fix_diff_node, arg_index=1)
+                conditional_fix_function_made_changes_node = FairnessSlices.get_fix_made_changes_conditional_node(
+                    fix_strategy_index, new_dag, new_fix_diff_node)
 
-                condition_fix_function_made_changes_func = lambda np_array: len(np_array) != 0
-                conditional_fix_function_made_changes_node = get_conditional_stop_node(
-                    singleton, condition_fix_function_made_changes_func, f"fairness-slices-fixing-made-changes-"
-                                                                         f"{fix_strategy_index}",
-                    "Check if fixing function made changes", new_fix_diff_node)
-                new_dag.add_edge(new_fix_diff_node, conditional_fix_function_made_changes_node, arg_index=0)
-
-                new_unmodified_fix_filter_node = get_diff_filter_node(singleton, "Fairness Slices")
-                new_dag.add_edge(data_parent, new_unmodified_fix_filter_node, arg_index=0)
-                new_dag.add_edge(new_fix_diff_node, new_unmodified_fix_filter_node, arg_index=1)
-
-                extraction_node = get_intermediate_extraction_node(singleton, new_unmodified_fix_filter_node,
-                                                                   f"fairness-slices-data-to-fix-{fix_strategy_index}")
-                new_dag.add_edge(new_unmodified_fix_filter_node, extraction_node, arg_index=0)
-
-                new_fix_diff_filter_node = get_diff_filter_node(singleton, "Data Errors")
-                new_dag.add_edge(new_fix_node, new_fix_diff_filter_node, arg_index=0)
-                new_dag.add_edge(new_fix_diff_node, new_fix_diff_filter_node, arg_index=1)
-                new_dag.add_edge(conditional_fix_function_made_changes_node, new_fix_diff_filter_node, arg_index=2)
-
-                extraction_node = get_intermediate_extraction_node(singleton, new_fix_diff_filter_node,
-                                                                   f"fairness-slice-fixing-diff-{fix_strategy_index}")
-                new_dag.add_edge(new_fix_diff_filter_node, extraction_node, arg_index=0)
-
-                # Evaluate with updated data
-                old_copied_nodes, new_nodes = duplicate_descendants(
-                    dag, new_dag, data_parent, new_fix_diff_filter_node, singleton)
-                indices_filter_computation_for_duplicated_concat_inputs(
-                    singleton, new_fix_diff_node, conditional_fix_function_made_changes_node, new_dag, new_nodes,
-                    "Fairness Slices")
-                test_predict = [node for node in new_nodes
-                                if node.operator_info.operator == OperatorType.PREDICT][0]
-                old_predict = [node for node in old_copied_nodes
-                               if node.operator_info.operator == OperatorType.PREDICT][0]
-
-                new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton,
-                                                                                              "Fairness Slices")
-                new_dag.add_edge(old_predict, new_fix_predict_diff_update_node, arg_index=0)
-                new_dag.add_edge(test_predict, new_fix_predict_diff_update_node, arg_index=1)
-                new_dag.add_edge(new_fix_diff_node, new_fix_predict_diff_update_node, arg_index=2)
-                new_dag.add_edge(conditional_fix_function_made_changes_node, new_fix_predict_diff_update_node,
-                                 arg_index=3)
-
-                add_new_score_and_score_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
-                                                         score_operators,
-                                                         f"fairness-slice-fixing-{fix_strategy_index}")
+                FairnessSlices._add_fix_evaluation_computation_ml(conditional_fix_function_made_changes_node, dag,
+                                                                  data_parent,
+                                                                  fix_strategy_index, new_dag, new_fix_diff_node,
+                                                                  new_fix_node,
+                                                                  score_operators)
                 fix_strategy_index += 1
-
-    def _add_slice_finder_computation(self, data_sources_with_sensitive_columns, new_dag, predict_operators,
-                                      test_data_operators, test_labels_operators):
-        concat_node = prov_join_node_with_data_sources(singleton, data_sources_with_sensitive_columns, new_dag,
-                                                       test_data_operators[0])
-        slice_finder_process_func = partial(FairnessSlices.get_slice_finder_slice_and_indices,
-                                            alpha=self.slice_finder_alpha)
-        new_slice_finder_node = DagNode(singleton.get_next_op_id(),
-                                        BasicCodeLocation("Fairness Slices", None),
-                                        OperatorContext(OperatorType.GROUP_BY_AGG, None),
-                                        DagNodeDetails(
-                                            "Run Slice Finder", None),
-                                        None,
-                                        slice_finder_process_func)
-        new_dag.add_edge(concat_node, new_slice_finder_node, arg_index=0)
-        new_dag.add_edge(test_labels_operators[0], new_slice_finder_node, arg_index=1)
-        new_dag.add_edge(predict_operators[0], new_slice_finder_node, arg_index=2)
-        extraction_node = get_intermediate_extraction_node(singleton, new_slice_finder_node,
-                                                           "fairness-slices-slice-line-result")
-        new_dag.add_edge(new_slice_finder_node, extraction_node, arg_index=0)
-        return new_slice_finder_node
 
     def _add_fix_computation_llm(self, conditional_slices_found_node, new_dag, new_slice_finder_node, predict_operators,
                                  rag_join_operators, score_operators, test_data_operators):
@@ -263,74 +190,68 @@ class FairnessSlices(ShadowPipeline):
         new_dag.add_edge(conditional_slices_found_node, slice_finder_indices_node, arg_index=1)
         data_parent = test_data_operators[0]
         data_type = DataType.TEXT
-        fix_strategy_index = 0
-        for fix_strategy in DATA_TYPE_TO_FIX_STRATEGY[data_type]:
-            self.fix_strategy_names.append(fix_strategy.value)
-            processing_func = partial(FairnessSlices.fix_data, fix_strategy=fix_strategy,
-                                      database_path=self.database_path)
-            new_fix_node = DagNode(singleton.get_next_op_id(),
-                                   BasicCodeLocation("Data Errors", None),
-                                   OperatorContext(OperatorType.ESTIMATOR, None),
-                                   DagNodeDetails(
-                                       "Trying to fix unfair slice data errors", None),
-                                   None,
-                                   processing_func)
-            new_dag.add_edge(data_parent, new_fix_node, arg_index=0)
-            new_dag.add_edge(slice_finder_indices_node, new_fix_node, arg_index=1)
+        for fix_strategy_index, fix_strategy in enumerate(DATA_TYPE_TO_FIX_STRATEGY[data_type]):
+            new_fix_diff_node, new_fix_node = self.fix_function_computation_node(data_parent, fix_strategy, new_dag,
+                                                                                 slice_finder_indices_node)
 
-            new_fix_diff_node = get_changed_indices_node(singleton, "Fairness Slices")
-            new_dag.add_edge(data_parent, new_fix_diff_node, arg_index=0)
-            new_dag.add_edge(new_fix_node, new_fix_diff_node, arg_index=1)
+            conditional_fix_function_made_changes_node = FairnessSlices.get_fix_made_changes_conditional_node(
+                fix_strategy_index, new_dag, new_fix_diff_node)
 
-            condition_fix_function_made_changes_function = lambda np_array: len(np_array) != 0
-            conditional_fix_made_changes_node = get_conditional_stop_node(
-                singleton, condition_fix_function_made_changes_function,
-                f"fairness-slices-fixing-made-changes-{fix_strategy_index}",
-                "Check if fixing function made changes", new_fix_diff_node)
-            new_dag.add_edge(new_fix_diff_node, conditional_fix_made_changes_node, arg_index=1)
+            FairnessSlices._add_fix_evaluation_computation_llm(conditional_fix_function_made_changes_node, data_parent,
+                                                               fix_strategy_index, new_dag, new_fix_diff_node,
+                                                               new_fix_node,
+                                                               predict_operators, rag_join_operators, score_operators)
 
-            new_unmodified_fix_filter_node = get_diff_filter_node(singleton, "Fairness Slices")
-            new_dag.add_edge(data_parent, new_unmodified_fix_filter_node, arg_index=0)
-            new_dag.add_edge(new_fix_diff_node, new_unmodified_fix_filter_node, arg_index=1)
+    @staticmethod
+    def _add_fix_evaluation_computation_llm(conditional_fix_function_made_changes_node, data_parent,
+                                            fix_strategy_index, new_dag, new_fix_diff_node, new_fix_node,
+                                            predict_operators,
+                                            rag_join_operators, score_operators):
+        new_unmodified_fix_filter_node = get_diff_filter_node(singleton, "Fairness Slices")
+        new_dag.add_edge(data_parent, new_unmodified_fix_filter_node, arg_index=0)
+        new_dag.add_edge(new_fix_diff_node, new_unmodified_fix_filter_node, arg_index=1)
+        extraction_node = get_intermediate_extraction_node(singleton, new_unmodified_fix_filter_node,
+                                                           f"fairness-slices-data-to-fix-{fix_strategy_index}")
+        new_dag.add_edge(new_unmodified_fix_filter_node, extraction_node, arg_index=0)
+        new_fix_diff_filter_node = get_diff_filter_node(singleton, "Data Errors")
+        new_dag.add_edge(new_fix_node, new_fix_diff_filter_node, arg_index=0)
+        new_dag.add_edge(new_fix_diff_node, new_fix_diff_filter_node, arg_index=1)
+        new_dag.add_edge(conditional_fix_function_made_changes_node, new_fix_diff_filter_node, arg_index=2)
+        extraction_node = get_intermediate_extraction_node(singleton, new_fix_diff_filter_node,
+                                                           f"fairness-slice-fixing-diff-{fix_strategy_index}")
+        new_dag.add_edge(new_fix_diff_filter_node, extraction_node, arg_index=0)
+        # Evaluate with updated data
+        # Operator to get the rag join results
+        new_rag_join_update_node = DagNode(singleton.get_next_op_id(),
+                                           BasicCodeLocation("Fairness Slices", None),
+                                           OperatorContext(OperatorType.RAG_JOIN, None),
+                                           DagNodeDetails("RAG join for test set diff", None),
+                                           None,
+                                           rag_join_update)
+        new_dag.add_edge(rag_join_operators[0], new_rag_join_update_node, arg_index=0)
+        new_dag.add_edge(new_fix_diff_filter_node, new_rag_join_update_node, arg_index=1)
+        # Duplicate predict operator and connect with rag join result update and prediction update
+        test_predict = copy_node_with_new_id(singleton, predict_operators[0])
+        new_dag.add_edge(new_rag_join_update_node, test_predict, arg_index=0)
+        old_predict = predict_operators[0]
+        new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, "Fairness Slices")
+        new_dag.add_edge(old_predict, new_fix_predict_diff_update_node, arg_index=0)
+        new_dag.add_edge(test_predict, new_fix_predict_diff_update_node, arg_index=1)
+        new_dag.add_edge(new_fix_diff_node, new_fix_predict_diff_update_node, arg_index=2)
+        new_dag.add_edge(conditional_fix_function_made_changes_node, new_fix_predict_diff_update_node,
+                         arg_index=3)
+        add_new_score_and_score_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
+                                                 score_operators, f"fairness-slice-fixing-{fix_strategy_index}")
 
-            extraction_node = get_intermediate_extraction_node(singleton, new_unmodified_fix_filter_node,
-                                                               f"fairness-slices-data-to-fix-{fix_strategy_index}")
-            new_dag.add_edge(new_unmodified_fix_filter_node, extraction_node, arg_index=0)
-
-            new_fix_diff_filter_node = get_diff_filter_node(singleton, "Data Errors")
-            new_dag.add_edge(new_fix_node, new_fix_diff_filter_node, arg_index=0)
-            new_dag.add_edge(new_fix_diff_node, new_fix_diff_filter_node, arg_index=1)
-            new_dag.add_edge(conditional_fix_made_changes_node, new_fix_diff_filter_node, arg_index=2)
-
-            extraction_node = get_intermediate_extraction_node(singleton, new_fix_diff_filter_node,
-                                                               f"fairness-slice-fixing-diff-{fix_strategy_index}")
-            new_dag.add_edge(new_fix_diff_filter_node, extraction_node, arg_index=0)
-
-            # Evaluate with updated data
-            # Operator to get the rag join results
-            new_rag_join_update_node = DagNode(singleton.get_next_op_id(),
-                                               BasicCodeLocation("Fairness Slices", None),
-                                               OperatorContext(OperatorType.RAG_JOIN, None),
-                                               DagNodeDetails("RAG join for test set diff", None),
-                                               None,
-                                               rag_join_update)
-            new_dag.add_edge(rag_join_operators[0], new_rag_join_update_node, arg_index=0)
-            new_dag.add_edge(new_fix_diff_filter_node, new_rag_join_update_node, arg_index=1)
-            # Duplicate predict operator and connect with rag join result update and prediction update
-            test_predict = copy_node_with_new_id(singleton, predict_operators[0])
-            new_dag.add_edge(new_rag_join_update_node, test_predict, arg_index=0)
-            old_predict = predict_operators[0]
-
-            new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, "Fairness Slices")
-            new_dag.add_edge(old_predict, new_fix_predict_diff_update_node, arg_index=0)
-            new_dag.add_edge(test_predict, new_fix_predict_diff_update_node, arg_index=1)
-            new_dag.add_edge(new_fix_diff_node, new_fix_predict_diff_update_node, arg_index=2)
-            new_dag.add_edge(conditional_fix_made_changes_node, new_fix_predict_diff_update_node,
-                             arg_index=3)
-
-            add_new_score_and_score_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
-                                                     score_operators, f"fairness-slice-fixing-{fix_strategy_index}")
-            fix_strategy_index += 1
+    @staticmethod
+    def get_fix_made_changes_conditional_node(fix_strategy_index, new_dag, new_fix_diff_node):
+        condition_fix_function_made_changes_function = lambda np_array: len(np_array) != 0
+        conditional_fix_made_changes_node = get_conditional_stop_node(
+            singleton, condition_fix_function_made_changes_function,
+            f"fairness-slices-fixing-made-changes-{fix_strategy_index}",
+            "Check if fixing function made changes", new_fix_diff_node)
+        new_dag.add_edge(new_fix_diff_node, conditional_fix_made_changes_node, arg_index=1)
+        return conditional_fix_made_changes_node
 
     def _get_slice_found_conditional_node(self, new_dag, new_slice_finder_node):
         problematic_slice_found_func = lambda slice_finder_result: (slice_finder_result[0] is not None and
@@ -355,6 +276,83 @@ class FairnessSlices(ShadowPipeline):
                     data_sources_to_columns[data_source].append(column_name)
         return data_sources_to_columns
 
+    @staticmethod
+    def _add_fix_evaluation_computation_ml(conditional_fix_function_made_changes_node, dag, data_parent,
+                                           fix_strategy_index, new_dag, new_fix_diff_node, new_fix_node,
+                                           score_operators):
+        new_unmodified_fix_filter_node = get_diff_filter_node(singleton, "Fairness Slices")
+        new_dag.add_edge(data_parent, new_unmodified_fix_filter_node, arg_index=0)
+        new_dag.add_edge(new_fix_diff_node, new_unmodified_fix_filter_node, arg_index=1)
+        extraction_node = get_intermediate_extraction_node(singleton, new_unmodified_fix_filter_node,
+                                                           f"fairness-slices-data-to-fix-{fix_strategy_index}")
+        new_dag.add_edge(new_unmodified_fix_filter_node, extraction_node, arg_index=0)
+        new_fix_diff_filter_node = get_diff_filter_node(singleton, "Data Errors")
+        new_dag.add_edge(new_fix_node, new_fix_diff_filter_node, arg_index=0)
+        new_dag.add_edge(new_fix_diff_node, new_fix_diff_filter_node, arg_index=1)
+        new_dag.add_edge(conditional_fix_function_made_changes_node, new_fix_diff_filter_node, arg_index=2)
+        extraction_node = get_intermediate_extraction_node(singleton, new_fix_diff_filter_node,
+                                                           f"fairness-slice-fixing-diff-{fix_strategy_index}")
+        new_dag.add_edge(new_fix_diff_filter_node, extraction_node, arg_index=0)
+        # Evaluate with updated data
+        old_copied_nodes, new_nodes = duplicate_descendants(
+            dag, new_dag, data_parent, new_fix_diff_filter_node, singleton)
+        indices_filter_computation_for_duplicated_concat_inputs(
+            singleton, new_fix_diff_node, conditional_fix_function_made_changes_node, new_dag, new_nodes,
+            "Fairness Slices")
+        test_predict = [node for node in new_nodes
+                        if node.operator_info.operator == OperatorType.PREDICT][0]
+        old_predict = [node for node in old_copied_nodes
+                       if node.operator_info.operator == OperatorType.PREDICT][0]
+        new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton,
+                                                                                      "Fairness Slices")
+        new_dag.add_edge(old_predict, new_fix_predict_diff_update_node, arg_index=0)
+        new_dag.add_edge(test_predict, new_fix_predict_diff_update_node, arg_index=1)
+        new_dag.add_edge(new_fix_diff_node, new_fix_predict_diff_update_node, arg_index=2)
+        new_dag.add_edge(conditional_fix_function_made_changes_node, new_fix_predict_diff_update_node,
+                         arg_index=3)
+        add_new_score_and_score_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
+                                                 score_operators,
+                                                 f"fairness-slice-fixing-{fix_strategy_index}")
+
+    def fix_function_computation_node(self, data_parent, fix_strategy, new_dag, slice_finder_indices_node):
+        self.fix_strategy_names.append(fix_strategy.value)
+        processing_func = partial(FairnessSlices.fix_data, fix_strategy=fix_strategy,
+                                  database_path=self.database_path)
+        new_fix_node = DagNode(singleton.get_next_op_id(),
+                               BasicCodeLocation("Data Errors", None),
+                               OperatorContext(OperatorType.ESTIMATOR, None),
+                               DagNodeDetails(
+                                   "Trying to fix unfair slice data errors", None),
+                               None,
+                               processing_func)
+        new_dag.add_edge(data_parent, new_fix_node, arg_index=0)
+        new_dag.add_edge(slice_finder_indices_node, new_fix_node, arg_index=1)
+        new_fix_diff_node = get_changed_indices_node(singleton, "Fairness Slices")
+        new_dag.add_edge(data_parent, new_fix_diff_node, arg_index=0)
+        new_dag.add_edge(new_fix_node, new_fix_diff_node, arg_index=1)
+        return new_fix_diff_node, new_fix_node
+
+    def _add_slice_finder_computation(self, data_sources_with_sensitive_columns, new_dag, predict_operators,
+                                      test_data_operators, test_labels_operators):
+        concat_node = prov_join_node_with_data_sources(singleton, data_sources_with_sensitive_columns, new_dag,
+                                                       test_data_operators[0])
+        slice_finder_process_func = partial(FairnessSlices.get_slice_finder_slice_and_indices,
+                                            alpha=self.slice_finder_alpha)
+        new_slice_finder_node = DagNode(singleton.get_next_op_id(),
+                                        BasicCodeLocation("Fairness Slices", None),
+                                        OperatorContext(OperatorType.GROUP_BY_AGG, None),
+                                        DagNodeDetails(
+                                            "Run Slice Finder", None),
+                                        None,
+                                        slice_finder_process_func)
+        new_dag.add_edge(concat_node, new_slice_finder_node, arg_index=0)
+        new_dag.add_edge(test_labels_operators[0], new_slice_finder_node, arg_index=1)
+        new_dag.add_edge(predict_operators[0], new_slice_finder_node, arg_index=2)
+        extraction_node = get_intermediate_extraction_node(singleton, new_slice_finder_node,
+                                                           "fairness-slices-slice-line-result")
+        new_dag.add_edge(new_slice_finder_node, extraction_node, arg_index=0)
+        return new_slice_finder_node
+
     def generate_final_report(self, extracted_plan_results: dict[str, any]) -> any:
         report = ""
         orig_result = []
@@ -378,55 +376,9 @@ class FairnessSlices(ShadowPipeline):
             promising_fix_strategies = []
             performance_increases = []
             for fix_strategy_index, fix_strategy_name in enumerate(self.fix_strategy_names):
-                report += f"-\nRepair strategy {fix_strategy_index}: {fix_strategy_name}\n-\n"
-                if extracted_plan_results[f"fairness-slices-fixing-made-changes-{fix_strategy_index}"] is False:
-                    report += "The fixing function did not make any changes.\n"
-                else:
-                    fix_diff_df = extracted_plan_results[
-                        f"fairness-slice-fixing-diff-{fix_strategy_index}"]
-                    if isinstance(fix_diff_df, (pandas.DataFrame, pandas.Series)):
-                        fix_diff_df_sample = fix_diff_df.head(20)
-                    elif isinstance(fix_diff_df, numpy.ndarray) and fix_diff_df.ndim == 1:
-                        fix_diff_df_sample = fix_diff_df[:20]
-                    elif isinstance(fix_diff_df, numpy.ndarray) and fix_diff_df.ndim == 2:
-                        fix_diff_df_sample = fix_diff_df[:20, :]
-                    else:
-                        raise NotImplementedError("TODO")
-
-                    unmodified_diff = extracted_plan_results[
-                        f"fairness-slices-data-to-fix-{fix_strategy_index}"]
-                    if isinstance(unmodified_diff, (pandas.DataFrame, pandas.Series)):
-                        unmodified_diff_sample = unmodified_diff.head(20)
-                    elif isinstance(unmodified_diff, numpy.ndarray) and unmodified_diff.ndim == 1:
-                        unmodified_diff_sample = unmodified_diff[:20]
-                    elif isinstance(unmodified_diff, numpy.ndarray) and unmodified_diff.ndim == 2:
-                        unmodified_diff_sample = unmodified_diff[:20, :]
-                    else:
-                        raise NotImplementedError("TODO")
-
-                    fix_result = []
-                    for score_index in range(self.score_operator_count):
-                        fix_result.append(
-                            extracted_plan_results[f"fairness-slice-fixing-{fix_strategy_index}-{score_index}"])
-
-                    max_score_improvement = get_relative_score_change(*orig_result, *fix_result)
-                    performance_increases.append(max_score_improvement)
-                    report += (
-                        f"After trying to automatically repair rows from this slice, "
-                        f"the pipeline metric was {fix_result} (A change of {max_score_improvement}). "
-                        f"A sample of the modified rows:\n{str(fix_diff_df_sample)}.\n\n"
-                        f"Before, these rows had the following values:\n{str(unmodified_diff_sample)}.\n")
-                    if max_score_improvement > 1.:
-                        promising_fix_strategies.append(fix_strategy_name)
-                        report += (
-                            f" It seems like changing the preprocessing of this datatype with a repair strategy like "
-                            f"{fix_strategy_name} could help to improve the pipeline.\n")
-                    else:
-                        report += (
-                            f" Repair strategy {fix_strategy_name} did not help to automatically improve the "
-                            f"the pipeline performance. However, this does not mean that changing the preprocessing "
-                            f"cannot help, it only means that Fairness Slices cannot find a promising "
-                            f"repair strategy automatically.\n")
+                report += self.generate_report_for_fix_strategy(extracted_plan_results, fix_strategy_index,
+                                                                fix_strategy_name, orig_result, performance_increases,
+                                                                promising_fix_strategies)
             if len(promising_fix_strategies) != 0:
                 report += (f"\n\nFairness Slices found the problematic slice {column_with_slice_value}. "
                            f"It seems that the fix strategies {promising_fix_strategies} that Fairness Slices"
@@ -439,114 +391,177 @@ class FairnessSlices(ShadowPipeline):
                            f" one on your own.")
         return report
 
+    def generate_report_for_fix_strategy(self, extracted_plan_results, fix_strategy_index, fix_strategy_name,
+                                         orig_result, performance_increases, promising_fix_strategies):
+        report = f"-\nRepair strategy {fix_strategy_index}: {fix_strategy_name}\n-\n"
+        if extracted_plan_results[f"fairness-slices-fixing-made-changes-{fix_strategy_index}"] is False:
+            report += "The fixing function did not make any changes.\n"
+        else:
+            fix_diff_df = extracted_plan_results[
+                f"fairness-slice-fixing-diff-{fix_strategy_index}"]
+            if isinstance(fix_diff_df, (pandas.DataFrame, pandas.Series)):
+                fix_diff_df_sample = fix_diff_df.head(20)
+            elif isinstance(fix_diff_df, numpy.ndarray) and fix_diff_df.ndim == 1:
+                fix_diff_df_sample = fix_diff_df[:20]
+            elif isinstance(fix_diff_df, numpy.ndarray) and fix_diff_df.ndim == 2:
+                fix_diff_df_sample = fix_diff_df[:20, :]
+            else:
+                raise NotImplementedError("TODO")
+
+            unmodified_diff = extracted_plan_results[
+                f"fairness-slices-data-to-fix-{fix_strategy_index}"]
+            if isinstance(unmodified_diff, (pandas.DataFrame, pandas.Series)):
+                unmodified_diff_sample = unmodified_diff.head(20)
+            elif isinstance(unmodified_diff, numpy.ndarray) and unmodified_diff.ndim == 1:
+                unmodified_diff_sample = unmodified_diff[:20]
+            elif isinstance(unmodified_diff, numpy.ndarray) and unmodified_diff.ndim == 2:
+                unmodified_diff_sample = unmodified_diff[:20, :]
+            else:
+                raise NotImplementedError("TODO")
+
+            fix_result = []
+            for score_index in range(self.score_operator_count):
+                fix_result.append(
+                    extracted_plan_results[f"fairness-slice-fixing-{fix_strategy_index}-{score_index}"])
+
+            max_score_improvement = get_relative_score_change(*orig_result, *fix_result)
+            performance_increases.append(max_score_improvement)
+            report += (
+                f"After trying to automatically repair rows from this slice, "
+                f"the pipeline metric was {fix_result} (A change of {max_score_improvement}). "
+                f"A sample of the modified rows:\n{str(fix_diff_df_sample)}.\n\n"
+                f"Before, these rows had the following values:\n{str(unmodified_diff_sample)}.\n")
+            if max_score_improvement > 1.:
+                promising_fix_strategies.append(fix_strategy_name)
+                report += (
+                    f" It seems like changing the preprocessing of this datatype with a repair strategy like "
+                    f"{fix_strategy_name} could help to improve the pipeline.\n")
+            else:
+                report += (
+                    f" Repair strategy {fix_strategy_name} did not help to automatically improve the "
+                    f"the pipeline performance. However, this does not mean that changing the preprocessing "
+                    f"cannot help, it only means that Fairness Slices cannot find a promising "
+                    f"repair strategy automatically.\n")
+        return report
+
     @staticmethod
     def fix_data(input_df, only_fix_indices=None, fix_strategy=None, database_path=None):
         # For now, this function is the same as in data_errors. Might want to consider different things here
         #  at some point
         fixed_corrupted = input_df.copy()
         if fix_strategy in {FixType.TEXT_TRANSLATE, FixType.TEXT_SPELLCHECK}:
-            was_series = False
-            was_numpy = False
-            series_column_name = None
-            if isinstance(fixed_corrupted, pandas.Series):
-                series_column_name = fixed_corrupted.name
-                if series_column_name is None:
-                    series_column_name = "column"
-                fixed_corrupted = pandas.DataFrame({series_column_name: fixed_corrupted})
-                was_series = True
-            elif isinstance(fixed_corrupted, (numpy.ndarray, list)):
-                fixed_corrupted = pandas.DataFrame({"column": fixed_corrupted})
-                was_numpy = True
-
-            for column_index, column in enumerate(fixed_corrupted.columns):
-                if fixed_corrupted[column].dtype == object:
-                    if fix_strategy == FixType.TEXT_TRANSLATE:
-                        translate_transformer = get_translate_transformer(column, database_path)
-                        fixed_corrupted.iloc[only_fix_indices, [column_index]] = translate_transformer.fit_transform(
-                            fixed_corrupted.iloc[only_fix_indices, [column_index]])
-                    elif fix_strategy == FixType.TEXT_SPELLCHECK:
-                        typo_fixer = get_typo_fixer(column)
-                        fixed_corrupted.iloc[only_fix_indices, [column_index]] = typo_fixer.fit_transform(
-                            fixed_corrupted.iloc[only_fix_indices, [column_index]])
-                    else:
-                        raise NotImplementedError("TODO")
-            if was_series is True:
-                fixed_corrupted = fixed_corrupted[series_column_name]
-            elif was_numpy is True:
-                fixed_corrupted = fixed_corrupted["column"].to_numpy()
+            fixed_corrupted = FairnessSlices.fix_data_type_text(database_path, fix_strategy, fixed_corrupted,
+                                                                only_fix_indices)
         elif fix_strategy == FixType.CAT:
-            is_dataframe = isinstance(fixed_corrupted, pandas.DataFrame)
-            fixed_corrupted = input_df.copy()
-            if is_dataframe:
-                fixed_corrupted = fixed_corrupted.reset_index(drop=True)
-                clean = fixed_corrupted.drop(only_fix_indices, axis=0)
-            else:
-                # For NumPy array, create a mask and remove rows
-                mask = numpy.ones(fixed_corrupted.shape[0], dtype=bool)
-                mask[only_fix_indices] = False
-                clean = fixed_corrupted[mask]
-
-            one_hot_encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
-            one_hot_clean = one_hot_encoder.fit_transform(clean)
-            isolation_forest = IsolationForest(contamination=0.5, random_state=42)
-            isolation_forest.fit(one_hot_clean)
-
-            if is_dataframe:
-                one_hot_dirty = one_hot_encoder.transform(fixed_corrupted.iloc[only_fix_indices, :])
-                outlier_indicator = isolation_forest.predict(one_hot_dirty) == -1
-                fixed_corrupted[only_fix_indices[outlier_indicator], :] = -1
-            else:
-                one_hot_dirty = one_hot_encoder.transform(fixed_corrupted[only_fix_indices, :])
-                outlier_indicator = isolation_forest.predict(one_hot_dirty) == -1
-                fixed_corrupted[only_fix_indices[outlier_indicator], :] = -1
-
-            # Iterate over columns
-            num_columns = fixed_corrupted.shape[1]
-            for col in range(num_columns):
-                imputer = SimpleImputer(strategy="most_frequent", copy=True, missing_values=-1)
-
-                if is_dataframe:
-                    # For DataFrame, fit on the clean column and transform specified rows
-                    imputer.fit(clean[[fixed_corrupted.columns[col]]])
-
-                    fixed_corrupted.iloc[only_fix_indices, col] = imputer.transform(
-                        fixed_corrupted.iloc[only_fix_indices, [col]]
-                    ).ravel()
-                else:
-                    # For NumPy array, fit on the clean column and transform specified rows
-                    imputer.fit(clean[:, col].reshape(-1, 1))
-                    fixed_corrupted[only_fix_indices, col] = imputer.transform(
-                        fixed_corrupted[only_fix_indices, col].reshape(-1, 1)
-                    ).ravel()
-
+            fixed_corrupted = FairnessSlices.fix_data_type_cat(fixed_corrupted, only_fix_indices)
         elif fix_strategy == FixType.NUM:
-            fixed_corrupted = input_df.reset_index(drop=True)
-            clean = fixed_corrupted.drop(only_fix_indices, axis=0)
-            for column_index, column in enumerate(fixed_corrupted.columns):
-                is_int = fixed_corrupted[column].dtype == int
-                # This is if we want to just apply fit_transform on all data instead of fixing only the corrupted data
-                #  with a detection and cleaning method fitted on the clean data
-                # fixed_corrupted = OutlierCleaner.fit_transform_all(fixed_corrupted, detection_strategy='IQR',
-                #                                                    repair_strategy='mean', column=column)
-                _, fitted_detector = detect_outlier_interquartile_range(clean[[column]], k=0.25)
-                imputer = SimpleImputer(strategy='mean', copy=True)
-                imputer.fit(clean[[column]])
-                outlier_indicator, _ = detect_outlier_interquartile_range(
-                    fixed_corrupted.iloc[only_fix_indices, [column_index]], fitted_detector=fitted_detector)
-                detector_mask = fixed_corrupted.iloc[only_fix_indices, column_index].apply(outlier_indicator).to_numpy()
-                if numpy.any(detector_mask):
-                    fixed_corrupted.iloc[only_fix_indices[detector_mask], [column_index]] = numpy.nan
-                    fixed_corrupted.iloc[only_fix_indices[detector_mask], [column_index]] = imputer.transform(
-                        fixed_corrupted.iloc[only_fix_indices[detector_mask], [column_index]])
-                if is_int:
-                    fixed_corrupted[column] = fixed_corrupted[column].astype(int)
-            # fixed_corrupted = MinMaxScaler(feature_range=(0, 10)).fit_transform(input_df)
+            fixed_corrupted = FairnessSlices.fix_data_type_num(fixed_corrupted, only_fix_indices)
         else:
             raise NotImplementedError(f"TODO: Add support for fix strategy {fix_strategy.value}!")
 
         fixed_corrupted = wrap_in_mlinspect_array_if_necessary(fixed_corrupted)
         fixed_corrupted._mlinspect_provenance = None
 
+        return fixed_corrupted
+
+    @staticmethod
+    def fix_data_type_num(fixed_corrupted, only_fix_indices):
+        fixed_corrupted = fixed_corrupted.reset_index(drop=True)
+        clean = fixed_corrupted.drop(only_fix_indices, axis=0)
+        for column_index, column in enumerate(fixed_corrupted.columns):
+            is_int = fixed_corrupted[column].dtype == int
+            # This is if we want to just apply fit_transform on all data instead of fixing only the corrupted data
+            #  with a detection and cleaning method fitted on the clean data
+            # fixed_corrupted = OutlierCleaner.fit_transform_all(fixed_corrupted, detection_strategy='IQR',
+            #                                                    repair_strategy='mean', column=column)
+            _, fitted_detector = detect_outlier_interquartile_range(clean[[column]], k=0.25)
+            imputer = SimpleImputer(strategy='mean', copy=True)
+            imputer.fit(clean[[column]])
+            outlier_indicator, _ = detect_outlier_interquartile_range(
+                fixed_corrupted.iloc[only_fix_indices, [column_index]], fitted_detector=fitted_detector)
+            detector_mask = fixed_corrupted.iloc[only_fix_indices, column_index].apply(outlier_indicator).to_numpy()
+            if numpy.any(detector_mask):
+                fixed_corrupted.iloc[only_fix_indices[detector_mask], [column_index]] = numpy.nan
+                fixed_corrupted.iloc[only_fix_indices[detector_mask], [column_index]] = imputer.transform(
+                    fixed_corrupted.iloc[only_fix_indices[detector_mask], [column_index]])
+            if is_int:
+                fixed_corrupted[column] = fixed_corrupted[column].astype(int)
+        # fixed_corrupted = MinMaxScaler(feature_range=(0, 10)).fit_transform(input_df)
+        return fixed_corrupted
+
+    @staticmethod
+    def fix_data_type_cat(fixed_corrupted, only_fix_indices):
+        is_dataframe = isinstance(fixed_corrupted, pandas.DataFrame)
+        if is_dataframe:
+            fixed_corrupted = fixed_corrupted.reset_index(drop=True)
+            clean = fixed_corrupted.drop(only_fix_indices, axis=0)
+        else:
+            # For NumPy array, create a mask and remove rows
+            mask = numpy.ones(fixed_corrupted.shape[0], dtype=bool)
+            mask[only_fix_indices] = False
+            clean = fixed_corrupted[mask]
+        one_hot_encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
+        one_hot_clean = one_hot_encoder.fit_transform(clean)
+        isolation_forest = IsolationForest(contamination=0.5, random_state=42)
+        isolation_forest.fit(one_hot_clean)
+        if is_dataframe:
+            one_hot_dirty = one_hot_encoder.transform(fixed_corrupted.iloc[only_fix_indices, :])
+            outlier_indicator = isolation_forest.predict(one_hot_dirty) == -1
+            fixed_corrupted[only_fix_indices[outlier_indicator], :] = -1
+        else:
+            one_hot_dirty = one_hot_encoder.transform(fixed_corrupted[only_fix_indices, :])
+            outlier_indicator = isolation_forest.predict(one_hot_dirty) == -1
+            fixed_corrupted[only_fix_indices[outlier_indicator], :] = -1
+        # Iterate over columns
+        num_columns = fixed_corrupted.shape[1]
+        for col in range(num_columns):
+            imputer = SimpleImputer(strategy="most_frequent", copy=True, missing_values=-1)
+
+            if is_dataframe:
+                # For DataFrame, fit on the clean column and transform specified rows
+                imputer.fit(clean[[fixed_corrupted.columns[col]]])
+
+                fixed_corrupted.iloc[only_fix_indices, col] = imputer.transform(
+                    fixed_corrupted.iloc[only_fix_indices, [col]]
+                ).ravel()
+            else:
+                # For NumPy array, fit on the clean column and transform specified rows
+                imputer.fit(clean[:, col].reshape(-1, 1))
+                fixed_corrupted[only_fix_indices, col] = imputer.transform(
+                    fixed_corrupted[only_fix_indices, col].reshape(-1, 1)
+                ).ravel()
+        return fixed_corrupted
+
+    @staticmethod
+    def fix_data_type_text(database_path, fix_strategy, fixed_corrupted, only_fix_indices):
+        was_series = False
+        was_numpy = False
+        series_column_name = None
+        if isinstance(fixed_corrupted, pandas.Series):
+            series_column_name = fixed_corrupted.name
+            if series_column_name is None:
+                series_column_name = "column"
+            fixed_corrupted = pandas.DataFrame({series_column_name: fixed_corrupted})
+            was_series = True
+        elif isinstance(fixed_corrupted, (numpy.ndarray, list)):
+            fixed_corrupted = pandas.DataFrame({"column": fixed_corrupted})
+            was_numpy = True
+        for column_index, column in enumerate(fixed_corrupted.columns):
+            if fixed_corrupted[column].dtype == object:
+                if fix_strategy == FixType.TEXT_TRANSLATE:
+                    translate_transformer = get_translate_transformer(column, database_path)
+                    fixed_corrupted.iloc[only_fix_indices, [column_index]] = translate_transformer.fit_transform(
+                        fixed_corrupted.iloc[only_fix_indices, [column_index]])
+                elif fix_strategy == FixType.TEXT_SPELLCHECK:
+                    typo_fixer = get_typo_fixer(column)
+                    fixed_corrupted.iloc[only_fix_indices, [column_index]] = typo_fixer.fit_transform(
+                        fixed_corrupted.iloc[only_fix_indices, [column_index]])
+                else:
+                    raise NotImplementedError("TODO")
+        if was_series is True:
+            fixed_corrupted = fixed_corrupted[series_column_name]
+        elif was_numpy is True:
+            fixed_corrupted = fixed_corrupted["column"].to_numpy()
         return fixed_corrupted
 
     @staticmethod
