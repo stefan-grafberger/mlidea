@@ -20,7 +20,7 @@ setuptools==69.2.0
 scipy==1.12.0
 statsmodels==0.14.1
 jenga[image]  @ git+https://github.com/stefan-grafberger/jenga.git@6f2ab19e3834bfd4ed61423850b68d929d1a2a42
-fairlearn==0.7.0
+fairlearn==0.9.0
 cleanlab==2.0.0
 numba==0.59.1
 fuzzy_pandas==0.1
