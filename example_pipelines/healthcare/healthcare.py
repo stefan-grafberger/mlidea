@@ -55,11 +55,11 @@ model = pipeline.fit(train_data, train_data['label'])
 test_predictions = model.predict(test_data)
 print(f"Mean accuracy: {accuracy_score(test_data['label'], test_predictions)}")
 
-test_data = test_data.reset_index(drop=True)  # May help to prevent some low occurrence rate bugs in the following code
+# test_data = test_data.reset_index(drop=True)  # May help to prevent some low occurrence rate bugs in the following code
 sensitive_features = test_data[['race']]
 sensitive_features['race'] = sensitive_features['race'].astype(str)
 assert numpy.isnan(test_predictions).sum() == 0  # Trying to locate the bug that never occurs locally
-assert test_data['label'].isna().sum() == 0  # Trying to locate the bug that never occurs locally
+assert pd.isna(test_data.values[:, 6]).sum() == 0  # Trying to locate the bug that never occurs locally
 fnr_by_group = MetricFrame(metrics=false_negative_rate, y_pred=test_predictions, y_true=test_data['label'],
                            sensitive_features=sensitive_features)
 print(f"False-negative by group: {fnr_by_group.by_group}")
