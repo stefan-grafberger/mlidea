@@ -2,7 +2,6 @@
 import warnings
 import os
 
-import numpy
 import pandas as pd
 from fairlearn.metrics import equalized_odds_difference, MetricFrame, false_negative_rate
 from scikeras.wrappers import KerasClassifier
