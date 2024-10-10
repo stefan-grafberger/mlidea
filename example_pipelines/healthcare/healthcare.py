@@ -49,6 +49,7 @@ pipeline = Pipeline([
     ('learner', neural_net_with_grid_search)])
 
 train_data, test_data = train_test_split(data)
+test_data = test_data.reset_index(drop=True)
 model = pipeline.fit(train_data, train_data['label'])
 test_predictions = model.predict(test_data)
 print(f"Mean accuracy: {accuracy_score(test_data['label'], test_predictions)}")

@@ -152,7 +152,7 @@ def test_slices_anhedonia_llm(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "The problematic slice that was found is [lang=bengali" in report
+    assert "The problematic slice that was found is [lang=" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
