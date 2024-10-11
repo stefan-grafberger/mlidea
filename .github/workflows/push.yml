@@ -47,7 +47,7 @@ jobs:
           pip install --upgrade --upgrade-strategy eager .
 
       - name: Unit Tests
-        run: python -m pytest --ignore=test/experiments/*
+        run: python -m pytest --ignore=test/experiments --ignore=test/analysis
 
       - name: Upload Coverage Report
         uses: codecov/codecov-action@v1

@@ -14,6 +14,9 @@ class MlinspectList(list):
     _mlinspect_dag_node = None
     _mlinspect_annotation = None
     _mlinspect_provenance = None
+    _mlinspect_vectorstore_ref = None
+    _mlinspect_retrieval_index = None
+
 
 
 class MlinspectDict(dict):
@@ -69,6 +72,7 @@ class MlideaChromaVectorStoreRetrieverPlaceHolder(BaseRetriever):
     embedding: Any
     _mlinspect_dag_node: Any = PrivateAttr(None)  # Why this is necessary: https://stackoverflow.com/a/75712642
     precomputed_result: Any
+
     def __init__(self, retrieval_corpus_X: list[str], retrieval_corpus_y: list[dict[str, any]], embedding: Embeddings,
                  **kwargs: any):
         # TODO: This is ugly, but we want a placeholder class can be used as part of the declarative langchain

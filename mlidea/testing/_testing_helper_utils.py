@@ -276,6 +276,12 @@ def visualize_dags(analysis_result, tmpdir, skip_combined_dag=False):
         analysis_result.save_optimised_what_if_dags_to_path(os.path.join(str(tmpdir), "what-if-optimised"))
 
 
+def visualize_dags_shadow_pipelines(analysis_result, tmpdir):
+    """Visualise the intermediate DAGs"""
+    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig"))
+    analysis_result.save_shadow_pipeline_dags_to_path(os.path.join(str(tmpdir), "shadow"))
+
+
 def run_scenario_and_visualize_dags(dataset, scenario, tmpdir, featurization="featurization_0",
                                     model="logistic_regression"):
     """Run a scenario and visualize the DAGs for debugging and save them to same temporary directory"""
@@ -294,3 +300,72 @@ def run_scenario_and_visualize_dags(dataset, scenario, tmpdir, featurization="fe
     analysis_result_no_opt.save_optimised_what_if_dags_to_path(os.path.join(str(tmpdir), "with-opt-what-if-optimised"))
     analysis_output = analysis_result_no_opt.analysis_to_result_reports[analysis]
     return analysis_output
+
+
+def get_llm_rag_mini_example_code():
+    test_code = cleandoc("""
+                from functools import partial
+                import pandas as pd
+                from langchain_community.embeddings.huggingface import HuggingFaceEmbeddings
+                from langchain_community.vectorstores import Chroma  # pylint: disable=no-name-in-module
+                from example_pipelines.anhedonia_llm.pipeline_utils import initialize_environment, \
+                    get_langchain_rag_binary_classification, wait_llm_call
+                import numpy as np
+                from sklearn.metrics import accuracy_score
+                from sklearn.preprocessing import label_binarize
+
+                initialize_environment()
+
+                df = pd.DataFrame({'text': ["positive", "positive", "negative", "negative"], 
+                                   'label': ['no', 'no', 'yes', 'yes']})
+
+                vectorstore = Chroma.from_texts(texts=df['text'].to_list(), metadatas=df[['label']].to_dict('records'),
+                                embedding=HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2'))
+
+                rag_chain = get_langchain_rag_binary_classification(["no", "yes"], vectorstore.as_retriever())
+
+                test = pd.DataFrame({'text': ["pos", "neg."], 'label': ['no', 'yes']})
+                y_predicted = wait_llm_call(partial(rag_chain.batch, test['text'].to_list()), test)
+                y_test_binarized = label_binarize(test['label'], classes=['no', 'yes'])
+                accuracy = accuracy_score(y_test_binarized, y_predicted)
+                print(y_test_binarized)
+                expected = np.array([0, 1]).reshape(-1, 1)
+                assert np.allclose(y_test_binarized, expected)
+                assert accuracy >= 0.
+                """)
+    return test_code
+
+
+def get_llm_rag_mini_example_test_side_info_code():
+    test_code = cleandoc("""
+                from functools import partial
+                import pandas as pd
+                from langchain_community.embeddings.huggingface import HuggingFaceEmbeddings
+                from langchain_community.vectorstores import Chroma  # pylint: disable=no-name-in-module
+                from example_pipelines.anhedonia_llm.pipeline_utils import initialize_environment, \
+                    get_langchain_rag_binary_classification, wait_llm_call
+                import numpy as np
+                from sklearn.metrics import accuracy_score
+                from sklearn.preprocessing import label_binarize
+
+                initialize_environment()
+
+                df = pd.DataFrame({'text': ["positive", "positive", "negative", "negative"], 
+                                   'label': ['no', 'no', 'yes', 'yes']})
+
+                vectorstore = Chroma.from_texts(texts=df['text'].to_list(), metadatas=df[['label']].to_dict('records'),
+                                embedding=HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2'))
+
+                rag_chain = get_langchain_rag_binary_classification(["no", "yes"], vectorstore.as_retriever())
+
+                test = pd.DataFrame({'text': ["pos", "neg."], 'label': ['no', 'yes'], 'race': ['race1', 'race2']})
+                y_predicted = wait_llm_call(partial(rag_chain.batch, test['text'].to_list()), test)
+                y_test_binarized = label_binarize(test['label'], classes=['no', 'yes'])
+                accuracy = accuracy_score(y_test_binarized, y_predicted)
+                print(y_test_binarized)
+                expected = np.array([0, 1]).reshape(-1, 1)
+                assert np.allclose(y_test_binarized, expected)
+                assert accuracy >= 0.
+                """)
+    return test_code
+

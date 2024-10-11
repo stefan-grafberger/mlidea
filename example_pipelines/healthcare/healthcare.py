@@ -1,6 +1,7 @@
 """Predicting which patients are at a higher risk of complications"""
 import warnings
 import os
+
 import pandas as pd
 from fairlearn.metrics import equalized_odds_difference, MetricFrame, false_negative_rate
 from scikeras.wrappers import KerasClassifier
@@ -54,7 +55,7 @@ test_predictions = model.predict(test_data)
 print(f"Mean accuracy: {accuracy_score(test_data['label'], test_predictions)}")
 
 sensitive_features = test_data[['race']]
-sensitive_features['race'] = sensitive_features['race'].astype(str)
+sensitive_features['race'] = sensitive_features['race'].fillna("unknown")
 fnr_by_group = MetricFrame(metrics=false_negative_rate, y_pred=test_predictions, y_true=test_data['label'],
                            sensitive_features=sensitive_features)
 print(f"False-negative by group: {fnr_by_group.by_group}")

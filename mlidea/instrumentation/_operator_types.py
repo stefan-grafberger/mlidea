@@ -58,6 +58,15 @@ class OperatorType(Enum):
     TRAIN_TEST_SPLIT = "Train Test Split"
     SUBSCRIPT = "Subscript"
     EXTRACT_RESULT = "Extract intermediate result"
+    CONDITIONAL_STOP = "Check a condition"
+
+
+class ConditionalResult(Enum):
+    """
+    The result type of the operator type CONDITIONAL_STOP
+    """
+    STOP_EXECUTION = "Stop"
+    CONTINUE_EXECUTION = "Continue"
 
 
 @dataclasses.dataclass(frozen=True)

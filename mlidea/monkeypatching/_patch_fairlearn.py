@@ -4,6 +4,7 @@ Monkey patching for FairLearn
 from functools import partial
 
 import gorilla
+import pandas
 from fairlearn import metrics
 
 from mlidea import OperatorType, DagNode, BasicCodeLocation, DagNodeDetails
@@ -55,11 +56,16 @@ class MetricFramePatching:
                                                          optional_code_reference,
                                                          optional_source_code)
 
+            if isinstance(kwargs['y_true'], pandas.Series):
+                kwargs['y_true'] = kwargs['y_true'].values
+
             operator_context = OperatorContext(OperatorType.SCORE, function_info)
             initial_func = partial(original, self, *args, **kwargs)
             optimizer_info, result = capture_optimizer_info(initial_func, self)
 
             def process_metric_frame(bound_metric, y_true, y_pred, sensitive_features):
+                if isinstance(y_true, pandas.Series):
+                    y_true = y_true.values
                 return metrics.MetricFrame(metrics=bound_metric, y_true=y_true, y_pred=y_pred,
                                            sensitive_features=sensitive_features)
 

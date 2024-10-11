@@ -9,7 +9,13 @@ from example_pipelines.healthcare import custom_monkeypatching
 from example_pipelines import ADULT_SIMPLE_PY, ADULT_SIMPLE_IPYNB, HEALTHCARE_PY, ADULT_COMPLEX_PY
 from mlidea import PipelineAnalyzer, OperatorType
 from mlidea.analysis._data_cleaning import DataCleaning, ErrorType
-from mlidea.testing._testing_helper_utils import get_expected_dag_adult_easy
+from mlidea.testing._testing_helper_utils import get_expected_dag_adult_easy, visualize_dags_shadow_pipelines
+from mlidea.shadow_pipelines._data_errors import DataErrorRobustness
+from mlidea.shadow_pipelines._label_errors import LabelErrors
+from mlidea.shadow_pipelines._slices import FairnessSlices
+from mlidea.utils import get_project_root
+
+DATABASE_PATH_FUNC_TRANSFORMER = f"{str(get_project_root())}/test/offline/.function_transformer_cache.db"
 
 
 def test_inspector_adult_easy_py_pipeline():
@@ -133,6 +139,28 @@ def test_estimation():
 
     report = analysis_result.analysis_to_result_reports[data_cleaning]
     assert report.shape == (19, 4)
+
+
+def test_multiple_shadow_pipelines(tmpdir):
+    label_errors = LabelErrors(proxy_model=True)
+    data_errors = DataErrorRobustness(corruption_significant_relative_threshold=1.0)
+    slices = FairnessSlices(database_path=DATABASE_PATH_FUNC_TRANSFORMER)
+    analysis_result = PipelineAnalyzer \
+        .on_pipeline_from_py_file(HEALTHCARE_PY) \
+        .add_custom_monkey_patching_modules([custom_monkeypatching]) \
+        .add_shadow_pipeline(label_errors) \
+        .add_shadow_pipeline(data_errors) \
+        .add_shadow_pipeline(slices) \
+        .execute()
+
+    report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
+    report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
+    report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
+    assert "the pipeline metric was" in report_label_errors
+    assert "the pipeline metric was" in report_data_errors
+    assert "The original result" in report_fairness_slices
+
+    visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
 
 def assert_healthcare_pipeline_output_complete(inspector_result):

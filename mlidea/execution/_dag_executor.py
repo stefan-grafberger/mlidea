@@ -8,8 +8,8 @@ from functools import partial
 import networkx
 
 from mlidea.execution._stat_tracking import capture_optimizer_info
-from mlidea.instrumentation._operator_types import OperatorType
-from mlidea.instrumentation._dag_node import DagNode
+from mlidea.instrumentation._operator_types import OperatorType, ConditionalResult
+from mlidea.instrumentation._dag_node import DagNode, OptimizerInfo
 
 
 @dataclasses.dataclass(frozen=True)
@@ -36,8 +36,26 @@ class DagExecutor:
             if current_node.operator_info.operator == OperatorType.MISSING_OP:
                 raise NotImplementedError(f"Missing Ops not supported currently! The operator: {current_node}")
             inputs = self.get_required_values(dag, current_node)
-            executable_processing_func = partial(current_node.processing_func, *inputs)
-            optimizer_info, result_df = capture_optimizer_info(executable_processing_func)
+            stop_signal_received = False
+            for input_index, input_val in enumerate(inputs):
+                if isinstance(input_val, ConditionalResult):
+                    if input_val == ConditionalResult.STOP_EXECUTION:
+                        stop_signal_received = True
+                    else:
+                        # A ConditionalResult.CONTINUE should never be propagated further, and can only occur directly
+                        #  from conditional nodes. However, conditional nodes are always the input node with the
+                        #  highest arg_index, the last argument of some other node
+                        assert input_index == len(inputs) - 1
+                        inputs = inputs[:-1]
+            if stop_signal_received is False:
+                executable_processing_func = partial(current_node.processing_func, *inputs)
+                optimizer_info, result_df = capture_optimizer_info(executable_processing_func)
+            elif current_node.operator_info.operator == OperatorType.EXTRACT_RESULT:
+                executable_processing_func = partial(current_node.processing_func, ConditionalResult.STOP_EXECUTION)
+                optimizer_info, result_df = capture_optimizer_info(executable_processing_func)
+            else:
+                optimizer_info = OptimizerInfo(None, None, None)
+                result_df = ConditionalResult.STOP_EXECUTION
             self.pipeline_executor.operators_to_runtime_during_analysis.append((copy(current_node), optimizer_info))
             result = self.replace_node_with_result(dag, current_node, result_df)
             return result

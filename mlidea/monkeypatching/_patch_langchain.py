@@ -48,9 +48,15 @@ call_info_singleton = LangchainCallInfo()
 
 def execute_embedding_similarity_join(retrieval_corpus_X, retrieval_corpus_y, embedding, inputs: list[Input]):
     # pylint: disable=too-many-locals
+    Chroma(collection_name=Chroma._LANGCHAIN_DEFAULT_COLLECTION_NAME).delete_collection()
+    document_indices = [str(index) for index in range(len(retrieval_corpus_X))]
     if singleton.prov_enabled is False:
+        retrieval_corpus_y = retrieval_corpus_y.copy()
+        for row, index in zip(retrieval_corpus_y, document_indices):
+            row['_metadata_ids'] = index
         filled_vectorstore = Chroma.from_texts(texts=retrieval_corpus_X, metadatas=retrieval_corpus_y,
-                                               embedding=embedding).as_retriever()
+                                               embedding=embedding, ids=document_indices
+                                               ).as_retriever()
     else:
         # TODO: Make this more general, what if it isn't a dict with only one entry
         assert (hasattr(retrieval_corpus_X, "_mlinspect_provenance") and
@@ -62,24 +68,24 @@ def execute_embedding_similarity_join(retrieval_corpus_X, retrieval_corpus_y, em
             prov_value_str_list = list(map(str, prov_value))  # pylint: disable=bad-builtin
             prov_str_dict[prov_key] = prov_value_str_list
 
-        all_prov_value_str = []
-        for row_prov_id in range(len(list(prov_str_dict.items())[0][1])):
-            new_prov_value_str = ""
-            for prov_key, prov_value in list(prov_str_dict.items()):
-                new_prov_value_str += f"{prov_key}: {prov_value[row_prov_id]};"
-            all_prov_value_str.append(new_prov_value_str)
+        # all_prov_value_str = []
+        # for row_prov_id in range(len(list(prov_str_dict.items())[0][1])):
+        #     new_prov_value_str = ""
+        #     for prov_key, prov_value in list(prov_str_dict.items()):
+        #         new_prov_value_str += f"{prov_key}: {prov_value[row_prov_id]};"
+        #     all_prov_value_str.append(new_prov_value_str)
         # TODO: Improve performance here
         metadatas_with_prov = []
-        for row_metadatas, row_prov_id in zip(retrieval_corpus_y, range(len(list(prov_str_dict.items())[0][1]))):
+        for row_metadatas, row_prov_id in zip(retrieval_corpus_y, range(len(retrieval_corpus_X))):
             new_dict_for_row = row_metadatas
             for prov_key, prov_value in list(prov_str_dict.items()):
                 new_dict_for_row = new_dict_for_row | {prov_key: prov_value[row_prov_id]}
             metadatas_with_prov.append(new_dict_for_row)
-        # retrieval_index = numpy.zeros((len(retrieval_corpus_X), 4), dtype=int)
+        for row, index in zip(metadatas_with_prov, document_indices):
+            row['_metadata_ids'] = index
         filled_vectorstore = Chroma.from_texts(texts=retrieval_corpus_X, metadatas=metadatas_with_prov,
                                                embedding=embedding,
-                                               # TODO: Not sure if ids is really necessary in addition to metadatas prov
-                                               ids=all_prov_value_str).as_retriever()
+                                               ids=document_indices).as_retriever()
     results = filled_vectorstore.batch(inputs)
     results = wrap_in_mlinspect_array_if_necessary(results)
     results._mlinspect_provenance = {}
@@ -100,7 +106,12 @@ def execute_embedding_similarity_join(retrieval_corpus_X, retrieval_corpus_y, em
                 results._mlinspect_provenance[prov_id_name] = numpy.array(prov_id_value)
             results._mlinspect_provenance = (results._mlinspect_provenance | inputs._mlinspect_provenance)
     # Without this there are some re-execution issues
-    Chroma(collection_name=Chroma._LANGCHAIN_DEFAULT_COLLECTION_NAME).delete_collection()
+    results._mlinspect_vectorstore_ref = filled_vectorstore.vectorstore
+
+    retrieval_index = numpy.zeros((len(results), 4), dtype=int)
+    for prediction_index, result in enumerate(results):
+        retrieval_index[prediction_index, :] = [doc.metadata['_metadata_ids'] for doc in result]
+    results._mlinspect_retrieval_index = retrieval_index
     return results
 
 
@@ -186,10 +197,29 @@ class RunnableSequencePatching:
                         retriever_concat_result.retrieval_corpus_X, retriever_concat_result.retrieval_corpus_y,
                         retriever_concat_result.embedding, retrieval_results)
                     rag_provenance = retrieval_results._mlinspect_provenance
+                    vectorstore_ref = retrieval_results._mlinspect_vectorstore_ref
+                    retrieval_index = retrieval_results._mlinspect_retrieval_index
                 else:
                     retrieval_results = child_sequence_step.batch(retrieval_results)
-        found_retriever = (retriever_step_index, retriever_sub_step_name, retrieval_results, inputs, rag_provenance)
+        found_retriever = (retriever_step_index, retriever_sub_step_name, retrieval_results, inputs, rag_provenance,
+                           vectorstore_ref, retrieval_index, retriever_steps)
         return found_retriever
+
+    @staticmethod
+    def execute_rag_join_diff(retriever_steps, inputs, filled_vectorstore):
+        _, _, retriever_sub_step, _ = retriever_steps
+        retrieval_results = inputs
+        retrieval_index_update = numpy.zeros((len(inputs), 4), dtype=int)
+        if retrieval_results:
+            for child_sequence_step in retriever_sub_step.steps:
+                if isinstance(child_sequence_step, BaseRetriever):
+                    retrieval_results = filled_vectorstore.as_retriever().batch(inputs)
+                    retrieval_results = wrap_in_mlinspect_array_if_necessary(retrieval_results)
+                    for prediction_index, result in enumerate(retrieval_results):
+                        retrieval_index_update[prediction_index, :] = [doc.metadata['_metadata_ids'] for doc in result]
+                else:
+                    retrieval_results = child_sequence_step.batch(retrieval_results)
+        return retrieval_results, retrieval_index_update
 
     def find_retriever(self):
         # pylint: disable=no-member,too-many-nested-blocks
@@ -220,7 +250,8 @@ class RunnableSequencePatching:
     def execute_langchain_batch_with_preexecuted_retriever(runnable_sequence, config, return_exceptions,
                                                            found_retriever):
         # pylint: disable=no-member
-        retriever_step_num, retriever_step_name, retriever_step_result, inputs, provenance = found_retriever
+        # TODO: Clean this up
+        retriever_step_num, retriever_step_name, retriever_step_result, inputs, provenance, _, _, _ = found_retriever
         if not inputs:
             return []
         configs, run_managers = RunnableSequencePatching.do_langchain_batch_setup(runnable_sequence,
