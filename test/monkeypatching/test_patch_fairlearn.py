@@ -34,12 +34,11 @@ def test_metric_frame___init__():
                                            sensitive_features=sensitive_features)
                 fnr_by_group = fnr_by_group.by_group.reset_index(drop=False)
                 expected = pd.DataFrame({'cat_col': ['cat_a', 'cat_b'], 'false_negative_rate': [0.0, 0.0]})
-                expected['false_negative_rate'] = expected['false_negative_rate'].astype(object)
                 pd.testing.assert_frame_equal(fnr_by_group, expected, atol=1.0)
                 """)
 
     inspector_result = _pipeline_executor.singleton.run(python_code=test_code, track_code_references=True)
-    filter_dag_for_nodes_with_ids(inspector_result, {0, 1, 2, 3, 4}, 9)
+    filter_dag_for_nodes_with_ids(inspector_result, {0, 1, 2, 3, 4}, 6)
 
     expected_dag = networkx.DiGraph()
     expected_data_source1 = DagNode(0,
@@ -108,7 +107,6 @@ def test_metric_frame___init__():
     extracted_func_result = extracted_node.processing_func(pd_series1, pd_series2, pd_series3)
     actual_fnr_by_group = extracted_func_result.by_group.reset_index(drop=False)
     expected = pandas.DataFrame({'sensitive': ['cat_a', 'cat_c'], 'false_negative_rate': [0.0, 0.0]})
-    expected['false_negative_rate'] = expected['false_negative_rate'].astype(object)
     pandas.testing.assert_frame_equal(actual_fnr_by_group, expected, atol=1.0)
 
 
