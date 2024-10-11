@@ -47,7 +47,7 @@ jobs:
           pip install --upgrade --upgrade-strategy eager .
 
       - name: Unit Tests
-        run: python -m pytest test/test_pipeline_inspector.py::test_multiple_shadow_pipelines
+        run: python -m pytest --ignore=test/experiments --ignore=test/analysis
 
       - name: Upload Coverage Report
         uses: codecov/codecov-action@v1
