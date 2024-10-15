@@ -17,7 +17,7 @@ from mlidea.instrumentation._operator_types import OperatorContext, FunctionInfo
 from mlidea.execution._pipeline_executor import singleton
 from mlidea.monkeypatching._monkey_patching_utils import execute_patched_func, get_input_info, add_dag_node, \
     get_dag_node_for_id, execute_patched_func_no_op_id, get_optional_code_info_or_none, FunctionCallResult, \
-    execute_patched_internal_func_with_depth, get_dag_node_copy_with_optimizer_info
+    execute_patched_internal_func_with_depth, get_dag_node_copy_with_optimizer_info, get_simple_non_data_kwargs
 from mlidea.monkeypatching._patch_sklearn import call_info_singleton
 from mlidea.monkeypatching._provenance_propagation import wrap_data_source_func, \
     generate_and_add_provenance_data_source, wrap_projection_func, wrap_filter_func, wrap_join_func
@@ -33,12 +33,13 @@ class PandasPatching:
         """ Patch for ('pandas.io.parsers', 'read_csv') """
         # pylint: disable=no-self-argument
         original = gorilla.get_original_attribute(pandas, 'read_csv')
+        non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs)
 
         def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
             """ Execute inspections, add DAG node """
             function_info = FunctionInfo('pandas.io.parsers', 'read_csv')
 
-            operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info)
+            operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info, non_data_kwargs)
             processing_func = wrap_data_source_func(partial(original, *args, **kwargs), op_id=op_id)
             optimizer_info, result = capture_optimizer_info(processing_func)
 

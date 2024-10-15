@@ -443,3 +443,23 @@ def add_test_label_node(test_label_arg, caller_filename, function_info, lineno, 
     add_dag_node(test_labels_dag_node, [input_info_test_labels.dag_node], function_call_result)
     test_labels_result = function_call_result.function_result
     return function_call_result, test_labels_dag_node, test_labels_result
+
+
+def get_simple_non_data_kwargs(*args, except_indices=None, except_kws=None, **kwargs):
+    # We need a non_data_kwarg dict to check if a function has been called with the same non-data arguments before
+    # TODO: This is a quick hack that saves a lot of time for now
+    #  Ideally, unnamed args should not exist. But this requires going through every single monkey patch, which we
+    #  do not want to do right now.
+    kwargs = kwargs.copy()
+    if except_kws is not None:
+        for kw in except_kws:
+            kwargs.pop(kw)
+    for arg_index, arg_value in enumerate(args):
+        kwargs[str(arg_index)] = arg_value
+    if except_indices is not None:
+        for index in except_indices:
+            kwargs.pop(str(index))
+    return kwargs
+
+
+

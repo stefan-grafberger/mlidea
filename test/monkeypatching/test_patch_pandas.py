@@ -36,7 +36,8 @@ def test_read_csv():
     extracted_node: DagNode = list(inspector_result.original_dag.nodes)[0]
     expected_node = DagNode(0,
                             BasicCodeLocation("<string-source>", 6),
-                            OperatorContext(OperatorType.DATA_SOURCE, FunctionInfo('pandas.io.parsers', 'read_csv')),
+                            OperatorContext(OperatorType.DATA_SOURCE, FunctionInfo('pandas.io.parsers', 'read_csv'),
+                                            Comparison(dict)),
                             DagNodeDetails(StringComparison(r".*\.csv"),
                                            ['age', 'workclass', 'fnlwgt', 'education', 'education-num',
                                             'marital-status',
