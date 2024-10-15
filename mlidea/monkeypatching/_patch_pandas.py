@@ -63,12 +63,13 @@ class PandasPatching:
         """ Patch for ('pandas.io.parsers', 'read_parquet') """
         # pylint: disable=no-self-argument
         original = gorilla.get_original_attribute(pandas, 'read_parquet')
+        non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs)
 
         def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
             """ Execute inspections, add DAG node """
             function_info = FunctionInfo('pandas.io.parsers', 'read_parquet')
 
-            operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info)
+            operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info, non_data_kwargs)
             processing_func = wrap_data_source_func(partial(original, *args, **kwargs), op_id=op_id)
             optimizer_info, result = capture_optimizer_info(processing_func)
 
@@ -96,11 +97,12 @@ class DataFramePatching:
     def patched__init__(self, *args, **kwargs):
         """ Patch for ('pandas.core.frame', 'DataFrame') """
         original = gorilla.get_original_attribute(pandas.DataFrame, '__init__')
+        non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs)
 
         def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
             """ Execute inspections, add DAG node """
             function_info = FunctionInfo('pandas.core.frame', 'DataFrame')
-            operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info)
+            operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info, non_data_kwargs)
             initial_func = partial(original, self, *args, **kwargs)
             def initial_func_prov():
                 initial_func()
@@ -127,11 +129,12 @@ class DataFramePatching:
         """ Patch for ('pandas.core.frame', 'DataFrame') """
         # pylint: disable=no-self-argument
         original = gorilla.get_original_attribute(pandas.DataFrame, 'from_records')
+        non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs)
 
         def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
             """ Execute inspections, add DAG node """
             function_info = FunctionInfo('pandas.core.frame.DataFrame', 'from_records')
-            operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info)
+            operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info, non_data_kwargs)
             process_func = wrap_data_source_func(partial(original, cls, *args, **kwargs), op_id=op_id)
             optimizer_info, result = capture_optimizer_info(process_func)
 
@@ -154,6 +157,7 @@ class DataFramePatching:
     def patched_dropna(self, *args, **kwargs):
         """ Patch for ('pandas.core.frame', 'dropna') """
         original = gorilla.get_original_attribute(pandas.DataFrame, 'dropna')
+        non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs)
 
         def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
             """ Execute inspections, add DAG node """
@@ -161,7 +165,7 @@ class DataFramePatching:
 
             input_info = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
                                         optional_source_code)
-            operator_context = OperatorContext(OperatorType.SELECTION, function_info)
+            operator_context = OperatorContext(OperatorType.SELECTION, function_info, non_data_kwargs)
             # For the provenance tracking we briefly add provenance columns which should be ignored for the dropna eval
             if 'subset' not in kwargs:
                 kwargs['subset'] = list(self.columns)  # pylint: disable=no-member
@@ -198,7 +202,7 @@ class DataFramePatching:
             function_info = FunctionInfo('pandas.core.frame', 'fillna')
             input_info = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
                                         optional_source_code)
-            operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, function_info)
+            operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, function_info, func_args)
             description = f"fillna: {value}"
             columns = list(self.columns)  # pylint: disable=no-member
             processing_func = wrap_projection_func(lambda df: original(df, **func_args))
@@ -223,6 +227,7 @@ class DataFramePatching:
     def patched_sample(self, *args, **kwargs):
         """ Patch for ('pandas.core.frame', 'dropna') """
         original = gorilla.get_original_attribute(pandas.DataFrame, 'sample')
+        non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs, except_indices=[0])
 
         def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
             """ Execute inspections, add DAG node """
@@ -231,7 +236,7 @@ class DataFramePatching:
             input_info = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
                                         optional_source_code)
             # TODO: For now, we only consider the cases where value are dropped, not upsampling.
-            operator_context = OperatorContext(OperatorType.SELECTION, function_info)
+            operator_context = OperatorContext(OperatorType.SELECTION, function_info, non_data_kwargs)
             # No input_infos copy needed because it's only a selection and the rows not being removed don't change
             processing_func = wrap_filter_func(lambda df: original(df, *args[1:], **kwargs))
             initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
@@ -267,8 +272,9 @@ class DataFramePatching:
                                         optional_source_code)
             dag_parents = [input_info.dag_node]
             if isinstance(args[0], str):  # Projection to Series
+                non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs)
                 columns = [args[0]]
-                operator_context = OperatorContext(OperatorType.PROJECTION, function_info)
+                operator_context = OperatorContext(OperatorType.PROJECTION, function_info, non_data_kwargs)
                 processing_func = wrap_projection_func(lambda df: original(df, *args, **kwargs))
                 dag_node = DagNode(op_id,
                                    BasicCodeLocation(caller_filename, lineno),
@@ -278,8 +284,9 @@ class DataFramePatching:
                                    processing_func)
                 initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             elif isinstance(args[0], list) and isinstance(args[0][0], str):  # Projection to DF
+                non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs)
                 columns = args[0]
-                operator_context = OperatorContext(OperatorType.PROJECTION, function_info)
+                operator_context = OperatorContext(OperatorType.PROJECTION, function_info, non_data_kwargs)
                 processing_func = wrap_projection_func(lambda df: original(df, *args, **kwargs))
                 dag_node = DagNode(op_id,
                                    BasicCodeLocation(caller_filename, lineno),
@@ -289,7 +296,8 @@ class DataFramePatching:
                                    processing_func)
                 initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             elif isinstance(args[0], pandas.Series):  # Selection
-                operator_context = OperatorContext(OperatorType.SELECTION, function_info)
+                non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs, except_indices=[0])
+                operator_context = OperatorContext(OperatorType.SELECTION, function_info, non_data_kwargs)
                 columns = list(self.columns)  # pylint: disable=no-member
                 selection_series_input_info = get_input_info(args[0], caller_filename, lineno, function_info,
                                                              optional_code_reference, optional_source_code)
@@ -340,12 +348,13 @@ class DataFramePatching:
         def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
             """ Execute inspections, add DAG node """
             function_info = FunctionInfo('pandas.core.frame', '__setitem__')
-            operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, function_info)
 
             input_info_self = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
                                              optional_source_code)
             dag_node_parents = [input_info_self.dag_node]
             if isinstance(args[1], pandas.Series):
+                non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs, except_indices=[1])
+                operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, function_info, non_data_kwargs)
                 input_info_other = get_input_info(args[1], caller_filename, lineno, function_info,
                                                   optional_code_reference,
                                                   optional_source_code)
@@ -357,6 +366,8 @@ class DataFramePatching:
                 processing_func_prov = wrap_projection_func(processing_func)
                 initial_func = partial(processing_func_prov, self, args[1])
             else:
+                non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs)
+                operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, function_info, non_data_kwargs)
                 def processing_func(pandas_df):
                     original(pandas_df, *args, **kwargs)
                     return pandas_df
