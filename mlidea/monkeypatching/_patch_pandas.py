@@ -227,7 +227,6 @@ class DataFramePatching:
     def patched_sample(self, *args, **kwargs):
         """ Patch for ('pandas.core.frame', 'dropna') """
         original = gorilla.get_original_attribute(pandas.DataFrame, 'sample')
-        non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs, except_indices=[0])
 
         def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
             """ Execute inspections, add DAG node """
@@ -236,9 +235,10 @@ class DataFramePatching:
             input_info = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
                                         optional_source_code)
             # TODO: For now, we only consider the cases where value are dropped, not upsampling.
+            non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs)
             operator_context = OperatorContext(OperatorType.SELECTION, function_info, non_data_kwargs)
             # No input_infos copy needed because it's only a selection and the rows not being removed don't change
-            processing_func = wrap_filter_func(lambda df: original(df, *args[1:], **kwargs))
+            processing_func = wrap_filter_func(lambda df: original(df, *args, **kwargs))
             initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
             if result is None:
@@ -401,6 +401,7 @@ class DataFramePatching:
     def patched_replace(self, *args, **kwargs):
         """ Patch for ('pandas.core.frame', 'replace') """
         original = gorilla.get_original_attribute(pandas.DataFrame, 'replace')
+        non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs)
 
         def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
             """ Execute inspections, add DAG node """
@@ -408,7 +409,7 @@ class DataFramePatching:
 
             input_info = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
                                         optional_source_code)
-            operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, function_info)
+            operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, function_info, non_data_kwargs)
             # No input_infos copy needed because it's only a selection and the rows not being removed don't change
             processing_func = wrap_projection_func(lambda df: original(df, *args, **kwargs))
             initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
@@ -446,12 +447,14 @@ class DataFramePatching:
             if 'right' in kwargs:
                 right_df = kwargs.pop('right')
                 args_start_index = 0
+                non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs)
             else:
                 right_df = args[0]
                 args_start_index = 1
+                non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs, except_indices=[0])
             input_info_b = get_input_info(right_df, caller_filename, lineno, function_info, optional_code_reference,
                                           optional_source_code)
-            operator_context = OperatorContext(OperatorType.JOIN, function_info)
+            operator_context = OperatorContext(OperatorType.JOIN, function_info, non_data_kwargs)
             processing_func = wrap_join_func(lambda df_a, df_b: original(df_a, df_b, *args[args_start_index:],
                                                                          **kwargs))
             initial_func = partial(processing_func, input_info_a.annotated_dfobject.result_data,
@@ -502,6 +505,7 @@ class DataFramePatching:
     def patched_groupby(self, *args, **kwargs):
         """ Patch for ('pandas.core.frame', 'groupby') """
         original = gorilla.get_original_attribute(pandas.DataFrame, 'groupby')
+        non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs)
 
         def execute_inspections(_, caller_filename, lineno, optional_code_reference, optional_source_code):
             """ Execute inspections, add DAG node """
@@ -516,6 +520,7 @@ class DataFramePatching:
             process_funct = lambda df: original(df, *args, **kwargs)
             result._mlinspect_groupby_func = process_funct  # pylint: disable=protected-access
             result._mlinspect_groupby_optimizer_info = optimizer_info  # pylint: disable=protected-access
+            result._mlinspect_groupby_non_data_kwargs = non_data_kwargs  # pylint: disable=protected-access
 
             return result
 
@@ -533,7 +538,7 @@ class DataFramePatching:
             function_info = FunctionInfo('pandas.core.frame', 'to_dict')
             input_info = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
                                         optional_source_code)
-            operator_context = OperatorContext(OperatorType.PROJECTION, function_info)
+            operator_context = OperatorContext(OperatorType.PROJECTION, function_info, func_args)
             description = "dict conversion"
             processing_func = wrap_projection_func(lambda df: original(df, **func_args))  # pylint: disable=unnecessary-lambda
             initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
@@ -581,9 +586,12 @@ class DataFrameGroupByPatching:
                 raise NotImplementedError("TODO: Support agg if groupby happened in external code")
             input_dag_node = get_dag_node_for_id(self._mlinspect_dag_node)  # pylint: disable=no-member
 
-            operator_context = OperatorContext(OperatorType.GROUP_BY_AGG, function_info)
             groupby_func = self._mlinspect_groupby_func  # pylint: disable=no-member
             groupby_optimizer_info = self._mlinspect_groupby_optimizer_info  # pylint: disable=no-member
+            aggregate_non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs)
+            groupby_non_data_kwargs = self._mlinspect_groupby_non_data_kwargs
+            aggregate_non_data_kwargs.update(groupby_non_data_kwargs)
+            operator_context = OperatorContext(OperatorType.GROUP_BY_AGG, function_info, aggregate_non_data_kwargs)
 
             def process_func(pandas_df):
                 groupby_df = groupby_func(pandas_df)
@@ -647,15 +655,17 @@ class LocIndexerPatching:
                 # Projection to one or multiple columns, return value is df
                 columns = list(args[0][1])
                 projection_key = columns
+                non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs)
             elif isinstance(args[0], tuple) and not args[0][0].start and not args[0][0].stop \
                     and isinstance(args[0][1], str):
                 # Projection to one column with str syntax, e.g., for HashingVectorizer
                 columns = [args[0][1]]
                 projection_key = args[0][1]
+                non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs)
             else:
                 raise NotImplementedError()
 
-            operator_context = OperatorContext(OperatorType.PROJECTION, function_info)
+            operator_context = OperatorContext(OperatorType.PROJECTION, function_info, non_data_kwargs)
             input_info = get_input_info(self.obj, caller_filename,  # pylint: disable=no-member
                                         lineno, function_info, optional_code_reference, optional_source_code)
             processing_func = wrap_projection_func(lambda df: pandas.DataFrame.__getitem__(df, projection_key))
@@ -693,8 +703,8 @@ class SeriesPatching:
         def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
             """ Execute inspections, add DAG node """
             function_info = FunctionInfo('pandas.core.series', 'Series')
-
-            operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info)
+            non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs)
+            operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info, non_data_kwargs)
             initial_func = partial(original, self, *args, **kwargs)
             def initial_func_prov():
                 initial_func()
@@ -727,10 +737,11 @@ class SeriesPatching:
 
         def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
             """ Execute inspections, add DAG node """
+            non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs)
             function_info = FunctionInfo('pandas.core.series', 'astype')
             input_info = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
                                         optional_source_code)
-            operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info)
+            operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info, non_data_kwargs)
             description = f"as type: {args[0].__name__}"
             columns = [self.name]  # pylint: disable=no-member
             processing_func = wrap_projection_func(lambda df: original(df, *args, **kwargs))
@@ -763,7 +774,7 @@ class SeriesPatching:
             function_info = FunctionInfo('pandas.core.series', 'fillna')
             input_info = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
                                         optional_source_code)
-            operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, function_info)
+            operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, function_info, func_args)
             description = f"fillna: {value}"
             columns = [self.name]  # pylint: disable=no-member
             processing_func = wrap_projection_func(lambda df: original(df, **func_args))
@@ -795,7 +806,7 @@ class SeriesPatching:
             function_info = FunctionInfo('pandas.core.series.Series', 'to_numpy')
             input_info = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
                                         optional_source_code)
-            operator_context = OperatorContext(OperatorType.PROJECTION, function_info)
+            operator_context = OperatorContext(OperatorType.PROJECTION, function_info, func_args)
             description = "numpy conversion"
             processing_func = wrap_projection_func(lambda df: original(df, *args, **kwargs))
             initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
@@ -827,7 +838,7 @@ class SeriesPatching:
             function_info = FunctionInfo('pandas.core.series.Series', 'to_list')
             input_info = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
                                         optional_source_code)
-            operator_context = OperatorContext(OperatorType.PROJECTION, function_info)
+            operator_context = OperatorContext(OperatorType.PROJECTION, function_info, func_args)
             description = "list conversion"
             processing_func = wrap_projection_func(lambda df: original(df, *args, **kwargs))
             initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
@@ -858,7 +869,8 @@ class SeriesPatching:
 
             input_info = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
                                         optional_source_code)
-            operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, function_info)
+            non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs)
+            operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, function_info, non_data_kwargs)
             # No input_infos copy needed because it's only a selection and the rows not being removed don't change
             processing_func = wrap_projection_func(lambda df: original(df, *args, **kwargs))
             initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
@@ -897,7 +909,8 @@ class SeriesPatching:
             function_info = FunctionInfo('pandas.core.series', 'isin')
             input_info = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
                                         optional_source_code)
-            operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info)
+            non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs)
+            operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info, non_data_kwargs)
             description = f"isin: {args[0]}"
             columns = [self.name]  # pylint: disable=no-member
             processing_func = wrap_projection_func(lambda df: original(df, *args, **kwargs))
@@ -928,7 +941,8 @@ class SeriesPatching:
             function_info = FunctionInfo('pandas.core.series', '__invert__')
             input_info = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
                                         optional_source_code)
-            operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info)
+            non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs)
+            operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info, non_data_kwargs)
             description = "~"
             columns = [self.name]  # pylint: disable=no-member
             processing_func = wrap_projection_func(lambda df: original(df, *args, **kwargs))
@@ -960,7 +974,8 @@ class SeriesPatching:
             input_info_self = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
                                              optional_source_code)
             dag_node_parents = [input_info_self.dag_node]
-            operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info)
+            non_data_kwargs = {'cmp_op': cmp_op}
+            operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info, non_data_kwargs)
             if cmp_op == operator.eq:  # pylint: disable=comparison-with-callable
                 description = "="
             elif cmp_op == operator.ne:  # pylint: disable=comparison-with-callable
@@ -1021,7 +1036,8 @@ class SeriesPatching:
                                              optional_source_code)
             input_info_other = get_input_info(other, caller_filename, lineno, function_info, optional_code_reference,
                                               optional_source_code)
-            operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info)
+            non_data_kwargs = {'logical_op': logical_op}
+            operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info, non_data_kwargs)
             if logical_op == operator.and_:  # pylint: disable=comparison-with-callable
                 description = "&"
             elif logical_op == operator.or_:  # pylint: disable=comparison-with-callable
@@ -1063,7 +1079,7 @@ class SeriesPatching:
             function_info = FunctionInfo('pandas.core.series', '__not__')
             input_info = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
                                         optional_source_code)
-            operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info)
+            operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info, {})
             description = f"!= {args[0]}"
             columns = [self.name]  # pylint: disable=no-member
             processing_func = lambda series: original(series, *args, **kwargs)
@@ -1095,7 +1111,8 @@ class SeriesPatching:
             input_info_self = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
                                              optional_source_code)
             dag_node_parents = [input_info_self.dag_node]
-            operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info)
+            non_data_kwargs = {'arith_op': arith_op}
+            operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info, non_data_kwargs)
             if arith_op == operator.add or arith_op.__name__ == "radd":  # pylint: disable=comparison-with-callable
                 description = "+"
             elif arith_op == operator.sub or arith_op.__name__ == "rsub":  # pylint: disable=comparison-with-callable
@@ -1158,7 +1175,8 @@ class StringMethodsPatching:
             input_info = get_input_info(self._data,  # pylint: disable=no-member
                                         caller_filename, lineno, function_info, optional_code_reference,
                                         optional_source_code)
-            operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info)
+            non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs)
+            operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info, non_data_kwargs)
             description = "str.len"
             columns = [self._data.name]  # pylint: disable=no-member
             processing_func = wrap_projection_func(
@@ -1191,7 +1209,8 @@ class StringMethodsPatching:
             input_info = get_input_info(self._data,  # pylint: disable=no-member
                                         caller_filename, lineno, function_info, optional_code_reference,
                                         optional_source_code)
-            operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info)
+            non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs)
+            operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info, non_data_kwargs)
             description = f"match r'{args[0]}'"
             columns = [self._data.name]  # pylint: disable=no-member
             processing_func = wrap_projection_func(lambda df: original(df.str, *args, **kwargs))
@@ -1223,7 +1242,8 @@ class StringMethodsPatching:
             input_info = get_input_info(self._data,  # pylint: disable=no-member
                                         caller_filename, lineno, function_info, optional_code_reference,
                                         optional_source_code)
-            operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info)
+            non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs)
+            operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info, non_data_kwargs)
             description = "contains "
             if 'regex' in kwargs and kwargs['regex'] is True:
                 description += "r"
