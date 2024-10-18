@@ -25,6 +25,7 @@ from mlidea.execution._dag_executor import DagExecutor
 from mlidea.optimization._multi_query_optimizer import MultiQueryOptimizer
 from mlidea.optimization._query_optimization_rules import QueryOptimizationRule
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
+from mlidea.utils._utils import get_sorted_parent_nodes
 
 logging.basicConfig(format='%(asctime)s %(levelname)-5s %(message)s',
                     level=logging.INFO,
@@ -125,9 +126,9 @@ class PipelineExecutor:
             self.cached_intermediates = extraction_info.cached_intermediates
             self.old_dag = extraction_info.original_dag.copy()
 
-            for dag_node, result_value in self.cached_intermediates:
+            for dag_node, result_value in self.cached_intermediates.items():
                 parent_ids = get_sorted_parent_nodes(self.old_dag, dag_node)
-                self.operator_context_parents_to_result[OperatorCallInfo(dag_node.operator, parent_ids)] = dag_node
+                self.operator_context_parents_to_result[OperatorCallInfo(dag_node.operator_info, parent_ids)] = dag_node
 
         if notebook_path is None and python_code is None and python_path is None:
             self.analysis_results.original_dag = extraction_info.original_dag.copy()

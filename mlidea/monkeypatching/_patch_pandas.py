@@ -678,7 +678,6 @@ class LocIndexerPatching:
             pandas.core.indexing._LocIndexer, '__getitem__')
 
         if call_info_singleton.column_transformer_active:
-            op_id = singleton.get_next_op_id()
             caller_filename = call_info_singleton.transformer_filename
             lineno = call_info_singleton.transformer_lineno
             function_info = call_info_singleton.transformer_function_info
@@ -710,7 +709,6 @@ class LocIndexerPatching:
             optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, initial_func)
 
             # TODO: This behaves correctly in the default cases but loc getitem supports many strange use cases
-
 
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),

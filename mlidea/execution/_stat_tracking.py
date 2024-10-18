@@ -33,6 +33,7 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
     execution_duration_in_ms = execution_duration * 1000
     print(singleton)
     print(operator_call_info)
+    # FIXME: Use loaded result
     if result is not None:
         result_or_inplace_obj = result
     else:

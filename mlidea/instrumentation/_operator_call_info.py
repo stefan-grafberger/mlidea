@@ -18,7 +18,14 @@ class OperatorCallInfo:
     def __init__(self, operator_context: OperatorContext, parent_nodes: list[any]):
         self.operator = operator_context.operator
         self.function_info = operator_context.function_info
-        self.non_data_kwargs = tuple(operator_context.non_data_kwargs.items())
+        hashable_non_data_kwargs = []
+        for kwarg_key, kwarg_value in operator_context.non_data_kwargs.items():
+            # if isinstance(kwarg_value, list):
+            #     kwarg_value = tuple(kwarg_value)
+            # if isinstance(kwarg_value, tuple) and isinstance(kwarg_value[0], slice):
+            #     kwarg_value = (kwarg_value[0].start, kwarg_value[0].step, kwarg_value[0].stop),
+            hashable_non_data_kwargs.append((kwarg_key, str(kwarg_value)))
+        self.non_data_kwargs = tuple(hashable_non_data_kwargs)
         parent_node_ids = []
         for parent in parent_nodes:
             if hasattr(parent, 'dag_node'):

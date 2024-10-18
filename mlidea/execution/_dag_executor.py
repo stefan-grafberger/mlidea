@@ -49,10 +49,12 @@ class DagExecutor:
                         inputs = inputs[:-1]
             if stop_signal_received is False:
                 executable_processing_func = partial(current_node.processing_func, *inputs)
-                optimizer_info, result_df = capture_optimizer_info(executable_processing_func)
+                # FIXME: Do not use None here
+                optimizer_info, result_df = capture_optimizer_info(self.pipeline_executor, None, executable_processing_func)
             elif current_node.operator_info.operator == OperatorType.EXTRACT_RESULT:
                 executable_processing_func = partial(current_node.processing_func, ConditionalResult.STOP_EXECUTION)
-                optimizer_info, result_df = capture_optimizer_info(executable_processing_func)
+                # FIXME: Do not use None here
+                optimizer_info, result_df = capture_optimizer_info(self.pipeline_executor, None, executable_processing_func)
             else:
                 optimizer_info = OptimizerInfo(None, None, None)
                 result_df = ConditionalResult.STOP_EXECUTION

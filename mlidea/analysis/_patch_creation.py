@@ -4,6 +4,7 @@ Util functions to make writing What-If Analyses easier
 import logging
 from collections.abc import Iterable
 
+from mlidea.instrumentation._operator_call_info import OperatorCallInfo
 from mlidea.execution._patches import AppendNodeAfterOperator
 from mlidea.instrumentation._dag_node import DagNode, DagNodeDetails
 from mlidea.instrumentation._dag_node import OperatorContext
@@ -19,9 +20,10 @@ def get_intermediate_extraction_patch_after_node(singleton, analysis: any or Non
         singleton.labels_to_extracted_plan_results[label] = intermediate_value
         return intermediate_value
 
-    new_extraction_node = DagNode(singleton.get_next_op_id(),
+    operator_context = OperatorContext(OperatorType.EXTRACT_RESULT, None, {})
+    new_extraction_node = DagNode(singleton.get_next_op_id(OperatorCallInfo(operator_context, [dag_node])),
                                   dag_node.code_location,
-                                  OperatorContext(OperatorType.EXTRACT_RESULT, None, {}),
+                                  operator_context,
                                   DagNodeDetails(None, dag_node.details.columns),
                                   None,
                                   extract_intermediate)

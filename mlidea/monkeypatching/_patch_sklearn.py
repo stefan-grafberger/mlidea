@@ -2020,7 +2020,7 @@ class SklearnDecisionTreePatching:
             initial_func_score = partial(processing_func_score, result_predict, test_labels_result)
             non_data_kwargs = get_simple_non_data_kwargs(**kwargs)
             operator_context_score = OperatorContext(OperatorType.SCORE, function_info, non_data_kwargs)
-            operator_call_info_score = OperatorCallInfo(operator_context_predict,
+            operator_call_info_score = OperatorCallInfo(operator_context_score,
                                                           [dag_node_predict, test_labels_node])
             optimizer_info_score, result_score = capture_optimizer_info(singleton, operator_call_info_score,
                                                                         initial_func_score)
@@ -2643,6 +2643,7 @@ class SklearnKerasClassifierPatching:
 
             # Estimator
             operator_context = OperatorContext(OperatorType.ESTIMATOR, function_info, self.mlinspect_non_data_func_args)
+            operator_call_info = OperatorCallInfo(operator_context, [train_data_dag_node, train_labels_dag_node])
             # input_dfs = [data_backend_result.annotated_dfobject, label_backend_result.annotated_dfobject]
             initial_func = partial(original, self, train_data_result, train_labels_result, *args[2:], **kwargs)
             keras_batch_size = self.mlinspect_non_data_func_args.get("batch_size", 32)
@@ -2710,33 +2711,37 @@ class SklearnKerasClassifierPatching:
             operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, {})
             non_data_kwargs = get_simple_non_data_kwargs(**kwargs)
             operator_context_score = OperatorContext(OperatorType.SCORE, function_info, non_data_kwargs)
+            estimator_dag_node = get_dag_node_for_id(self.mlinspect_estimator_node_id)
+            operator_call_info_predict = OperatorCallInfo(operator_context_predict, [estimator_dag_node, test_data_node])
             # input_dfs = [data_backend_result.annotated_dfobject, label_backend_result.annotated_dfobject]
 
             # This currently calls predict twice, but patching here is complex. Maybe revisit this in future work
             uninstrumented_predict = wrap_predict_func(gorilla.get_original_attribute(wrappers.KerasClassifier, 'predict'))
             initial_func_predict = partial(uninstrumented_predict, self, test_data_result)
             call_info_singleton.scikeras_classifier_active = True
-            optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info, initial_func_predict)
+            optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict, initial_func_predict)
             call_info_singleton.scikeras_classifier_active = False
 
-            dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info),
+            dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info_predict),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
                                        DagNodeDetails("Neural Network", [], optimizer_info_predict),
                                        get_optional_code_info_or_none(optional_code_reference, optional_source_code),
                                        processing_func_predict)
-            estimator_dag_node = get_dag_node_for_id(self.mlinspect_estimator_node_id)
             function_call_result = FunctionCallResult(result_predict)
             add_dag_node(dag_node_predict, [estimator_dag_node, test_data_node],
                          function_call_result)
 
+            operator_call_info_score = OperatorCallInfo(operator_context_predict,
+                                                        [dag_node_predict, test_labels_node])
+
             initial_func_score = partial(processing_func_score, result_predict, test_labels_result, *args[2:],
                                          **kwargs)
             call_info_singleton.scikeras_classifier_active = True
-            optimizer_info_score, result_score = capture_optimizer_info(singleton, operator_call_info, initial_func_score)
+            optimizer_info_score, result_score = capture_optimizer_info(singleton, operator_call_info_score, initial_func_score)
             call_info_singleton.scikeras_classifier_active = False
 
-            dag_node_score = DagNode(singleton.get_next_op_id(operator_call_info),
+            dag_node_score = DagNode(singleton.get_next_op_id(operator_call_info_score),
                                      BasicCodeLocation(caller_filename, lineno),
                                      operator_context_score,
                                      DagNodeDetails("Accuracy", [], optimizer_info_score),
@@ -2780,19 +2785,21 @@ class SklearnKerasClassifierPatching:
 
             # Score
             operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, {})
+            estimator_dag_node = get_dag_node_for_id(self.mlinspect_estimator_node_id)
+            operator_call_info_predict = OperatorCallInfo(operator_context_predict,
+                                                          [estimator_dag_node, test_data_node])
 
             initial_func_predict = partial(wrap_predict_func(original), self, test_data_result)
             call_info_singleton.scikeras_classifier_active = True
-            optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info, initial_func_predict)
+            optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict, initial_func_predict)
             call_info_singleton.scikeras_classifier_active = False
 
-            dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info),
+            dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info_predict),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
                                        DagNodeDetails("Neural Network", [], optimizer_info_predict),
                                        get_optional_code_info_or_none(optional_code_reference, optional_source_code),
                                        processing_func_predict)
-            estimator_dag_node = get_dag_node_for_id(self.mlinspect_estimator_node_id)
             function_call_result = FunctionCallResult(result_predict)
             add_dag_node(dag_node_predict, [estimator_dag_node, test_data_node],
                          function_call_result)
@@ -2840,6 +2847,8 @@ class MetricsPatching:
 
             non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs)
             operator_context = OperatorContext(OperatorType.SCORE, function_info, non_data_kwargs)
+            operator_call_info = OperatorCallInfo(operator_context,
+                                                          [input_info_pred.dag_node, test_labels_node])
             initial_func = partial(original, y_true, y_pred, *args, **kwargs)
             call_info_singleton.score_active = True
             optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, initial_func)
@@ -2929,6 +2938,8 @@ class SklearnDummyClassifierPatching:
 
             # Estimator
             operator_context = OperatorContext(OperatorType.ESTIMATOR, function_info, self.mlinspect_non_data_func_args)
+            operator_call_info = OperatorCallInfo(operator_context,
+                                                  [train_data_node, train_labels_node])
             # input_dfs = [data_backend_result.annotated_dfobject, label_backend_result.annotated_dfobject]
             initial_func = partial(original, self, train_data_result, train_labels_result, *args[2:], **kwargs)
             optimizer_info, _ = capture_optimizer_info(singleton, operator_call_info, initial_func, self, estimator_transformer_state=self)
@@ -2991,15 +3002,18 @@ class SklearnDummyClassifierPatching:
 
             original_predict = wrap_predict_func(gorilla.get_original_attribute(dummy.DummyClassifier, 'predict'))
             initial_func_predict = partial(original_predict, self, test_data_result)
-            optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info, initial_func_predict)
             operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, {})
-            dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info),
+            estimator_dag_node = get_dag_node_for_id(self.mlinspect_estimator_node_id)
+            operator_call_info_predict = OperatorCallInfo(operator_context_predict,
+                                                  [estimator_dag_node, test_data_node])
+            optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict,
+                                                                            initial_func_predict)
+            dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info_predict),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
                                        DagNodeDetails("Dummy Classifier", [], optimizer_info_predict),
                                        get_optional_code_info_or_none(optional_code_reference, optional_source_code),
                                        processing_func_predict)
-            estimator_dag_node = get_dag_node_for_id(self.mlinspect_estimator_node_id)
             function_call_result = FunctionCallResult(result_predict)
             add_dag_node(dag_node_predict, [estimator_dag_node, test_data_node], function_call_result)
 
@@ -3007,7 +3021,9 @@ class SklearnDummyClassifierPatching:
             optimizer_info_score, result_score = capture_optimizer_info(singleton, operator_call_info, initial_func_score)
             non_data_kwargs = get_simple_non_data_kwargs(**kwargs)
             operator_context_score = OperatorContext(OperatorType.SCORE, function_info, non_data_kwargs)
-            dag_node_score = DagNode(singleton.get_next_op_id(operator_call_info),
+            operator_call_info_score = OperatorCallInfo(operator_context_score,
+                                                          [dag_node_predict, test_labels_node])
+            dag_node_score = DagNode(singleton.get_next_op_id(operator_call_info_score),
                                      BasicCodeLocation(caller_filename, lineno),
                                      operator_context_score,
                                      DagNodeDetails("Accuracy", [], optimizer_info_score),
@@ -3049,15 +3065,18 @@ class SklearnDummyClassifierPatching:
 
             original_predict = wrap_predict_func(gorilla.get_original_attribute(dummy.DummyClassifier, 'predict'))
             initial_func_predict = partial(original_predict, self, test_data_result)
-            optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info, initial_func_predict)
             operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, {})
-            dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info),
+            estimator_dag_node = get_dag_node_for_id(self.mlinspect_estimator_node_id)
+            operator_call_info_predict = OperatorCallInfo(operator_context_predict,
+                                                        [estimator_dag_node, test_data_node])
+            optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict,
+                                                                            initial_func_predict)
+            dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info_predict),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
                                        DagNodeDetails("Dummy Classifier", [], optimizer_info_predict),
                                        get_optional_code_info_or_none(optional_code_reference, optional_source_code),
                                        processing_func_predict)
-            estimator_dag_node = get_dag_node_for_id(self.mlinspect_estimator_node_id)
             function_call_result = FunctionCallResult(result_predict)
             add_dag_node(dag_node_predict, [estimator_dag_node, test_data_node], function_call_result)
             new_result = function_call_result.function_result
@@ -3156,6 +3175,8 @@ class SklearnSVCPatching:
 
             # Estimator
             operator_context = OperatorContext(OperatorType.ESTIMATOR, function_info, self.mlinspect_non_data_func_args)
+            operator_call_info = OperatorCallInfo(operator_context,
+                                                          [train_data_node, train_labels_node])
             # input_dfs = [data_backend_result.annotated_dfobject, label_backend_result.annotated_dfobject]
             initial_func = partial(original, self, train_data_result, train_labels_result, *args[2:], **kwargs)
             optimizer_info, _ = capture_optimizer_info(singleton, operator_call_info, initial_func, self, estimator_transformer_state=self)
@@ -3218,24 +3239,30 @@ class SklearnSVCPatching:
 
             original_predict = wrap_predict_func(gorilla.get_original_attribute(svm.SVC, 'predict'))
             initial_func_predict = partial(original_predict, self, test_data_result)
-            optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info, initial_func_predict)
             operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, {})
-            dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info),
+            estimator_dag_node = get_dag_node_for_id(self.mlinspect_estimator_node_id)
+            operator_call_info_predict = OperatorCallInfo(operator_context_predict,
+                                                  [estimator_dag_node, test_data_node])
+            optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict,
+                                                                            initial_func_predict)
+            dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info_predict),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
                                        DagNodeDetails("SVC", [], optimizer_info_predict),
                                        get_optional_code_info_or_none(optional_code_reference,
                                                                       optional_source_code),
                                        processing_func_predict)
-            estimator_dag_node = get_dag_node_for_id(self.mlinspect_estimator_node_id)
             function_call_result = FunctionCallResult(result_predict)
             add_dag_node(dag_node_predict, [estimator_dag_node, test_data_node], function_call_result)
 
             initial_func_score = partial(processing_func_score, result_predict, test_labels_result)
-            optimizer_info_score, result_score = capture_optimizer_info(singleton, operator_call_info, initial_func_score)
             non_data_kwargs = get_simple_non_data_kwargs(**kwargs)
             operator_context_score = OperatorContext(OperatorType.SCORE, function_info, non_data_kwargs)
-            dag_node_score = DagNode(singleton.get_next_op_id(operator_call_info),
+            operator_call_info_score = OperatorCallInfo(operator_context_score,
+                                                          [estimator_dag_node, test_data_node])
+            optimizer_info_score, result_score = capture_optimizer_info(singleton, operator_call_info_score,
+                                                                        initial_func_score)
+            dag_node_score = DagNode(singleton.get_next_op_id(operator_call_info_score),
                                      BasicCodeLocation(caller_filename, lineno),
                                      operator_context_score,
                                      DagNodeDetails("Accuracy", [], optimizer_info_score),
@@ -3277,16 +3304,19 @@ class SklearnSVCPatching:
 
             original_predict = wrap_predict_func(gorilla.get_original_attribute(svm.SVC, 'predict'))
             initial_func_predict = partial(original_predict, self, test_data_result)
-            optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info, initial_func_predict)
             operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, {})
-            dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info),
+            estimator_dag_node = get_dag_node_for_id(self.mlinspect_estimator_node_id)
+            operator_call_info_predict = OperatorCallInfo(operator_context_predict,
+                                                        [estimator_dag_node, test_data_node])
+            optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict,
+                                                                            initial_func_predict)
+            dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info_predict),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
                                        DagNodeDetails("SVC", [], optimizer_info_predict),
                                        get_optional_code_info_or_none(optional_code_reference,
                                                                       optional_source_code),
                                        processing_func_predict)
-            estimator_dag_node = get_dag_node_for_id(self.mlinspect_estimator_node_id)
             function_call_result = FunctionCallResult(result_predict)
             add_dag_node(dag_node_predict, [estimator_dag_node, test_data_node], function_call_result)
             new_result = function_call_result.function_result

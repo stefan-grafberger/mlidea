@@ -76,4 +76,4 @@ class OperatorContext:
     """
     operator: OperatorType
     function_info: FunctionInfo or None
-    non_data_kwargs: dict[str, any]
+    non_data_kwargs: dict[str, any] = dataclasses.field(hash=False, compare=False)

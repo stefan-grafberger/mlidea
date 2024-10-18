@@ -1,12 +1,14 @@
 """
 Tests whether the fluent API works
 """
+import os
 
 import networkx
 from testfixtures import compare
 
 from example_pipelines.healthcare import custom_monkeypatching
-from example_pipelines import ADULT_SIMPLE_PY, ADULT_SIMPLE_IPYNB, HEALTHCARE_PY, ADULT_COMPLEX_PY
+from example_pipelines import ADULT_SIMPLE_PY, ADULT_SIMPLE_IPYNB, HEALTHCARE_PY, ADULT_COMPLEX_PY, \
+    ADULT_COMPLEX_MODIFIED_PY
 from mlidea import PipelineAnalyzer, OperatorType
 from mlidea.analysis._data_cleaning import DataCleaning, ErrorType
 from mlidea.testing._testing_helper_utils import get_expected_dag_adult_easy, visualize_dags_shadow_pipelines
@@ -116,7 +118,7 @@ def test_dag_extraction_reuse():
     assert report.shape == (19, 4)
 
 
-def test_changed_pipeline_code():
+def test_changed_pipeline_code(tmpdir):
     """
     Tests whether the Data Cleaning analysis works for a very simple pipeline with a DecisionTree score
     """
@@ -125,15 +127,18 @@ def test_changed_pipeline_code():
         .on_pipeline_from_py_file(ADULT_COMPLEX_PY) \
         .execute()
 
+    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-old"))
+
     data_cleaning = DataCleaning({'education': ErrorType.CAT_MISSING_VALUES,
                                   'age': ErrorType.NUM_MISSING_VALUES,
                                   'hours-per-week': ErrorType.OUTLIERS,
                                   None: ErrorType.MISLABEL})
 
     analysis_result = PipelineAnalyzer \
-        .on_changed_pipeline_from_py_file(analysis_result.dag_extraction_info, ADULT_COMPLEX_PY) \
+        .on_changed_pipeline_from_py_file(analysis_result.dag_extraction_info, ADULT_COMPLEX_MODIFIED_PY) \
         .add_what_if_analysis(data_cleaning) \
         .execute()
+    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-new"))
 
     report = analysis_result.analysis_to_result_reports[data_cleaning]
     assert report.shape == (19, 4)

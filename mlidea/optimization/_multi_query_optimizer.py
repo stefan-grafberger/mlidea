@@ -133,7 +133,7 @@ class MultiQueryOptimizer:
 
         def generate_new_node_ids_if_required(dag_node: DagNode) -> DagNode:
             if dag_node.node_id in nodes_requiring_new_id:
-                result = DagNode(self.pipeline_executor.get_next_op_id(),
+                result = DagNode(self.pipeline_executor.get_next_op_id(None),
                                  dag_node.code_location,
                                  dag_node.operator_info,
                                  dag_node.details,
