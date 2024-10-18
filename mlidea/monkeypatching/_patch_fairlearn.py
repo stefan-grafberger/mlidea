@@ -7,6 +7,7 @@ import gorilla
 import pandas
 from fairlearn import metrics
 
+from mlidea.instrumentation._operator_call_info import OperatorCallInfo
 from mlidea import OperatorType, DagNode, BasicCodeLocation, DagNodeDetails
 from mlidea.execution._stat_tracking import capture_optimizer_info
 from mlidea.instrumentation._operator_types import OperatorContext, FunctionInfo
@@ -62,8 +63,9 @@ class MetricFramePatching:
             non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs,
                                                          except_kws=["y_true", "y_pred", "sensitive_features"])
             operator_context = OperatorContext(OperatorType.SCORE, function_info, non_data_kwargs)
+            operator_call_info = OperatorCallInfo(operator_context, [input_info_pred.dag_node, test_labels_node, input_info_sensitive_cols.dag_node])
             initial_func = partial(original, self, *args, **kwargs)
-            optimizer_info, result = capture_optimizer_info(initial_func, self)
+            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, initial_func, self)
 
             def process_metric_frame(bound_metric, y_true, y_pred, sensitive_features):
                 if isinstance(y_true, pandas.Series):
@@ -73,7 +75,7 @@ class MetricFramePatching:
 
             process_func = partial(process_metric_frame, kwargs['metrics'])
 
-            dag_node = DagNode(singleton.get_next_op_id(),
+            dag_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                BasicCodeLocation(caller_filename, lineno),
                                operator_context,
                                DagNodeDetails(kwargs['metrics'].__name__, [], optimizer_info),
@@ -124,14 +126,15 @@ class MetricsPatching:
             non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs, except_kws=['sensitive_features'])
             operator_context = OperatorContext(OperatorType.SCORE, function_info, non_data_kwargs)
             initial_func = partial(original, y_true, y_pred, *args, **kwargs)
+            operator_call_info = OperatorCallInfo(operator_context, [input_info_pred.dag_node, test_labels_node, input_info_sensitive_cols.dag_node])
             call_info_singleton.score_active = True
-            optimizer_info, result = capture_optimizer_info(initial_func)
+            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, initial_func)
             call_info_singleton.score_active = False
 
             def process_metric_frame(y_true, y_pred, sensitive_features):
                 return original(y_true=y_true, y_pred=y_pred, sensitive_features=sensitive_features)
 
-            dag_node = DagNode(singleton.get_next_op_id(),
+            dag_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                BasicCodeLocation(caller_filename, lineno),
                                operator_context,
                                DagNodeDetails('equalized_odds_difference', [], optimizer_info),

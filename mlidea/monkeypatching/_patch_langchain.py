@@ -26,6 +26,7 @@ from langchain_core.runnables.utils import (
     Input, Output,
 )
 
+from mlidea.instrumentation._operator_call_info import OperatorCallInfo
 from mlidea import DagNode, BasicCodeLocation, DagNodeDetails, FunctionInfo, OperatorContext, OperatorType, \
     CodeReference
 from mlidea.execution._pipeline_executor import singleton
@@ -142,17 +143,19 @@ class RunnableSequencePatching:
 
                 non_data_kwargs = {'steps': self.steps, 'config': config, 'return_exceptions': return_exceptions,
                                    **kwargs}
-                operator_context = OperatorContext(OperatorType.RAG_JOIN,
+                operator_context_rag = OperatorContext(OperatorType.RAG_JOIN,
                                                    input_info_a.dag_node.operator_info.function_info,
                                                    non_data_kwargs)
+                operator_call_info_rag = OperatorCallInfo(operator_context_rag, [input_info_a.dag_node, test_data_node])
 
                 processing_func = partial(RunnableSequencePatching.execute_retriever, retriever_with_info)
-                optimizer_info, result = capture_optimizer_info(partial(processing_func, retriever_with_info[3],
+                optimizer_info, result = capture_optimizer_info(singleton, operator_call_info_rag,
+                                                                partial(processing_func, retriever_with_info[3],
                                                                         test_data_result))
                 description = "Embedding similarity join"
-                dag_node_rag = DagNode(singleton.get_next_op_id(),
+                dag_node_rag = DagNode(singleton.get_next_op_id(operator_call_info_rag),
                                        input_info_a.dag_node.code_location,
-                                       operator_context,
+                                       operator_context_rag,
                                        DagNodeDetails(description, input_info_a.dag_node.details.columns,
                                                       optimizer_info),
                                        input_info_a.dag_node.optional_code_info,
@@ -166,10 +169,13 @@ class RunnableSequencePatching:
                 processing_func_predict = partial(
                     RunnableSequencePatching.execute_langchain_batch_with_preexecuted_retriever,
                     self, config, return_exceptions)
-                optimizer_info_predict, result_predict = capture_optimizer_info(partial(processing_func_predict,
-                                                                                        embedding_join_result))
                 operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, non_data_kwargs)
-                dag_node_predict = DagNode(singleton.get_next_op_id(),
+                operator_call_info_predict = OperatorCallInfo(operator_context_rag,
+                                                              [dag_node_rag])
+                optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict,
+                                                                                partial(processing_func_predict,
+                                                                                        embedding_join_result))
+                dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info_predict),
                                            BasicCodeLocation(caller_filename, lineno),
                                            operator_context_predict,
                                            DagNodeDetails("LLM", [], optimizer_info_predict),
@@ -358,6 +364,7 @@ class ChromaPatching:
             columns = train_data_node.details.columns + train_labels_node.details.columns
 
             operator_context = OperatorContext(OperatorType.CONCATENATION, function_info, {'embedding': embedding})
+            operator_call_info = OperatorCallInfo(operator_context, input_dag_nodes)
 
             # input_annotated_dfs = [input_info.annotated_dfobject for input_info in input_infos]
             # No input_infos copy needed because it's only a selection and the rows not being removed don't change
@@ -368,9 +375,9 @@ class ChromaPatching:
                 return new_result
 
             initial_func = partial(processing_func, train_data_result, train_labels_result, **kwargs)
-            optimizer_info, result = capture_optimizer_info(initial_func)
+            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, initial_func)
 
-            dag_node = DagNode(singleton.get_next_op_id(),
+            dag_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                BasicCodeLocation(caller_filename, lineno),
                                operator_context,
                                DagNodeDetails(None, columns, optimizer_info),
