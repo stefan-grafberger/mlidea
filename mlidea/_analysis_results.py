@@ -5,6 +5,7 @@ import dataclasses
 
 import networkx
 
+from mlidea.instrumentation._dag_node import DagNode
 from mlidea.execution._patches import PipelinePatch
 from mlidea.visualisation import save_fig_to_path
 
@@ -36,8 +37,8 @@ class DagExtractionInfo:
     original_dag: networkx.DiGraph
     original_pipeline_labels_to_extracted_plan_results: dict[str, any]
     next_op_id: int
-    next_patch_id: int
     next_missing_op_id: int
+    cached_intermediates: dict[DagNode, any]
 
 
 @dataclasses.dataclass

@@ -185,3 +185,18 @@ class PipelineAnalyzer:
     def on_previously_extracted_pipeline(extraction_info: DagExtractionInfo) -> PipelineInspectorBuilder:
         """Inspect a pipeline from a string."""
         return PipelineInspectorBuilder(extraction_info=extraction_info)
+
+    @staticmethod
+    def on_changed_pipeline_from_py_file(extraction_info: DagExtractionInfo, path: str) -> PipelineInspectorBuilder:
+        """Inspect a pipeline from a string."""
+        return PipelineInspectorBuilder(extraction_info=extraction_info, python_path=path)
+
+    @staticmethod
+    def on_changed_pipeline_from_ipynb_file(extraction_info: DagExtractionInfo, path: str) -> PipelineInspectorBuilder:
+        """Inspect a pipeline from a string."""
+        return PipelineInspectorBuilder(extraction_info=extraction_info, notebook_path=path)
+
+    @staticmethod
+    def on_changed_pipeline_from_string(extraction_info: DagExtractionInfo, code: str) -> PipelineInspectorBuilder:
+        """Inspect a pipeline from a string."""
+        return PipelineInspectorBuilder(extraction_info=extraction_info, python_code=code)

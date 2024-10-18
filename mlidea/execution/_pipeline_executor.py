@@ -60,7 +60,7 @@ class PipelineExecutor:
     labels_to_extracted_plan_results = {}
     analysis_results = AnalysisResults({}, {}, networkx.DiGraph(), [], {}, networkx.DiGraph(),
                                        RuntimeInfo(0, 0, 0, 0, None, None, 0, 0, 0, 0, 0, 0, 0),
-                                       DagExtractionInfo(networkx.DiGraph(), {}, 0, 0, 0), None)
+                                       DagExtractionInfo(networkx.DiGraph(), {}, 0, 0, {}), None)
     monkey_patch_duration = 0
     skip_optimizer = False
     force_optimization_rules = None
@@ -69,6 +69,7 @@ class PipelineExecutor:
     use_dfs_exec_strategy = False
     disable_monkey_patching = False
     prov_enabled = True
+    cached_intermediates = {}
 
     def run(self, *,
             notebook_path: str or None = None,
@@ -112,7 +113,19 @@ class PipelineExecutor:
         self.use_dfs_exec_strategy = use_dfs_exec_strategy
         self.prov_enabled = prov_enabled
 
-        if extraction_info is None:
+        if extraction_info is not None:
+            logger.info('Reusing DAG extraction results results from previously instrumented pipeline...')
+            self.analysis_results.runtime_info.original_pipeline_without_importing_and_monkeypatching = None
+            self.next_op_id = extraction_info.next_op_id
+            self.next_patch_id = 0
+            self.next_missing_op_id = extraction_info.next_missing_op_id
+            self.cached_intermediates = extraction_info.cached_intermediates
+
+        if notebook_path is None and python_code is None and python_path is None:
+            self.analysis_results.original_dag = extraction_info.original_dag.copy()
+            self.original_pipeline_labels_to_extracted_plan_results = \
+                extraction_info.original_pipeline_labels_to_extracted_plan_results.copy()
+        else:
             logger.info('Running instrumented original pipeline...')
             orig_instrumented_exec_start = time.time()
             sys.stdout.flush()
@@ -127,22 +140,13 @@ class PipelineExecutor:
             pipeline_exec_time = self.analysis_results.runtime_info.original_pipeline_without_importing_and_monkeypatching
             logger.info(f'---RUNTIME: Original pipeline execution took {pipeline_exec_time} ms '
                         f'(excluding imports and monkey-patching)')
-        else:
-            logger.info('Reusing DAG extraction results results from previously instrumented pipeline...')
-            self.analysis_results.original_dag = extraction_info.original_dag.copy()
-            self.original_pipeline_labels_to_extracted_plan_results = \
-                extraction_info.original_pipeline_labels_to_extracted_plan_results.copy()
-            self.analysis_results.runtime_info.original_pipeline_without_importing_and_monkeypatching = None
-            self.next_op_id = extraction_info.next_op_id
-            self.next_patch_id = extraction_info.next_patch_id
-            self.next_missing_op_id = extraction_info.next_missing_op_id
 
         logger.info(f'Starting execution of {len(self.analyses)} what-if analyses...')
         self.run_what_if_analyses()
 
         self.analysis_results.dag_extraction_info = DagExtractionInfo(
             self.analysis_results.original_dag.copy(), self.original_pipeline_labels_to_extracted_plan_results.copy(),
-            self.next_op_id, self.next_patch_id, self.next_missing_op_id)
+            self.next_op_id, self.next_missing_op_id, self.cached_intermediates)
 
         self.gen_and_exec_shadow_pipelines()
 
@@ -276,7 +280,7 @@ class PipelineExecutor:
         self.op_id_to_dag_node = {}
         self.analysis_results = AnalysisResults({}, {}, networkx.DiGraph(), [], {}, networkx.DiGraph(),
                                                 RuntimeInfo(0, 0, 0, 0, None, None, 0, 0, 0, 0, 0, 0, 0),
-                                                DagExtractionInfo(networkx.DiGraph(), {}, 0, 0, 0), None)
+                                                DagExtractionInfo(networkx.DiGraph(), {}, 0, 0, {}), None)
         self.analyses = []
         self.shadow_pipelines = []
         self.original_pipeline_labels_to_extracted_plan_results = {}
@@ -290,6 +294,7 @@ class PipelineExecutor:
         self.use_dfs_exec_strategy = False
         self.disable_monkey_patching = False
         self.prov_enabled = True
+        self.cached_intermediates = {}
 
     @staticmethod
     def instrument_pipeline(parsed_ast, track_code_references):

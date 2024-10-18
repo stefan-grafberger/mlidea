@@ -116,6 +116,29 @@ def test_dag_extraction_reuse():
     assert report.shape == (19, 4)
 
 
+def test_changed_pipeline_code():
+    """
+    Tests whether the Data Cleaning analysis works for a very simple pipeline with a DecisionTree score
+    """
+
+    analysis_result = PipelineAnalyzer \
+        .on_pipeline_from_py_file(ADULT_COMPLEX_PY) \
+        .execute()
+
+    data_cleaning = DataCleaning({'education': ErrorType.CAT_MISSING_VALUES,
+                                  'age': ErrorType.NUM_MISSING_VALUES,
+                                  'hours-per-week': ErrorType.OUTLIERS,
+                                  None: ErrorType.MISLABEL})
+
+    analysis_result = PipelineAnalyzer \
+        .on_changed_pipeline_from_py_file(analysis_result.dag_extraction_info, ADULT_COMPLEX_PY) \
+        .add_what_if_analysis(data_cleaning) \
+        .execute()
+
+    report = analysis_result.analysis_to_result_reports[data_cleaning]
+    assert report.shape == (19, 4)
+
+
 def test_estimation():
     """
     Tests whether the Data Cleaning analysis works for a very simple pipeline with a DecisionTree score
