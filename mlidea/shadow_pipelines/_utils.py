@@ -14,7 +14,8 @@ from sklearn.linear_model import SGDClassifier
 from sklearn.preprocessing import FunctionTransformer
 
 from mlidea.instrumentation._operator_types import ConditionalResult
-from mlidea import DagNode, OperatorContext, OperatorType, DagNodeDetails, BasicCodeLocation
+from mlidea.instrumentation._dag_node import DagNode, OperatorContext, DagNodeDetails, BasicCodeLocation
+from mlidea.instrumentation._operator_types import OperatorType
 from mlidea.shadow_pipelines.cached_text_transformer import CachedTextTransformer
 from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
 from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching

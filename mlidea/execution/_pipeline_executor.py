@@ -15,6 +15,7 @@ import networkx
 from astmonkey.transformers import ParentChildNodeTransformer
 from nbconvert import PythonExporter
 
+from mlidea.instrumentation._operator_call_info import OperatorCallInfo
 from mlidea.instrumentation._call_capture_transformer import CallCaptureTransformer
 from mlidea import monkeypatching
 from mlidea.instrumentation._operator_types import OperatorType
@@ -70,6 +71,8 @@ class PipelineExecutor:
     disable_monkey_patching = False
     prov_enabled = True
     cached_intermediates = {}
+    old_dag = None
+    operator_context_parents_to_result = {}
 
     def run(self, *,
             notebook_path: str or None = None,
@@ -120,6 +123,11 @@ class PipelineExecutor:
             self.next_patch_id = 0
             self.next_missing_op_id = extraction_info.next_missing_op_id
             self.cached_intermediates = extraction_info.cached_intermediates
+            self.old_dag = extraction_info.original_dag.copy()
+
+            for dag_node, result_value in self.cached_intermediates:
+                parent_ids = get_sorted_parent_nodes(self.old_dag, dag_node)
+                self.operator_context_parents_to_result[OperatorCallInfo(dag_node.operator, parent_ids)] = dag_node
 
         if notebook_path is None and python_code is None and python_path is None:
             self.analysis_results.original_dag = extraction_info.original_dag.copy()
@@ -238,13 +246,16 @@ class PipelineExecutor:
         parsed_modified_ast = self.instrument_pipeline(parsed_ast, self.track_code_references)
         exec(compile(parsed_modified_ast, filename=self.source_code_path, mode="exec"), self.script_scope)
 
-    def get_next_op_id(self):
+    def get_next_op_id(self, operator_call_info):
         """
         Each operator in the DAG gets a consecutive unique id
         """
-        current_op_id = self.next_op_id
-        self.next_op_id += 1
-        return current_op_id
+        if operator_call_info in self.operator_context_parents_to_result:
+            result = self.operator_context_parents_to_result[operator_call_info].node_id
+        else:
+            result = self.next_op_id
+            self.next_op_id += 1
+        return result
 
     def get_next_patch_id(self):
         """
@@ -295,6 +306,8 @@ class PipelineExecutor:
         self.disable_monkey_patching = False
         self.prov_enabled = True
         self.cached_intermediates = {}
+        self.old_dag = None
+        self.operator_context_parents_to_result = {}
 
     @staticmethod
     def instrument_pipeline(parsed_ast, track_code_references):

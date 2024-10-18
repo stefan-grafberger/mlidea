@@ -18,7 +18,11 @@ from mlidea.instrumentation._dag_node import OptimizerInfo
 from mlidea.monkeypatching._mlinspect_ndarray import MlideaChromaVectorStoreRetrieverPlaceHolder
 
 
-def capture_optimizer_info(instrumented_function_call: partial, obj_for_inplace_ops: any or None = None,
+
+
+
+def capture_optimizer_info(singleton, operator_call_info, instrumented_function_call: partial,
+                           obj_for_inplace_ops: any or None = None,
                            estimator_transformer_state: any or None = None,
                            keras_batch_size: int or None = None) \
         -> tuple[OptimizerInfo, any]:
@@ -27,6 +31,8 @@ def capture_optimizer_info(instrumented_function_call: partial, obj_for_inplace_
     result = instrumented_function_call()
     execution_duration = time.time() - execution_start
     execution_duration_in_ms = execution_duration * 1000
+    print(singleton)
+    print(operator_call_info)
     if result is not None:
         result_or_inplace_obj = result
     else:
