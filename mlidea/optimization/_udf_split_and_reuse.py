@@ -195,9 +195,11 @@ class UdfSplitAndReuse(QueryOptimizationRule):
             partial(corrupt_full_df, corruption_function=projection_func))
 
         description = f"Corrupt 100% of '{column_name}'"
+        non_data_kwargs = {'projection_func': projection_func,
+                           'column_name': column_name}
         new_corruption_node = DagNode(self._pipeline_executor.get_next_op_id(),
                                       BasicCodeLocation("UdfSplitAndReuse", None),
-                                      OperatorContext(OperatorType.PROJECTION_MODIFY, None),
+                                      OperatorContext(OperatorType.PROJECTION_MODIFY, None, non_data_kwargs),
                                       DagNodeDetails(description, None),
                                       None,
                                       corrupt_df_with_proper_bindings)
@@ -205,9 +207,10 @@ class UdfSplitAndReuse(QueryOptimizationRule):
 
     def _create_index_selection_func_dag_node(self, index_selection_func) -> DagNode:
         """Create the DAG node that creates the sampling index array to sample from the corrupted df"""
+        non_data_kwarg = {'index_selection_func': index_selection_func}
         new_corruption_node = DagNode(self._pipeline_executor.get_next_op_id(),
                                       BasicCodeLocation("UdfSplitAndReuse", None),
-                                      OperatorContext(OperatorType.SUBSCRIPT, None),
+                                      OperatorContext(OperatorType.SUBSCRIPT, None, non_data_kwarg),
                                       DagNodeDetails("Indices to corrupt", None),
                                       None,
                                       index_selection_func)
@@ -239,7 +242,8 @@ class UdfSplitAndReuse(QueryOptimizationRule):
             partial(corrupt_df, column=previous_patch.maybe_udf_split_info.column_name_to_corrupt))
         new_corruption_node = DagNode(self._pipeline_executor.get_next_op_id(),
                                       previous_patch.node_to_insert.code_location,
-                                      OperatorContext(OperatorType.PROJECTION_MODIFY, None),
+                                      OperatorContext(OperatorType.PROJECTION_MODIFY, None, {
+                                          'column': previous_patch.maybe_udf_split_info.column_name_to_corrupt}),
                                       previous_patch.node_to_insert.details,
                                       None,
                                       corrupt_df_with_proper_bindings)

@@ -352,7 +352,7 @@ def get_optional_code_info_or_none(optional_code_reference: CodeReference or Non
 
 def add_train_label_node(estimator, train_label_arg, function_info):
     """Add a Train Data DAG Node for a estimator.fit call"""
-    operator_context = OperatorContext(OperatorType.TRAIN_LABELS, function_info)
+    operator_context = OperatorContext(OperatorType.TRAIN_LABELS, function_info, {})
     input_info_train_labels = get_input_info(train_label_arg, estimator.mlinspect_caller_filename,
                                              estimator.mlinspect_lineno, function_info,
                                              estimator.mlinspect_optional_code_reference,
@@ -382,7 +382,7 @@ def add_train_data_node(estimator, train_data_arg, function_info):
                                            estimator.mlinspect_optional_source_code)
     columns = input_info_train_data.dag_node.details.columns
     train_data_op_id = _pipeline_executor.singleton.get_next_op_id()
-    operator_context = OperatorContext(OperatorType.TRAIN_DATA, function_info)
+    operator_context = OperatorContext(OperatorType.TRAIN_DATA, function_info, {})
     process_func = lambda df_object: df_object
     train_data_dag_node = DagNode(train_data_op_id,
                                   BasicCodeLocation(estimator.mlinspect_caller_filename, estimator.mlinspect_lineno),
@@ -404,7 +404,7 @@ def add_test_data_dag_node(test_data_arg, function_info, lineno, optional_code_r
     input_info_test_data = get_input_info(test_data_arg, caller_filename, lineno, function_info,
                                           optional_code_reference, optional_source_code)
     columns = input_info_test_data.dag_node.details.columns
-    operator_context = OperatorContext(OperatorType.TEST_DATA, function_info)
+    operator_context = OperatorContext(OperatorType.TEST_DATA, function_info, {})
     test_data_op_id = _pipeline_executor.singleton.get_next_op_id()
     process_func = lambda df_object: df_object
     test_data_dag_node = DagNode(test_data_op_id,
@@ -424,7 +424,7 @@ def add_test_data_dag_node(test_data_arg, function_info, lineno, optional_code_r
 def add_test_label_node(test_label_arg, caller_filename, function_info, lineno, optional_code_reference,
                         optional_source_code):
     """Add a Test Label DAG Node for a estimator.score call"""
-    operator_context = OperatorContext(OperatorType.TEST_LABELS, function_info)
+    operator_context = OperatorContext(OperatorType.TEST_LABELS, function_info, {})
     input_info_test_labels = get_input_info(test_label_arg, caller_filename, lineno, function_info,
                                             optional_code_reference, optional_source_code)
     columns = input_info_test_labels.dag_node.details.columns

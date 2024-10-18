@@ -72,6 +72,7 @@ class MlideaChromaVectorStoreRetrieverPlaceHolder(BaseRetriever):
     embedding: Any
     _mlinspect_dag_node: Any = PrivateAttr(None)  # Why this is necessary: https://stackoverflow.com/a/75712642
     precomputed_result: Any
+    _mlinspect_non_data_kwargs: Any = PrivateAttr(None)  # Why this is necessary: https://stackoverflow.com/a/75712642
 
     def __init__(self, retrieval_corpus_X: list[str], retrieval_corpus_y: list[dict[str, any]], embedding: Embeddings,
                  **kwargs: any):

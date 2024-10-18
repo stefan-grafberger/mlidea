@@ -13,7 +13,7 @@ from mlidea.instrumentation._operator_types import OperatorContext, FunctionInfo
 from mlidea.execution._pipeline_executor import singleton
 from mlidea.monkeypatching._monkey_patching_utils import add_dag_node, \
     get_optional_code_info_or_none, FunctionCallResult, \
-    add_test_label_node, get_input_info, execute_patched_func_no_op_id
+    add_test_label_node, get_input_info, execute_patched_func_no_op_id, get_simple_non_data_kwargs
 
 
 class FairLearnCallInfo:
@@ -59,7 +59,9 @@ class MetricFramePatching:
             if isinstance(kwargs['y_true'], pandas.Series):
                 kwargs['y_true'] = kwargs['y_true'].values
 
-            operator_context = OperatorContext(OperatorType.SCORE, function_info)
+            non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs,
+                                                         except_kws=["y_true", "y_pred", "sensitive_features"])
+            operator_context = OperatorContext(OperatorType.SCORE, function_info, non_data_kwargs)
             initial_func = partial(original, self, *args, **kwargs)
             optimizer_info, result = capture_optimizer_info(initial_func, self)
 
@@ -119,7 +121,8 @@ class MetricsPatching:
                                                          optional_code_reference,
                                                          optional_source_code)
 
-            operator_context = OperatorContext(OperatorType.SCORE, function_info)
+            non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs, except_kws=['sensitive_features'])
+            operator_context = OperatorContext(OperatorType.SCORE, function_info, non_data_kwargs)
             initial_func = partial(original, y_true, y_pred, *args, **kwargs)
             call_info_singleton.score_active = True
             optimizer_info, result = capture_optimizer_info(initial_func)

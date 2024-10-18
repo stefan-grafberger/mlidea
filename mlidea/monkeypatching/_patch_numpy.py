@@ -10,7 +10,7 @@ from mlidea import DagNode, BasicCodeLocation, DagNodeDetails
 from mlidea.execution._stat_tracking import capture_optimizer_info
 from mlidea.instrumentation._operator_types import OperatorContext, FunctionInfo, OperatorType
 from mlidea.monkeypatching._monkey_patching_utils import execute_patched_func, add_dag_node, \
-    get_optional_code_info_or_none, FunctionCallResult
+    get_optional_code_info_or_none, FunctionCallResult, get_simple_non_data_kwargs
 from mlidea.monkeypatching._provenance_propagation import wrap_data_source_func
 
 
@@ -30,7 +30,8 @@ class NumpyRandomPatching:
         def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
             """ Execute inspections, add DAG node """
             function_info = FunctionInfo('numpy.random', 'random')
-            operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info)
+            non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs)
+            operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info, non_data_kwargs)
             processing_func = wrap_data_source_func(partial(original, *args, **kwargs), op_id)
             optimizer_info, result = capture_optimizer_info(processing_func)
             dag_node = DagNode(op_id,

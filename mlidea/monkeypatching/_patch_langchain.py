@@ -34,7 +34,7 @@ from mlidea.monkeypatching._mlinspect_ndarray import MlideaChromaVectorStoreRetr
 from mlidea.monkeypatching._monkey_patching_utils import get_optional_code_info_or_none, \
     FunctionCallResult, add_dag_node, get_input_info, \
     add_test_data_dag_node, add_train_data_node, add_train_label_node, execute_patched_func_indirect_allowed, \
-    execute_patched_func_no_op_id, wrap_in_mlinspect_array_if_necessary
+    execute_patched_func_no_op_id, wrap_in_mlinspect_array_if_necessary, get_simple_non_data_kwargs
 
 
 class LangchainCallInfo:
@@ -140,8 +140,11 @@ class RunnableSequencePatching:
                     inputs, input_info_a.dag_node.operator_info.function_info, lineno, optional_code_reference,
                     optional_source_code, caller_filename)
 
+                non_data_kwargs = {'steps': self.steps, 'config': config, 'return_exceptions': return_exceptions,
+                                   **kwargs}
                 operator_context = OperatorContext(OperatorType.RAG_JOIN,
-                                                   input_info_a.dag_node.operator_info.function_info)
+                                                   input_info_a.dag_node.operator_info.function_info,
+                                                   non_data_kwargs)
 
                 processing_func = partial(RunnableSequencePatching.execute_retriever, retriever_with_info)
                 optimizer_info, result = capture_optimizer_info(partial(processing_func, retriever_with_info[3],
@@ -165,7 +168,7 @@ class RunnableSequencePatching:
                     self, config, return_exceptions)
                 optimizer_info_predict, result_predict = capture_optimizer_info(partial(processing_func_predict,
                                                                                         embedding_join_result))
-                operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info)
+                operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, non_data_kwargs)
                 dag_node_predict = DagNode(singleton.get_next_op_id(),
                                            BasicCodeLocation(caller_filename, lineno),
                                            operator_context_predict,
@@ -354,7 +357,7 @@ class ChromaPatching:
             input_dag_nodes.append(train_labels_node)
             columns = train_data_node.details.columns + train_labels_node.details.columns
 
-            operator_context = OperatorContext(OperatorType.CONCATENATION, function_info)
+            operator_context = OperatorContext(OperatorType.CONCATENATION, function_info, {'embedding': embedding})
 
             # input_annotated_dfs = [input_info.annotated_dfobject for input_info in input_infos]
             # No input_infos copy needed because it's only a selection and the rows not being removed don't change

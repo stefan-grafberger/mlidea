@@ -10,7 +10,7 @@ from mlidea import OperatorType, DagNode, BasicCodeLocation, DagNodeDetails
 from mlidea.execution._stat_tracking import capture_optimizer_info
 from mlidea.instrumentation._operator_types import OperatorContext, FunctionInfo
 from mlidea.monkeypatching._monkey_patching_utils import execute_patched_func, get_input_info, add_dag_node, \
-    get_optional_code_info_or_none, FunctionCallResult
+    get_optional_code_info_or_none, FunctionCallResult, get_simple_non_data_kwargs
 from mlidea.monkeypatching._provenance_propagation import wrap_join_func
 
 
@@ -33,12 +33,14 @@ class FuzzyPandasPatching:
             if 'right' in kwargs:
                 right_df = kwargs.pop('right')
                 args_start_index = 0
+                non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs, except_kws=['right'])
             else:
                 right_df = args[0]
                 args_start_index = 1
+                non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs, except_indices=[0])
             input_info_b = get_input_info(right_df, caller_filename, lineno, function_info, optional_code_reference,
                                           optional_source_code)
-            operator_context = OperatorContext(OperatorType.JOIN, function_info)
+            operator_context = OperatorContext(OperatorType.JOIN, function_info, non_data_kwargs)
             processing_func = wrap_join_func(lambda df_a, df_b: original(df_a, df_b, *args[args_start_index:], **kwargs))
             # No input_infos copy needed because it's only a selection and the rows not being removed don't change
             initial_func = partial(processing_func, input_info_a.annotated_dfobject.result_data,

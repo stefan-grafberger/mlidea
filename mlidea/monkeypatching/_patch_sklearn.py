@@ -33,7 +33,7 @@ from mlidea.monkeypatching._monkey_patching_utils import execute_patched_func, a
     execute_patched_func_indirect_allowed, get_input_info, execute_patched_func_no_op_id, \
     get_optional_code_info_or_none, get_dag_node_for_id, add_train_data_node, \
     add_train_label_node, add_test_label_node, add_test_data_dag_node, FunctionCallResult, \
-    wrap_in_mlinspect_array_if_necessary
+    wrap_in_mlinspect_array_if_necessary, get_simple_non_data_kwargs
 from mlidea.monkeypatching._provenance_propagation import wrap_train_test_split_func, wrap_projection_func, \
     wrap_predict_func
 
@@ -57,7 +57,8 @@ class SklearnPreprocessingPatching:
             input_info = get_input_info(args[0], caller_filename, lineno, function_info, optional_code_reference,
                                         optional_source_code)
 
-            operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, function_info)
+            non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs, except_indices=[0])
+            operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, function_info, non_data_kwargs)
             processing_func = wrap_projection_func(lambda df: original(df, *args[1:], **kwargs))
             initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
@@ -108,8 +109,8 @@ class SklearnModelSelectionPatching:
             function_info = FunctionInfo('sklearn.model_selection._split', 'train_test_split')
             input_info = get_input_info(args[0], caller_filename, lineno, function_info, optional_code_reference,
                                         optional_source_code)
-
-            operator_context = OperatorContext(OperatorType.TRAIN_TEST_SPLIT, function_info)
+            non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs, except_indices=[0])
+            operator_context = OperatorContext(OperatorType.TRAIN_TEST_SPLIT, function_info, non_data_kwargs)
             curried_original_func = wrap_train_test_split_func(lambda df: original(df, *args[1:], **kwargs))
             initial_func = partial(curried_original_func, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
@@ -338,7 +339,8 @@ class SklearnComposePatching:
                                         self.mlinspect_optional_code_reference, self.mlinspect_optional_source_code)
             input_infos.append(input_info)
 
-        operator_context = OperatorContext(OperatorType.CONCATENATION, function_info)
+        non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs, except_indices=[0])
+        operator_context = OperatorContext(OperatorType.CONCATENATION, function_info, non_data_kwargs)
         # input_annotated_dfs = [input_info.annotated_dfobject for input_info in input_infos]
         # No input_infos copy needed because it's only a selection and the rows not being removed don't change
         orig_func_prov = wrap_projection_func(lambda df: original(self, df, *args[1:], **kwargs))
@@ -434,7 +436,7 @@ class SklearnStandardScalerPatching:
 
         processing_func = wrap_projection_func(processing_func)
 
-        operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
+        operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info, self.mlinspect_non_data_func_args)
         orig_func_prov = wrap_projection_func(lambda df: original( self, df, *args[1:], ** kwargs))
         initial_func = partial(orig_func_prov, input_info.annotated_dfobject.result_data)
         optimizer_info, result = capture_optimizer_info(initial_func, estimator_transformer_state=self)
@@ -472,7 +474,7 @@ class SklearnStandardScalerPatching:
 
             processing_func = wrap_predict_func(processing_func)
 
-            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
+            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info, {})
             orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
             initial_func = partial(orig_func_prov, self, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
@@ -549,7 +551,7 @@ class SklearnRobustScalerPatching:
 
         processing_func = wrap_projection_func(processing_func)
 
-        operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
+        operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info, self.mlinspect_non_data_func_args)
         orig_func_prov = wrap_projection_func(lambda df: original(self, df, *args[1:], ** kwargs))
         initial_func = partial(orig_func_prov, input_info.annotated_dfobject.result_data)
         optimizer_info, result = capture_optimizer_info(initial_func, estimator_transformer_state=self)
@@ -587,7 +589,7 @@ class SklearnRobustScalerPatching:
 
             processing_func = wrap_predict_func(processing_func)
 
-            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
+            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info, {})
             orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
             initial_func = partial(orig_func_prov, self, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
@@ -675,7 +677,7 @@ class SklearnCountVectorizerPatching:
 
         processing_func = wrap_projection_func(processing_func)
 
-        operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
+        operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info, self.mlinspect_non_data_func_args)
         orig_func_prov = wrap_projection_func(lambda df: original( self, df, *args[1:], ** kwargs))
         initial_func = partial(orig_func_prov, input_info.annotated_dfobject.result_data)
         optimizer_info, result = capture_optimizer_info(initial_func, estimator_transformer_state=self)
@@ -713,7 +715,7 @@ class SklearnCountVectorizerPatching:
 
             processing_func = wrap_predict_func(processing_func)
 
-            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
+            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info, {})
             orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
             initial_func = partial(orig_func_prov, self, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
@@ -788,7 +790,7 @@ class SklearnTfidfTransformerPatching:
 
         processing_func = wrap_projection_func(processing_func)
 
-        operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
+        operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info, self.mlinspect_non_data_func_args)
         orig_func_prov = wrap_projection_func(lambda df: original( self, df, *args[1:], ** kwargs))
         initial_func = partial(orig_func_prov, input_info.annotated_dfobject.result_data)
         optimizer_info, result = capture_optimizer_info(initial_func, estimator_transformer_state=self)
@@ -826,7 +828,7 @@ class SklearnTfidfTransformerPatching:
 
             processing_func = wrap_predict_func(processing_func)
 
-            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
+            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info, {})
             orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
             initial_func = partial(orig_func_prov, self, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
@@ -901,7 +903,7 @@ class SklearnTruncatedSVDPatching:
 
         processing_func = wrap_projection_func(processing_func)
 
-        operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
+        operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info, self.mlinspect_non_data_func_args)
         orig_func_prov = wrap_projection_func(lambda df: original( self, df, *args[1:], ** kwargs))
         initial_func = partial(orig_func_prov, input_info.annotated_dfobject.result_data)
         optimizer_info, result = capture_optimizer_info(initial_func, estimator_transformer_state=self)
@@ -939,7 +941,7 @@ class SklearnTruncatedSVDPatching:
 
             processing_func = wrap_predict_func(processing_func)
 
-            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
+            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info, {})
             orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
             initial_func = partial(orig_func_prov, self, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
@@ -1017,7 +1019,7 @@ class SklearnPCAPatching:
 
         processing_func = wrap_projection_func(processing_func)
 
-        operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
+        operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info, self.mlinspect_non_data_func_args)
         orig_func_prov = wrap_projection_func(lambda df: original( self, df, *args[1:], ** kwargs))
         initial_func = partial(orig_func_prov, input_info.annotated_dfobject.result_data)
         optimizer_info, result = capture_optimizer_info(initial_func, estimator_transformer_state=self)
@@ -1055,7 +1057,7 @@ class SklearnPCAPatching:
 
             processing_func = wrap_predict_func(processing_func)
 
-            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
+            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info, {})
             orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
             initial_func = partial(orig_func_prov, self, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
@@ -1146,7 +1148,7 @@ class SklearnFeatureUnionPatching:
 
         processing_func = wrap_projection_func(processing_func)
 
-        operator_context = OperatorContext(OperatorType.CONCATENATION, function_info)
+        operator_context = OperatorContext(OperatorType.CONCATENATION, function_info, fit_params)
         initial_func = partial(processing_func, *Xs)
         optimizer_info, result = capture_optimizer_info(initial_func, estimator_transformer_state=self)
         dag_node_id = singleton.get_next_op_id()
@@ -1211,7 +1213,7 @@ class SklearnFeatureUnionPatching:
 
             processing_func = wrap_projection_func(processing_func)
 
-            operator_context = OperatorContext(OperatorType.CONCATENATION, function_info)
+            operator_context = OperatorContext(OperatorType.CONCATENATION, function_info, {})
             initial_func = partial(processing_func, *Xs)
             optimizer_info, result = capture_optimizer_info(initial_func)
             dag_node = DagNode(singleton.get_next_op_id(),
@@ -1295,7 +1297,7 @@ class SklearnHasingVectorizerPatching:
 
         processing_func = wrap_projection_func(processing_func)
 
-        operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
+        operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info, self.mlinspect_non_data_func_args)
         orig_func_prov = wrap_projection_func(lambda df: original( self, df, *args[1:], ** kwargs))
         initial_func = partial(orig_func_prov, input_info.annotated_dfobject.result_data)
         optimizer_info, result = capture_optimizer_info(initial_func, estimator_transformer_state=self)
@@ -1331,7 +1333,7 @@ class SklearnHasingVectorizerPatching:
 
             processing_func = wrap_predict_func(processing_func)
 
-            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
+            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info, {})
             orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
             initial_func = partial(orig_func_prov, self, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
@@ -1403,7 +1405,7 @@ class SklearnKBinsDiscretizerPatching:
 
         processing_func = wrap_projection_func(processing_func)
 
-        operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
+        operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info, self.mlinspect_non_data_func_args)
         orig_func_prov = wrap_projection_func(lambda df: original( self, df, *args[1:], ** kwargs))
         initial_func = partial(orig_func_prov, input_info.annotated_dfobject.result_data)
         optimizer_info, result = capture_optimizer_info(initial_func, estimator_transformer_state=self)
@@ -1440,7 +1442,7 @@ class SklearnKBinsDiscretizerPatching:
 
             processing_func = wrap_predict_func(processing_func)
 
-            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
+            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info, {})
             orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
             initial_func = partial(orig_func_prov, self, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
@@ -1515,7 +1517,7 @@ class SklearnOneHotEncoderPatching:
 
         processing_func = wrap_projection_func(processing_func)
 
-        operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
+        operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info, self.mlinspect_non_data_func_args)
         orig_func_prov = wrap_projection_func(lambda df: original( self, df, *args[1:], ** kwargs))
         initial_func = partial(orig_func_prov, input_info.annotated_dfobject.result_data)
         optimizer_info, result = capture_optimizer_info(initial_func, estimator_transformer_state=self)
@@ -1551,7 +1553,7 @@ class SklearnOneHotEncoderPatching:
 
             processing_func = wrap_predict_func(processing_func)
 
-            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
+            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info, {})
             orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
             initial_func = partial(orig_func_prov, self, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
@@ -1627,7 +1629,7 @@ class SklearnSimpleImputerPatching:
 
         processing_func = wrap_projection_func(processing_func)
 
-        operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
+        operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info, self.mlinspect_non_data_func_args)
         orig_func_prov = wrap_projection_func(lambda df: original( self, df, *args[1:], ** kwargs))
         initial_func = partial(orig_func_prov, input_info.annotated_dfobject.result_data)
         optimizer_info, result = capture_optimizer_info(initial_func, estimator_transformer_state=self)
@@ -1668,7 +1670,7 @@ class SklearnSimpleImputerPatching:
 
             processing_func = wrap_predict_func(processing_func)
 
-            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
+            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info, {})
             orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
             initial_func = partial(orig_func_prov, self, input_info.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(initial_func)
@@ -1749,7 +1751,8 @@ class SklearnFunctionTransformerPatching:
 
             processing_func = wrap_projection_func(processing_func)
 
-            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
+            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info,
+                                               self.mlinspect_non_data_func_args)
             # This is to prevent udf monkey patching while a FunctionTransformer is active
             singleton.disable_monkey_patching = True
             orig_func_prov = wrap_projection_func(lambda df: original( self, df, *args[1:], ** kwargs))
@@ -1797,7 +1800,7 @@ class SklearnFunctionTransformerPatching:
 
             processing_func = wrap_predict_func(processing_func)
 
-            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
+            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info, {})
             # This is to prevent udf monkey patching while a FunctionTransformer is active
             singleton.disable_monkey_patching = True
             orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
@@ -1908,7 +1911,7 @@ class SklearnDecisionTreePatching:
                 call_info_singleton.param_search_duration = 0
 
             # Estimator
-            operator_context = OperatorContext(OperatorType.ESTIMATOR, function_info)
+            operator_context = OperatorContext(OperatorType.ESTIMATOR, function_info, self.mlinspect_non_data_func_args)
             # input_dfs = [data_backend_result.annotated_dfobject, label_backend_result.annotated_dfobject]
             initial_func = partial(original, self, train_data_result, train_labels_result, *args[2:], **kwargs)
             optimizer_info, _ = capture_optimizer_info(initial_func, self, estimator_transformer_state=self)
@@ -1968,7 +1971,7 @@ class SklearnDecisionTreePatching:
             original_predict = wrap_predict_func(gorilla.get_original_attribute(tree.DecisionTreeClassifier, 'predict'))
             initial_func_predict = partial(original_predict, self, test_data_result)
             optimizer_info_predict, result_predict = capture_optimizer_info(initial_func_predict)
-            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info)
+            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, {})
             dag_node_predict = DagNode(singleton.get_next_op_id(),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
@@ -1981,7 +1984,8 @@ class SklearnDecisionTreePatching:
 
             initial_func_score = partial(processing_func_score, result_predict, test_labels_result)
             optimizer_info_score, result_score = capture_optimizer_info(initial_func_score)
-            operator_context_score = OperatorContext(OperatorType.SCORE, function_info)
+            non_data_kwargs = get_simple_non_data_kwargs(**kwargs)
+            operator_context_score = OperatorContext(OperatorType.SCORE, function_info, non_data_kwargs)
             dag_node_score = DagNode(singleton.get_next_op_id(),
                                      BasicCodeLocation(caller_filename, lineno),
                                      operator_context_score,
@@ -2025,7 +2029,7 @@ class SklearnDecisionTreePatching:
             original_predict = wrap_predict_func(gorilla.get_original_attribute(tree.DecisionTreeClassifier, 'predict'))
             initial_func_predict = partial(original_predict, self, test_data_result)
             optimizer_info_predict, result_predict = capture_optimizer_info(initial_func_predict)
-            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info)
+            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, {})
             dag_node_predict = DagNode(singleton.get_next_op_id(),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
@@ -2127,7 +2131,7 @@ class SklearnSGDClassifierPatching:
                 call_info_singleton.param_search_duration = 0
 
             # Estimator
-            operator_context = OperatorContext(OperatorType.ESTIMATOR, function_info)
+            operator_context = OperatorContext(OperatorType.ESTIMATOR, function_info, self.mlinspect_non_data_func_args)
             # input_dfs = [data_backend_result.annotated_dfobject, label_backend_result.annotated_dfobject]
             initial_func = partial(original, self, train_data_result, train_labels_result, *args[2:], **kwargs)
             optimizer_info, _ = capture_optimizer_info(initial_func, self, estimator_transformer_state=self)
@@ -2189,7 +2193,7 @@ class SklearnSGDClassifierPatching:
             original_predict = wrap_predict_func(gorilla.get_original_attribute(linear_model.SGDClassifier, 'predict'))
             initial_func_predict = partial(original_predict, self, test_data_result)
             optimizer_info_predict, result_predict = capture_optimizer_info(initial_func_predict)
-            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info)
+            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, {})
             dag_node_predict = DagNode(singleton.get_next_op_id(),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
@@ -2202,7 +2206,8 @@ class SklearnSGDClassifierPatching:
 
             initial_func_score = partial(processing_func_score, result_predict, test_labels_result)
             optimizer_info_score, result_score = capture_optimizer_info(initial_func_score)
-            operator_context_score = OperatorContext(OperatorType.SCORE, function_info)
+            non_data_kwargs = get_simple_non_data_kwargs(**kwargs)
+            operator_context_score = OperatorContext(OperatorType.SCORE, function_info, non_data_kwargs)
             dag_node_score = DagNode(singleton.get_next_op_id(),
                                      BasicCodeLocation(caller_filename, lineno),
                                      operator_context_score,
@@ -2246,7 +2251,7 @@ class SklearnSGDClassifierPatching:
             original_predict = wrap_predict_func(gorilla.get_original_attribute(linear_model.SGDClassifier, 'predict'))
             initial_func_predict = partial(original_predict, self, test_data_result)
             optimizer_info_predict, result_predict = capture_optimizer_info(initial_func_predict)
-            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info)
+            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, {})
             dag_node_predict = DagNode(singleton.get_next_op_id(),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
@@ -2344,7 +2349,7 @@ class SklearnLogisticRegressionPatching:
                 call_info_singleton.param_search_duration = 0
 
             # Estimator
-            operator_context = OperatorContext(OperatorType.ESTIMATOR, function_info)
+            operator_context = OperatorContext(OperatorType.ESTIMATOR, function_info, self.mlinspect_non_data_func_args)
             # input_dfs = [data_backend_result.annotated_dfobject, label_backend_result.annotated_dfobject]
             initial_func = partial(original, self, train_data_result, train_labels_result, *args[2:], **kwargs)
             optimizer_info, _ = capture_optimizer_info(initial_func, self, estimator_transformer_state=self)
@@ -2408,7 +2413,7 @@ class SklearnLogisticRegressionPatching:
             original_predict = wrap_predict_func(gorilla.get_original_attribute(linear_model.LogisticRegression, 'predict'))
             initial_func_predict = partial(original_predict, self, test_data_result)
             optimizer_info_predict, result_predict = capture_optimizer_info(initial_func_predict)
-            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info)
+            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, {})
             dag_node_predict = DagNode(singleton.get_next_op_id(),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
@@ -2421,7 +2426,8 @@ class SklearnLogisticRegressionPatching:
 
             initial_func_score = partial(processing_func_score, result_predict, test_labels_result)
             optimizer_info_score, result_score = capture_optimizer_info(initial_func_score)
-            operator_context_score = OperatorContext(OperatorType.SCORE, function_info)
+            non_data_kwargs = get_simple_non_data_kwargs(**kwargs)
+            operator_context_score = OperatorContext(OperatorType.SCORE, function_info, non_data_kwargs)
             dag_node_score = DagNode(singleton.get_next_op_id(),
                                      BasicCodeLocation(caller_filename, lineno),
                                      operator_context_score,
@@ -2465,7 +2471,7 @@ class SklearnLogisticRegressionPatching:
             original_predict = wrap_predict_func(gorilla.get_original_attribute(linear_model.LogisticRegression, 'predict'))
             initial_func_predict = partial(original_predict, self, test_data_result)
             optimizer_info_predict, result_predict = capture_optimizer_info(initial_func_predict)
-            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info)
+            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, {})
             dag_node_predict = DagNode(singleton.get_next_op_id(),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
@@ -2574,7 +2580,7 @@ class SklearnKerasClassifierPatching:
                 call_info_singleton.param_search_duration = 0
 
             # Estimator
-            operator_context = OperatorContext(OperatorType.ESTIMATOR, function_info)
+            operator_context = OperatorContext(OperatorType.ESTIMATOR, function_info, self.mlinspect_non_data_func_args)
             # input_dfs = [data_backend_result.annotated_dfobject, label_backend_result.annotated_dfobject]
             initial_func = partial(original, self, train_data_result, train_labels_result, *args[2:], **kwargs)
             keras_batch_size = self.mlinspect_non_data_func_args.get("batch_size", 32)
@@ -2638,8 +2644,9 @@ class SklearnKerasClassifierPatching:
                 return score
 
             # Score
-            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info)
-            operator_context_score = OperatorContext(OperatorType.SCORE, function_info)
+            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, {})
+            non_data_kwargs = get_simple_non_data_kwargs(**kwargs)
+            operator_context_score = OperatorContext(OperatorType.SCORE, function_info, non_data_kwargs)
             # input_dfs = [data_backend_result.annotated_dfobject, label_backend_result.annotated_dfobject]
 
             # This currently calls predict twice, but patching here is complex. Maybe revisit this in future work
@@ -2709,7 +2716,7 @@ class SklearnKerasClassifierPatching:
             processing_func_predict = wrap_predict_func(processing_func_predict)
 
             # Score
-            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info)
+            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, {})
 
             initial_func_predict = partial(wrap_predict_func(original), self, test_data_result)
             call_info_singleton.scikeras_classifier_active = True
@@ -2768,7 +2775,8 @@ class MetricsPatching:
                                                          optional_code_reference,
                                                          optional_source_code)
 
-            operator_context = OperatorContext(OperatorType.SCORE, function_info)
+            non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs)
+            operator_context = OperatorContext(OperatorType.SCORE, function_info, non_data_kwargs)
             initial_func = partial(original, y_true, y_pred, *args, **kwargs)
             call_info_singleton.score_active = True
             optimizer_info, result = capture_optimizer_info(initial_func)
@@ -2857,7 +2865,7 @@ class SklearnDummyClassifierPatching:
                 call_info_singleton.param_search_duration = 0
 
             # Estimator
-            operator_context = OperatorContext(OperatorType.ESTIMATOR, function_info)
+            operator_context = OperatorContext(OperatorType.ESTIMATOR, function_info, self.mlinspect_non_data_func_args)
             # input_dfs = [data_backend_result.annotated_dfobject, label_backend_result.annotated_dfobject]
             initial_func = partial(original, self, train_data_result, train_labels_result, *args[2:], **kwargs)
             optimizer_info, _ = capture_optimizer_info(initial_func, self, estimator_transformer_state=self)
@@ -2921,7 +2929,7 @@ class SklearnDummyClassifierPatching:
             original_predict = wrap_predict_func(gorilla.get_original_attribute(dummy.DummyClassifier, 'predict'))
             initial_func_predict = partial(original_predict, self, test_data_result)
             optimizer_info_predict, result_predict = capture_optimizer_info(initial_func_predict)
-            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info)
+            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, {})
             dag_node_predict = DagNode(singleton.get_next_op_id(),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
@@ -2934,7 +2942,8 @@ class SklearnDummyClassifierPatching:
 
             initial_func_score = partial(processing_func_score, result_predict, test_labels_result)
             optimizer_info_score, result_score = capture_optimizer_info(initial_func_score)
-            operator_context_score = OperatorContext(OperatorType.SCORE, function_info)
+            non_data_kwargs = get_simple_non_data_kwargs(**kwargs)
+            operator_context_score = OperatorContext(OperatorType.SCORE, function_info, non_data_kwargs)
             dag_node_score = DagNode(singleton.get_next_op_id(),
                                      BasicCodeLocation(caller_filename, lineno),
                                      operator_context_score,
@@ -2978,7 +2987,7 @@ class SklearnDummyClassifierPatching:
             original_predict = wrap_predict_func(gorilla.get_original_attribute(dummy.DummyClassifier, 'predict'))
             initial_func_predict = partial(original_predict, self, test_data_result)
             optimizer_info_predict, result_predict = capture_optimizer_info(initial_func_predict)
-            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info)
+            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, {})
             dag_node_predict = DagNode(singleton.get_next_op_id(),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
@@ -3083,7 +3092,7 @@ class SklearnSVCPatching:
                 call_info_singleton.param_search_duration = 0
 
             # Estimator
-            operator_context = OperatorContext(OperatorType.ESTIMATOR, function_info)
+            operator_context = OperatorContext(OperatorType.ESTIMATOR, function_info, self.mlinspect_non_data_func_args)
             # input_dfs = [data_backend_result.annotated_dfobject, label_backend_result.annotated_dfobject]
             initial_func = partial(original, self, train_data_result, train_labels_result, *args[2:], **kwargs)
             optimizer_info, _ = capture_optimizer_info(initial_func, self, estimator_transformer_state=self)
@@ -3147,7 +3156,7 @@ class SklearnSVCPatching:
             original_predict = wrap_predict_func(gorilla.get_original_attribute(svm.SVC, 'predict'))
             initial_func_predict = partial(original_predict, self, test_data_result)
             optimizer_info_predict, result_predict = capture_optimizer_info(initial_func_predict)
-            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info)
+            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, {})
             dag_node_predict = DagNode(singleton.get_next_op_id(),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
@@ -3161,7 +3170,8 @@ class SklearnSVCPatching:
 
             initial_func_score = partial(processing_func_score, result_predict, test_labels_result)
             optimizer_info_score, result_score = capture_optimizer_info(initial_func_score)
-            operator_context_score = OperatorContext(OperatorType.SCORE, function_info)
+            non_data_kwargs = get_simple_non_data_kwargs(**kwargs)
+            operator_context_score = OperatorContext(OperatorType.SCORE, function_info, non_data_kwargs)
             dag_node_score = DagNode(singleton.get_next_op_id(),
                                      BasicCodeLocation(caller_filename, lineno),
                                      operator_context_score,
@@ -3205,7 +3215,7 @@ class SklearnSVCPatching:
             original_predict = wrap_predict_func(gorilla.get_original_attribute(svm.SVC, 'predict'))
             initial_func_predict = partial(original_predict, self, test_data_result)
             optimizer_info_predict, result_predict = capture_optimizer_info(initial_func_predict)
-            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info)
+            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, {})
             dag_node_predict = DagNode(singleton.get_next_op_id(),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,

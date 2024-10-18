@@ -21,7 +21,7 @@ def get_intermediate_extraction_patch_after_node(singleton, analysis: any or Non
 
     new_extraction_node = DagNode(singleton.get_next_op_id(),
                                   dag_node.code_location,
-                                  OperatorContext(OperatorType.EXTRACT_RESULT, None),
+                                  OperatorContext(OperatorType.EXTRACT_RESULT, None, {}),
                                   DagNodeDetails(None, dag_node.details.columns),
                                   None,
                                   extract_intermediate)

@@ -34,7 +34,8 @@ def test_binary_rag_classification(tmpdir):
 
     expected_dag = networkx.DiGraph()
     expected_0 = DagNode(0, BasicCodeLocation('<string-source>', 12),
-                         OperatorContext(OperatorType.DATA_SOURCE, FunctionInfo('pandas.core.frame', 'DataFrame')),
+                         OperatorContext(OperatorType.DATA_SOURCE, FunctionInfo('pandas.core.frame', 'DataFrame'),
+                                         Comparison(dict)),
                          DagNodeDetails(None, ['text', 'label'],
                                         OptimizerInfo(RangeComparison(0, 10000), (4, 2), RangeComparison(0, 10000))),
                          OptionalCodeInfo(CodeReference(12, 5, 13, 56),
@@ -42,26 +43,30 @@ def test_binary_rag_classification(tmpdir):
                                           '                   \'label\': [\'no\', \'no\', \'yes\', \'yes\']})'),
                          Comparison(partial))
     expected_1 = DagNode(1, BasicCodeLocation('<string-source>', 15),
-                         OperatorContext(OperatorType.PROJECTION, FunctionInfo('pandas.core.frame', '__getitem__')),
+                         OperatorContext(OperatorType.PROJECTION, FunctionInfo('pandas.core.frame', '__getitem__'),
+                                         Comparison(dict)),
                          DagNodeDetails("to ['text']", ['text'],
                                         OptimizerInfo(RangeComparison(0, 10000), (4, 1), RangeComparison(0, 10000))),
                          OptionalCodeInfo(CodeReference(15, 38, 15, 48), "df['text']"), Comparison(partial))
     expected_dag.add_edge(expected_0, expected_1, arg_index=0)
     expected_2 = DagNode(2, BasicCodeLocation('<string-source>', 15),
-                         OperatorContext(OperatorType.PROJECTION, FunctionInfo('pandas.core.series.Series', 'to_list')),
+                         OperatorContext(OperatorType.PROJECTION, FunctionInfo('pandas.core.series.Series', 'to_list'),
+                                         Comparison(dict)),
                          DagNodeDetails('list conversion', ['text'],
                                         OptimizerInfo(RangeComparison(0, 10000), (4, 1), RangeComparison(0, 10000))),
                          OptionalCodeInfo(CodeReference(15, 38, 15, 58), "df['text'].to_list()"),
                          Comparison(partial))
     expected_dag.add_edge(expected_1, expected_2, arg_index=0)
     expected_3 = DagNode(3, BasicCodeLocation('<string-source>', 15),
-                         OperatorContext(OperatorType.PROJECTION, FunctionInfo('pandas.core.frame', '__getitem__')),
+                         OperatorContext(OperatorType.PROJECTION, FunctionInfo('pandas.core.frame', '__getitem__'),
+                                         Comparison(dict)),
                          DagNodeDetails("to ['label']", ['label'],
                                         OptimizerInfo(RangeComparison(0, 10000), (4, 1), RangeComparison(0, 10000))),
                          OptionalCodeInfo(CodeReference(15, 70, 15, 83), "df[['label']]"), Comparison(partial))
     expected_dag.add_edge(expected_0, expected_3, arg_index=0)
     expected_4 = DagNode(4, BasicCodeLocation('<string-source>', 15),
-                         OperatorContext(OperatorType.PROJECTION, FunctionInfo('pandas.core.frame', 'to_dict')),
+                         OperatorContext(OperatorType.PROJECTION, FunctionInfo('pandas.core.frame', 'to_dict'),
+                                         Comparison(dict)),
                          DagNodeDetails('dict conversion', ['label'],
                                         OptimizerInfo(RangeComparison(0, 10000), (4, 1), RangeComparison(0, 10000))),
                          OptionalCodeInfo(CodeReference(15, 70, 15, 102), "df[['label']].to_dict('records')"),
@@ -69,7 +74,8 @@ def test_binary_rag_classification(tmpdir):
     expected_dag.add_edge(expected_3, expected_4, arg_index=0)
     expected_5 = DagNode(5, BasicCodeLocation('<string-source>', 15),
                          OperatorContext(OperatorType.TRAIN_DATA,
-                                         FunctionInfo('langchain_community.vectorstores.Chroma', 'from_texts')),
+                                         FunctionInfo('langchain_community.vectorstores.Chroma', 'from_texts'),
+                                         Comparison(dict)),
                          DagNodeDetails(None, ['text'],
                                         OptimizerInfo(RangeComparison(0, 10000), (4, 1), RangeComparison(0, 10000))),
                          OptionalCodeInfo(CodeReference(15, 14, 16, 101),
@@ -81,7 +87,8 @@ def test_binary_rag_classification(tmpdir):
     expected_dag.add_edge(expected_2, expected_5, arg_index=0)
     expected_6 = DagNode(6, BasicCodeLocation('<string-source>', 15),
                          OperatorContext(OperatorType.TRAIN_LABELS,
-                                         FunctionInfo('langchain_community.vectorstores.Chroma', 'from_texts')),
+                                         FunctionInfo('langchain_community.vectorstores.Chroma', 'from_texts'),
+                                         Comparison(dict)),
                          DagNodeDetails(None, ['label'],
                                         OptimizerInfo(RangeComparison(0, 10000), (4, 1), RangeComparison(0, 10000))),
                          OptionalCodeInfo(CodeReference(15, 14, 16, 101),
@@ -93,7 +100,8 @@ def test_binary_rag_classification(tmpdir):
     expected_dag.add_edge(expected_4, expected_6, arg_index=0)
     expected_7 = DagNode(7, BasicCodeLocation('<string-source>', 15),
                          OperatorContext(OperatorType.CONCATENATION,
-                                         FunctionInfo('langchain_community.vectorstores.Chroma', 'from_texts')),
+                                         FunctionInfo('langchain_community.vectorstores.Chroma', 'from_texts'),
+                                         Comparison(dict)),
                          DagNodeDetails(None, ['text', 'label'],
                                         OptimizerInfo(RangeComparison(0, 10000), (4, 2), RangeComparison(0, 10000))),
                          OptionalCodeInfo(CodeReference(15, 14, 16, 101),
@@ -105,21 +113,23 @@ def test_binary_rag_classification(tmpdir):
     expected_dag.add_edge(expected_5, expected_7, arg_index=0)
     expected_dag.add_edge(expected_6, expected_7, arg_index=1)
     expected_8 = DagNode(8, BasicCodeLocation('<string-source>', 20),
-                         OperatorContext(OperatorType.DATA_SOURCE, FunctionInfo('pandas.core.frame', 'DataFrame')),
+                         OperatorContext(OperatorType.DATA_SOURCE, FunctionInfo('pandas.core.frame', 'DataFrame'),
+                                         Comparison(dict)),
                          DagNodeDetails(None, ['text', 'label'],
                                         OptimizerInfo(RangeComparison(0, 10000), (2, 2), RangeComparison(0, 10000))),
                          OptionalCodeInfo(CodeReference(20, 7, 20, 70),
                                           'pd.DataFrame({\'text\': ["pos", "neg."], \'label\': [\'no\', \'yes\']})'),
                          Comparison(partial))
     expected_9 = DagNode(9, BasicCodeLocation('<string-source>', 21),
-                         OperatorContext(OperatorType.PROJECTION, FunctionInfo('pandas.core.frame', '__getitem__')),
+                         OperatorContext(OperatorType.PROJECTION, FunctionInfo('pandas.core.frame', '__getitem__'),
+                                         Comparison(dict)),
                          DagNodeDetails("to ['text']", ['text'],
                                         OptimizerInfo(RangeComparison(0, 10000), (2, 1), RangeComparison(0, 10000))),
                          OptionalCodeInfo(CodeReference(21, 53, 21, 65), "test['text']"), Comparison(partial))
     expected_dag.add_edge(expected_8, expected_9, arg_index=0)
     expected_10 = DagNode(10, BasicCodeLocation('<string-source>', 21),
                           OperatorContext(OperatorType.PROJECTION,
-                                          FunctionInfo('pandas.core.series.Series', 'to_list')),
+                                          FunctionInfo('pandas.core.series.Series', 'to_list'), Comparison(dict)),
                           DagNodeDetails('list conversion', ['text'],
                                          OptimizerInfo(RangeComparison(0, 10000), (2, 1), RangeComparison(0, 10000))),
                           OptionalCodeInfo(CodeReference(21, 53, 21, 75), "test['text'].to_list()"),
@@ -128,7 +138,8 @@ def test_binary_rag_classification(tmpdir):
     expected_11 = DagNode(11, BasicCodeLocation('<string-source>', 21), OperatorContext(OperatorType.TEST_DATA,
                                                                                         FunctionInfo(
                                                                                             'langchain_community.vectorstores.Chroma',
-                                                                                            'from_texts')),
+                                                                                            'from_texts'),
+                                                                                        Comparison(dict)),
                           DagNodeDetails(None, ['text'],
                                          OptimizerInfo(RangeComparison(0, 10000), (2, 1), RangeComparison(0, 10000))),
                           OptionalCodeInfo(CodeReference(21, 14, 21, 83),
@@ -138,7 +149,8 @@ def test_binary_rag_classification(tmpdir):
     expected_12 = DagNode(12, BasicCodeLocation('<string-source>', 15), OperatorContext(OperatorType.RAG_JOIN,
                                                                                         FunctionInfo(
                                                                                             'langchain_community.vectorstores.Chroma',
-                                                                                            'from_texts')),
+                                                                                            'from_texts'),
+                                                                                        Comparison(dict)),
                           DagNodeDetails('Embedding similarity join', ['text', 'label'],
                                          OptimizerInfo(RangeComparison(0, 10000), None, RangeComparison(0, 10000))),
                           OptionalCodeInfo(CodeReference(15, 14, 16, 101),
@@ -150,7 +162,8 @@ def test_binary_rag_classification(tmpdir):
     expected_dag.add_edge(expected_7, expected_12, arg_index=0)
     expected_dag.add_edge(expected_11, expected_12, arg_index=1)
     expected_13 = DagNode(13, BasicCodeLocation('<string-source>', 21),
-                          OperatorContext(OperatorType.PREDICT, FunctionInfo('langchain_core.runnables.base', 'batch')),
+                          OperatorContext(OperatorType.PREDICT, FunctionInfo('langchain_core.runnables.base', 'batch'),
+                                          Comparison(dict)),
                           DagNodeDetails('LLM', [],
                                          OptimizerInfo(RangeComparison(0, 10000), (2, 1), RangeComparison(0, 10000))),
                           OptionalCodeInfo(CodeReference(21, 14, 21, 83),
@@ -158,14 +171,16 @@ def test_binary_rag_classification(tmpdir):
                           Comparison(partial))
     expected_dag.add_edge(expected_12, expected_13, arg_index=0)
     expected_14 = DagNode(14, BasicCodeLocation('<string-source>', 22),
-                          OperatorContext(OperatorType.PROJECTION, FunctionInfo('pandas.core.frame', '__getitem__')),
+                          OperatorContext(OperatorType.PROJECTION, FunctionInfo('pandas.core.frame', '__getitem__'),
+                                          Comparison(dict)),
                           DagNodeDetails("to ['label']", ['label'],
                                          OptimizerInfo(RangeComparison(0, 10000), (2, 1), RangeComparison(0, 10000))),
                           OptionalCodeInfo(CodeReference(22, 34, 22, 47), "test['label']"), Comparison(partial))
     expected_dag.add_edge(expected_8, expected_14, arg_index=0)
     expected_15 = DagNode(15, BasicCodeLocation('<string-source>', 22),
                           OperatorContext(OperatorType.PROJECTION_MODIFY, FunctionInfo('sklearn.preprocessing._label',
-                                                                                       'label_binarize')),
+                                                                                       'label_binarize'),
+                                          Comparison(dict)),
                           DagNodeDetails("label_binarize, classes: ['no', 'yes']", ['array'],
                                          OptimizerInfo(RangeComparison(0, 10000), (2, 1), RangeComparison(0, 10000))),
                           OptionalCodeInfo(CodeReference(22, 19, 22, 71),
@@ -174,7 +189,7 @@ def test_binary_rag_classification(tmpdir):
     expected_dag.add_edge(expected_14, expected_15, arg_index=0)
     expected_16 = DagNode(16, BasicCodeLocation('<string-source>', 23),
                           OperatorContext(OperatorType.TEST_LABELS, FunctionInfo('sklearn.metrics._classification',
-                                                                                 'accuracy_score')),
+                                                                                 'accuracy_score'), Comparison(dict)),
                           DagNodeDetails(None, ['array'],
                                          OptimizerInfo(RangeComparison(0, 10000), (2, 1), RangeComparison(0, 10000))),
                           OptionalCodeInfo(CodeReference(23, 11, 23, 56),
@@ -182,7 +197,7 @@ def test_binary_rag_classification(tmpdir):
     expected_dag.add_edge(expected_15, expected_16, arg_index=0)
     expected_17 = DagNode(17, BasicCodeLocation('<string-source>', 23),
                           OperatorContext(OperatorType.SCORE, FunctionInfo('sklearn.metrics._classification',
-                                                                           'accuracy_score')),
+                                                                           'accuracy_score'), Comparison(dict)),
                           DagNodeDetails('accuracy_score', [],
                                          OptimizerInfo(RangeComparison(0, 10000), (1, 1), RangeComparison(0, 10000))),
                           OptionalCodeInfo(CodeReference(23, 11, 23, 56),
@@ -207,7 +222,6 @@ def test_binary_rag_classification(tmpdir):
     assert len(rag_result[4].items()) == 5
     llm_result = llm_node.processing_func(rag_result)
     assert len(llm_result._mlinspect_provenance.items()) == 5
-
 
     expected = numpy.array([1, 1]).reshape(-1, 1)
     assert numpy.allclose(llm_result, expected, atol=1)
