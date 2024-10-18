@@ -18,9 +18,6 @@ from mlidea.instrumentation._dag_node import OptimizerInfo
 from mlidea.monkeypatching._mlinspect_ndarray import MlideaChromaVectorStoreRetrieverPlaceHolder
 
 
-
-
-
 def capture_optimizer_info(singleton, operator_call_info, instrumented_function_call: partial,
                            obj_for_inplace_ops: any or None = None,
                            estimator_transformer_state: any or None = None,
@@ -28,12 +25,15 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
         -> tuple[OptimizerInfo, any]:
     """Function to measure the runtime of instrumented user function calls and get output metadata"""
     execution_start = time.time()
-    result = instrumented_function_call()
+    # FIXME: Check for obj_for_inplace_ops necessary?
+    if ((obj_for_inplace_ops is None or estimator_transformer_state is not None) and
+            operator_call_info in singleton.operator_context_parents_to_result):
+        dag_node = singleton.operator_context_parents_to_result[operator_call_info]
+        result = singleton.cached_intermediates[dag_node]
+    else:
+        result = instrumented_function_call()
     execution_duration = time.time() - execution_start
     execution_duration_in_ms = execution_duration * 1000
-    print(singleton)
-    print(operator_call_info)
-    # FIXME: Use loaded result
     if result is not None:
         result_or_inplace_obj = result
     else:
@@ -137,7 +137,7 @@ def get_df_shape(result_or_inplace_obj):
         elif isinstance(result_or_inplace_obj, list) and isinstance(result_or_inplace_obj[0], dict):
             shape = (len(result_or_inplace_obj), len(list(result_or_inplace_obj[0].keys())))
         elif isinstance(result_or_inplace_obj, list) and not isinstance(result_or_inplace_obj[0],
-                                                                           (list, numpy.ndarray)):
+                                                                        (list, numpy.ndarray)):
             shape = (len(result_or_inplace_obj), 1)
         else:
             assert len(result_or_inplace_obj) == 2
