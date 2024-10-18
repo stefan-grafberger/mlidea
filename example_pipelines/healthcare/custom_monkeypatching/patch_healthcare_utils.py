@@ -74,7 +74,7 @@ class SklearnMyW2VTransformerPatching:
 
         processing_func = wrap_projection_func(processing_func)
 
-        operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
+        operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info, self.mlinspect_non_data_func_args)
         orig_func_prov = wrap_projection_func(lambda df: original(self, df, *args[1:], **kwargs))
         initial_func = partial(orig_func_prov, input_info.annotated_dfobject.result_data)
         optimizer_info, result = capture_optimizer_info(initial_func, estimator_transformer_state=self)
@@ -110,7 +110,7 @@ class SklearnMyW2VTransformerPatching:
 
             processing_func = wrap_predict_func(processing_func)
 
-            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
+            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info, {})
 
             orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
             initial_func = partial(orig_func_prov, self, input_info.annotated_dfobject.result_data)

@@ -82,10 +82,11 @@ class DataFilterVariants(WhatIfAnalysis):
     def _get_filter_patches(self, filter_description, column, filter_function, est_selectivity):
         filter_patches = []
         filter_function = wrap_filter_func(filter_function)
-
+        non_data_kwargs = {'filter_description': filter_description, 'column': column,
+                           'filter_function': filter_function}
         new_train_cleaning_node = DagNode(singleton.get_next_op_id(),
                                           BasicCodeLocation("Data Filtering Variants", None),
-                                          OperatorContext(OperatorType.SELECTION, None),
+                                          OperatorContext(OperatorType.SELECTION, None, non_data_kwargs),
                                           DagNodeDetails(
                                               f"Filter {column}: {filter_description}", None),
                                           None,
@@ -97,7 +98,7 @@ class DataFilterVariants(WhatIfAnalysis):
 
         new_test_cleaning_node = DagNode(singleton.get_next_op_id(),
                                          BasicCodeLocation("Data Filtering Variants", None),
-                                         OperatorContext(OperatorType.SELECTION, None),
+                                         OperatorContext(OperatorType.SELECTION, None, non_data_kwargs),
                                          DagNodeDetails(
                                              f"Filter {column}: {filter_description}", None),
                                          None,

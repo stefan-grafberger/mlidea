@@ -108,9 +108,10 @@ class OperatorImpact(WhatIfAnalysis):
         else:
             replacement_func = passthrough_transformer_processing_func
             replacement_desc = "Do nothing"
+        non_data_kwargs = {'replacement_func': replacement_func, 'replacement_desc': replacement_desc}
         replacement_node = DagNode(singleton.get_next_op_id(),
                                    operator_to_replace.code_location,
-                                   OperatorContext(OperatorType.TRANSFORMER, None),
+                                   OperatorContext(OperatorType.TRANSFORMER, None, non_data_kwargs),
                                    DagNodeDetails(replacement_desc, operator_to_replace.details.columns),
                                    None,
                                    wrap_projection_func(replacement_func))

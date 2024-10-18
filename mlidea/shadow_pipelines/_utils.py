@@ -30,7 +30,7 @@ def get_intermediate_extraction_node(singleton, dag_node, label: str):
 
     new_extraction_node = DagNode(singleton.get_next_op_id(),
                                   dag_node.code_location,
-                                  OperatorContext(OperatorType.EXTRACT_RESULT, None),
+                                  OperatorContext(OperatorType.EXTRACT_RESULT, None, {}),
                                   DagNodeDetails(None, dag_node.details.columns),
                                   None,
                                   extract_intermediate)
@@ -283,9 +283,12 @@ def get_conditional_stop_node(singleton, condition_func, label, description, par
 
     processing_func = partial(check_condition, condition_func, label)
 
+    non_data_kwargs = {
+        # 'condition_func': condition_func, # TODO: Clean this up to not rely on the description only
+        'label': label, 'description': description}
     new_extraction_node = DagNode(singleton.get_next_op_id(),
                                   parent_node.code_location,
-                                  OperatorContext(OperatorType.CONDITIONAL_STOP, None),
+                                  OperatorContext(OperatorType.CONDITIONAL_STOP, None, non_data_kwargs),
                                   DagNodeDetails(description, parent_node.details.columns),
                                   None,
                                   processing_func)
@@ -508,11 +511,13 @@ def prov_join_with_data_source(intermediate_df, data_source):
 
 
 def get_diff_filter_node(singleton, shadow_pipeline_name):
+    description = "Filter for diff only"
     new_fix_diff_filter_node = DagNode(singleton.get_next_op_id(),
                                        BasicCodeLocation(shadow_pipeline_name, None),
-                                       OperatorContext(OperatorType.SELECTION, None),
+                                       OperatorContext(OperatorType.SELECTION, None, {'description': description,
+                                                                                      'func': apply_diff_filter}),
                                        DagNodeDetails(
-                                           "Filter for diff only",
+                                           description,
                                            None),
                                        None,
                                        apply_diff_filter)
@@ -520,23 +525,26 @@ def get_diff_filter_node(singleton, shadow_pipeline_name):
 
 
 def get_changed_indices_node(singleton, shadow_pipeline_name):
+    description = "Detect changed indices"
+    non_data_kwargs = {'description': description,
+                       'func': changed_data_diff_detection}
     new_changed_indices_node = DagNode(singleton.get_next_op_id(),
                                        BasicCodeLocation(shadow_pipeline_name, None),
-                                       OperatorContext(OperatorType.GROUP_BY_AGG, None),
-                                       DagNodeDetails(
-                                           "Detect changed indices", None),
+                                       OperatorContext(OperatorType.GROUP_BY_AGG, None, non_data_kwargs),
+                                       DagNodeDetails(description, None),
                                        None,
                                        changed_data_diff_detection)
     return new_changed_indices_node
 
 
 def merge_prediction_diff_with_old_predictions(singleton, shadow_pipeline_name):
+    description = "Merge prediction diff with old predictions"
     new_fix_predict_diff_update_node = DagNode(singleton.get_next_op_id(),
                                                BasicCodeLocation(shadow_pipeline_name, None),
-                                               OperatorContext(OperatorType.SELECTION, None),
-                                               DagNodeDetails(
-                                                   "Merge prediction diff with old predictions",
-                                                   None),
+                                               OperatorContext(OperatorType.SELECTION, None,
+                                                               {'description': description,
+                                                                'func': update_prediction_diff}),
+                                               DagNodeDetails(description, None),
                                                None,
                                                update_prediction_diff)
     return new_fix_predict_diff_update_node
@@ -615,22 +623,24 @@ def prov_join_node_with_data_sources(singleton, data_sources_with_sensitive_colu
             else:
                 data_sources_prov_join[data_source] = columns
 
+    description = "Concat sensitive attributes"
     concat_node = DagNode(singleton.get_next_op_id(),
                           BasicCodeLocation("Data Errors", None),
-                          OperatorContext(OperatorType.CONCATENATION, None),
-                          DagNodeDetails(
-                              "Concat sensitive attributes", None),
+                          OperatorContext(OperatorType.CONCATENATION, None, {'description': description,
+                                                                             'func': concat_func}),
+                          DagNodeDetails(description, None),
                           None,
                           concat_func)
     for data_source, column_names in data_sources_concat.items():
         projection_processing_func = wrap_projection_func(
             partial(projection, column_names))
 
+        description = "Select sensitive attributes"
         projection_node = DagNode(singleton.get_next_op_id(),
                                   BasicCodeLocation("Fairness Slices", None),
-                                  OperatorContext(OperatorType.PROJECTION, None),
-                                  DagNodeDetails(
-                                      "Select sensitive attributes", None),
+                                  OperatorContext(OperatorType.PROJECTION, None, {'description': description,
+                                                                                  'func': projection_processing_func}),
+                                  DagNodeDetails(description, None),
                                   None,
                                   projection_processing_func)
         new_dag.add_edge(data_source, projection_node, arg_index=0)
@@ -639,20 +649,22 @@ def prov_join_node_with_data_sources(singleton, data_sources_with_sensitive_colu
         projection_processing_func = wrap_projection_func(
             partial(projection, column_names))
 
+        description = "Select sensitive attributes"
         projection_node = DagNode(singleton.get_next_op_id(),
                                   BasicCodeLocation("Fairness Slices", None),
-                                  OperatorContext(OperatorType.PROJECTION, None),
-                                  DagNodeDetails(
-                                      "Select sensitive attributes", None),
+                                  OperatorContext(OperatorType.PROJECTION, None, {'description': description,
+                                                                                  'func': projection_processing_func}),
+                                  DagNodeDetails(description, None),
                                   None,
                                   projection_processing_func)
         new_dag.add_edge(data_source, projection_node, arg_index=0)
 
+        description = "Join on provenance"
         join_node = DagNode(singleton.get_next_op_id(),
                             BasicCodeLocation("Fairness Slices", None),
-                            OperatorContext(OperatorType.JOIN, None),
-                            DagNodeDetails(
-                                "Join on provenance", None),
+                            OperatorContext(OperatorType.JOIN, None, {'description': description,
+                                                                      'func': prov_join_with_data_source}),
+                            DagNodeDetails(description, None),
                             None,
                             prov_join_with_data_source)
         new_dag.add_edge(node_requiring_side_info, join_node, arg_index=0)
@@ -718,3 +730,7 @@ def indices_filter_computation_for_duplicated_concat_inputs(singleton, changed_i
                                      new_concat_parent_filter_node,
                                      arg_index=2)
                     new_dag.add_edge(new_concat_parent_filter_node, concat, **edge_data)
+
+
+def df_or_array_non_empty(df):
+    return len(df) != 0

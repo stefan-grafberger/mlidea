@@ -20,7 +20,7 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     get_relative_score_change, add_orig_score_extraction_nodes, rag_join_update, \
     get_diff_filter_node, get_changed_indices_node, merge_prediction_diff_with_old_predictions, \
     add_new_score_and_score_extraction_nodes, assert_standard_llm_shape, assert_standard_ml_shape, get_top_n_df_rows, \
-    indices_filter_computation_for_duplicated_concat_inputs
+    indices_filter_computation_for_duplicated_concat_inputs, df_or_array_non_empty
 
 
 class DataErrorRobustness(ShadowPipeline):
@@ -267,9 +267,8 @@ class DataErrorRobustness(ShadowPipeline):
 
     @staticmethod
     def conditional_corruption_changed_something_node(data_type_index, new_corruption_diff_node, new_dag):
-        condition_corrupt_function = lambda np_array: len(np_array) != 0
         conditional_corruption_made_changes_node = get_conditional_stop_node(
-            singleton, condition_corrupt_function, f"data-errors-corruption-made-changes-{data_type_index}",
+            singleton, df_or_array_non_empty, f"data-errors-corruption-made-changes-{data_type_index}",
             "Check if corrupt function made changes", new_corruption_diff_node)
         new_dag.add_edge(new_corruption_diff_node, conditional_corruption_made_changes_node, arg_index=1)
         return conditional_corruption_made_changes_node
@@ -301,9 +300,8 @@ class DataErrorRobustness(ShadowPipeline):
 
     @staticmethod
     def _get_fix_function_made_changes_conditional_node(data_type_index, new_dag, new_fix_diff_indices_node):
-        condition_fix_function = lambda np_array: len(np_array) != 0
         conditional_fixes_changed_something_node = get_conditional_stop_node(
-            singleton, condition_fix_function, f"data-errors-corruption-diff-fix-not-empty-{data_type_index}",
+            singleton, df_or_array_non_empty, f"data-errors-corruption-diff-fix-not-empty-{data_type_index}",
             "Check if fix function made changes", new_fix_diff_indices_node)
         new_dag.add_edge(new_fix_diff_indices_node, conditional_fixes_changed_something_node, arg_index=0)
         return conditional_fixes_changed_something_node
@@ -311,9 +309,11 @@ class DataErrorRobustness(ShadowPipeline):
     def _add_fix_function_computation(self, conditional_corruption_significant_node, corruption_diff_node,
                                       corruption_node, data_type, data_type_index, new_dag):
         processing_func = partial(DataErrorRobustness.fix_data, data_type=data_type)
+        non_data_kwargs = {'corruption_fraction': self._corruption_fraction, 'data_type': data_type,
+                           'func': DataErrorRobustness.fix_data}
         new_fix_node = DagNode(singleton.get_next_op_id(),
                                BasicCodeLocation("Data Errors", None),
-                               OperatorContext(OperatorType.ESTIMATOR, None),
+                               OperatorContext(OperatorType.ESTIMATOR, None, non_data_kwargs),
                                DagNodeDetails(
                                    f"Fix {self._corruption_fraction} of {data_type.value} values", None),
                                None,
@@ -354,9 +354,11 @@ class DataErrorRobustness(ShadowPipeline):
         processing_func = partial(DataErrorRobustness.corrupt_data,
                                   data_type=data_type,
                                   corruption_fraction=self._corruption_fraction)
+        non_data_kwargs = {'data_type': data_type, 'corruption_fraction': self._corruption_fraction,
+                           'func': DataErrorRobustness.corrupt_data}
         new_corruption_node = DagNode(singleton.get_next_op_id(),
                                       BasicCodeLocation("Data Errors", None),
-                                      OperatorContext(OperatorType.PROJECTION_MODIFY, None),
+                                      OperatorContext(OperatorType.PROJECTION_MODIFY, None, non_data_kwargs),
                                       DagNodeDetails(
                                           f"Corrupt {self._corruption_fraction} of {data_type.value} values", None),
                                       None,
@@ -412,7 +414,7 @@ class DataErrorRobustness(ShadowPipeline):
         # Operator to get the rag join results
         new_rag_join_update_node = DagNode(singleton.get_next_op_id(),
                                            BasicCodeLocation("Data Errors", None),
-                                           OperatorContext(OperatorType.RAG_JOIN, None),
+                                           OperatorContext(OperatorType.RAG_JOIN, None, {'func': rag_join_update}),
                                            DagNodeDetails("RAG join for test set diff", None),
                                            None,
                                            rag_join_update)
@@ -445,7 +447,7 @@ class DataErrorRobustness(ShadowPipeline):
         # Operator to get the rag join results
         new_rag_join_update_node = DagNode(singleton.get_next_op_id(),
                                            BasicCodeLocation("Data Errors", None),
-                                           OperatorContext(OperatorType.RAG_JOIN, None),
+                                           OperatorContext(OperatorType.RAG_JOIN, None, {'func': rag_join_update}),
                                            DagNodeDetails("RAG join for test set diff", None),
                                            None,
                                            rag_join_update)

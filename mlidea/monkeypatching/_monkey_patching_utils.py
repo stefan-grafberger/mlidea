@@ -238,7 +238,7 @@ def get_input_info(df_object, caller_filename, lineno, function_info, optional_c
         missing_op_id = singleton.get_next_missing_op_id()
         input_dag_node = DagNode(missing_op_id,
                                  BasicCodeLocation(caller_filename, lineno),
-                                 OperatorContext(OperatorType.MISSING_OP, None),
+                                 OperatorContext(OperatorType.MISSING_OP, None, {}),
                                  DagNodeDetails(description, columns,
                                                 OptimizerInfo(None, get_df_shape(df_object), get_df_memory(df_object))),
                                  OptionalCodeInfo(optional_code_reference, optional_source_code))
