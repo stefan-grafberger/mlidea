@@ -29,7 +29,7 @@ def test_my_word_to_vec_transformer():
                 word_to_vec = MyW2VTransformer(min_count=2, size=2, workers=1)
                 encoded_data = word_to_vec.fit_transform(df)
                 assert encoded_data.shape == (4, 2) and np.allclose(encoded_data._mlinspect_provenance["0_0"], np.array([0, 1, 2, 3]))
-                test_df = pd.DataFrame({'A': ['cat_a', 'cat_b', 'cat_a', 'cat_c']})
+                test_df = pd.DataFrame({'A': ['cat_a', 'cat_b', 'cat_a', 'cat_d']})
                 encoded_data = word_to_vec.transform(test_df)
                 assert np.allclose(encoded_data._mlinspect_provenance["2_0"], np.array([0, 1, 2, 3]))
                 """)
@@ -68,7 +68,7 @@ def test_my_word_to_vec_transformer():
                                        DagNodeDetails(None, ['A'], OptimizerInfo(RangeComparison(0, 2000), (4, 1),
                                                                                  RangeComparison(0, 800))),
                                        OptionalCodeInfo(CodeReference(9, 10, 9, 67),
-                                                        "pd.DataFrame({'A': ['cat_a', 'cat_b', 'cat_a', 'cat_c']})"),
+                                                        "pd.DataFrame({'A': ['cat_a', 'cat_b', 'cat_a', 'cat_d']})"),
                                        Comparison(partial))
     expected_transformer_two = DagNode(3,
                                        BasicCodeLocation("<string-source>", 6),
