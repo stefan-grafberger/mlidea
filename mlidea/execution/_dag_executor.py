@@ -57,8 +57,9 @@ class DagExecutor:
                                                                    executable_processing_func)
             elif current_node.operator_info.operator == OperatorType.EXTRACT_RESULT:
                 executable_processing_func = partial(current_node.processing_func, ConditionalResult.STOP_EXECUTION)
-                optimizer_info, result_df = capture_optimizer_info(self.pipeline_executor, operator_call_info,
-                                                                   executable_processing_func)
+                _, result_df = capture_optimizer_info(self.pipeline_executor, operator_call_info,
+                                                      executable_processing_func)
+                optimizer_info = OptimizerInfo(None, None, None)  # We want to avoid the DAG from being confusing
             else:
                 optimizer_info = OptimizerInfo(None, None, None)
                 result_df = ConditionalResult.STOP_EXECUTION

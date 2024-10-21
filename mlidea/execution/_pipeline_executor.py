@@ -3,6 +3,7 @@ Instrument and executes the pipeline
 """
 # TODO: At some point, this should be split into two files, one for mere orchestration, one for instrumentation
 import ast
+import copy
 import logging
 import sys
 import time
@@ -181,13 +182,17 @@ class PipelineExecutor:
 
     def gen_and_exec_shadow_pipelines(self):
         for shadow_pipeline in self.shadow_pipelines:
-            shadow_dag = shadow_pipeline.generate_shadow_pipeline_dag(self.analysis_results.original_dag.copy())
+            original_dag_copy = copy.deepcopy(self.analysis_results.original_dag)
+            shadow_dag = shadow_pipeline.generate_shadow_pipeline_dag(original_dag_copy)
             DagExecutor(self).execute(shadow_dag, self.use_dfs_exec_strategy)
-            filtered_shadow_dag = filter_shadow_dag(self.analysis_results.original_dag, shadow_dag)
+            filtered_shadow_dag = filter_shadow_dag(original_dag_copy, shadow_dag)
+
             # Update the runtime info
             for node in filtered_shadow_dag.nodes:
                 if node in self.operators_to_runtime_during_analysis:
                     node.details.optimizer_info = self.operators_to_runtime_during_analysis[node]
+                else:
+                    print(node)
 
             self.analysis_results.shadow_pipeline_to_dags[shadow_pipeline] = filtered_shadow_dag
         for shadow_pipeline in self.shadow_pipelines:
