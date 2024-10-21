@@ -62,7 +62,7 @@ class DagExecutor:
             else:
                 optimizer_info = OptimizerInfo(None, None, None)
                 result_df = ConditionalResult.STOP_EXECUTION
-            self.pipeline_executor.operators_to_runtime_during_analysis.append((copy(current_node), optimizer_info))
+            self.pipeline_executor.operators_to_runtime_during_analysis[copy(current_node)] = optimizer_info
 
             if current_node.operator_info.operator not in {OperatorType.EXTRACT_RESULT, OperatorType.CONDITIONAL_STOP}:
                 self.pipeline_executor.operator_context_parents_to_result[

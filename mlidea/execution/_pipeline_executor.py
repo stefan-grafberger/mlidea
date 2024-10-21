@@ -65,7 +65,7 @@ class PipelineExecutor:
     skip_optimizer = False
     force_optimization_rules = None
     estimate_only = False
-    operators_to_runtime_during_analysis = []
+    operators_to_runtime_during_analysis = {}
     use_dfs_exec_strategy = False
     disable_monkey_patching = False
     prov_enabled = True
@@ -183,8 +183,13 @@ class PipelineExecutor:
         for shadow_pipeline in self.shadow_pipelines:
             shadow_dag = shadow_pipeline.generate_shadow_pipeline_dag(self.analysis_results.original_dag.copy())
             DagExecutor(self).execute(shadow_dag, self.use_dfs_exec_strategy)
-            self.analysis_results.shadow_pipeline_to_dags[shadow_pipeline] = filter_shadow_dag(
-                self.analysis_results.original_dag, shadow_dag)
+            filtered_shadow_dag = filter_shadow_dag(self.analysis_results.original_dag, shadow_dag)
+            # Update the runtime info
+            for node in filtered_shadow_dag.nodes:
+                if node in self.operators_to_runtime_during_analysis:
+                    node.details.optimizer_info = self.operators_to_runtime_during_analysis[node]
+
+            self.analysis_results.shadow_pipeline_to_dags[shadow_pipeline] = filtered_shadow_dag
         for shadow_pipeline in self.shadow_pipelines:
             report = shadow_pipeline.generate_final_report(self.labels_to_extracted_plan_results)
             self.analysis_results.shadow_pipelines_to_result_reports[shadow_pipeline] = report
@@ -219,10 +224,14 @@ class PipelineExecutor:
             self.analysis_results.runtime_info.what_if_execution = execution_duration * 1000
 
             analysis_estimator_runtimes = [optimizer_info.runtime
-                                           for node, optimizer_info in self.operators_to_runtime_during_analysis
+                                           for node, optimizer_info in self.operators_to_runtime_during_analysis.items()
                                            if node.operator_info.operator == OperatorType.ESTIMATOR]
             self.analysis_results.runtime_info.what_if_execution_combined_model_training = sum(
                 analysis_estimator_runtimes)
+
+            for node in self.analysis_results.combined_optimized_dag.nodes:
+                if node in self.operators_to_runtime_during_analysis:
+                    node.details.optimizer_info = self.operators_to_runtime_during_analysis[node]
             # Some debugging code to look at actual executon time of different operators in optimized plan
             # ops_with_runtimes = [(operator, optimizer_info.runtime) for operator, optimizer_info
             #                      in self.operators_to_runtime_during_analysis]
@@ -297,7 +306,7 @@ class PipelineExecutor:
         self.skip_optimizer = False
         self.force_optimization_rules = None
         self.estimate_only = False
-        self.operators_to_runtime_during_analysis = []
+        self.operators_to_runtime_during_analysis = {}
         self.use_dfs_exec_strategy = False
         self.disable_monkey_patching = False
         self.prov_enabled = True
