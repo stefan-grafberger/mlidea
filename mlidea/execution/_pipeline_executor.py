@@ -15,7 +15,6 @@ import networkx
 from astmonkey.transformers import ParentChildNodeTransformer
 from nbconvert import PythonExporter
 
-from mlidea.instrumentation._operator_call_info import OperatorCallInfo
 from mlidea.instrumentation._call_capture_transformer import CallCaptureTransformer
 from mlidea import monkeypatching
 from mlidea.instrumentation._operator_types import OperatorType
@@ -25,7 +24,6 @@ from mlidea.execution._dag_executor import DagExecutor
 from mlidea.optimization._multi_query_optimizer import MultiQueryOptimizer
 from mlidea.optimization._query_optimization_rules import QueryOptimizationRule
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
-from mlidea.utils._utils import get_sorted_parent_nodes
 
 logging.basicConfig(format='%(asctime)s %(levelname)-5s %(message)s',
                     level=logging.INFO,
@@ -62,7 +60,7 @@ class PipelineExecutor:
     labels_to_extracted_plan_results = {}
     analysis_results = AnalysisResults({}, {}, networkx.DiGraph(), [], {}, networkx.DiGraph(),
                                        RuntimeInfo(0, 0, 0, 0, None, None, 0, 0, 0, 0, 0, 0, 0),
-                                       DagExtractionInfo(networkx.DiGraph(), {}, 0, 0, {}), None)
+                                       DagExtractionInfo(networkx.DiGraph(), {}, 0, 0, {}, {}), None)
     monkey_patch_duration = 0
     skip_optimizer = False
     force_optimization_rules = None
@@ -124,11 +122,8 @@ class PipelineExecutor:
             self.next_patch_id = 0
             self.next_missing_op_id = extraction_info.next_missing_op_id
             self.cached_intermediates = extraction_info.cached_intermediates
+            self.operator_context_parents_to_result = extraction_info.operator_context_parents_to_result
             self.old_dag = extraction_info.original_dag.copy()
-
-            for dag_node, result_value in self.cached_intermediates.items():
-                parent_ids = get_sorted_parent_nodes(self.old_dag, dag_node)
-                self.operator_context_parents_to_result[OperatorCallInfo(dag_node.operator_info, parent_ids)] = dag_node
 
         if notebook_path is None and python_code is None and python_path is None:
             self.analysis_results.original_dag = extraction_info.original_dag.copy()
@@ -156,7 +151,8 @@ class PipelineExecutor:
 
         self.analysis_results.dag_extraction_info = DagExtractionInfo(
             self.analysis_results.original_dag.copy(), self.original_pipeline_labels_to_extracted_plan_results.copy(),
-            self.next_op_id, self.next_missing_op_id, self.cached_intermediates)
+            self.next_op_id, self.next_missing_op_id, self.cached_intermediates,
+            self.operator_context_parents_to_result)
 
         logger.info('Done!')
         return self.analysis_results
@@ -291,7 +287,7 @@ class PipelineExecutor:
         self.op_id_to_dag_node = {}
         self.analysis_results = AnalysisResults({}, {}, networkx.DiGraph(), [], {}, networkx.DiGraph(),
                                                 RuntimeInfo(0, 0, 0, 0, None, None, 0, 0, 0, 0, 0, 0, 0),
-                                                DagExtractionInfo(networkx.DiGraph(), {}, 0, 0, {}), None)
+                                                DagExtractionInfo(networkx.DiGraph(), {}, 0, 0, {}, {}), None)
         self.analyses = []
         self.shadow_pipelines = []
         self.original_pipeline_labels_to_extracted_plan_results = {}

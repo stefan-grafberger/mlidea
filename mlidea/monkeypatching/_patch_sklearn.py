@@ -114,11 +114,11 @@ class SklearnModelSelectionPatching:
                                         optional_source_code)
             non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs, except_indices=[0])
             operator_context = OperatorContext(OperatorType.TRAIN_TEST_SPLIT, function_info, non_data_kwargs)
-            operator_call_info = OperatorCallInfo(operator_context, [input_info])
-            op_id = singleton.get_next_op_id(operator_call_info)
+            operator_call_info_orig = OperatorCallInfo(operator_context, [input_info])
+            op_id = singleton.get_next_op_id(operator_call_info_orig)
             curried_original_func = wrap_train_test_split_func(lambda df: original(df, *args[1:], **kwargs))
             initial_func = partial(curried_original_func, input_info.annotated_dfobject.result_data)
-            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, initial_func)
+            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info_orig, initial_func)
 
             def train_test_split_and_wrapping(df_object):
                 split_result = curried_original_func(df_object)
@@ -137,12 +137,17 @@ class SklearnModelSelectionPatching:
                                     DagNodeDetails(None, columns, optimizer_info),
                                     get_optional_code_info_or_none(optional_code_reference, optional_source_code),
                                     train_test_split_and_wrapping)
-            add_dag_node(main_dag_node, [input_info.dag_node], FunctionCallResult(None))
+            add_dag_node(main_dag_node, [input_info.dag_node],
+                         FunctionCallResult(TrainTestSplitResult(*result)))
 
             description = "(Train Data)"
-            dag_node = DagNode(singleton.get_next_op_id(operator_call_info),
+            train_non_data_kwargs = non_data_kwargs.copy()
+            train_non_data_kwargs['description'] = description
+            train_operator_context = OperatorContext(OperatorType.TRAIN_TEST_SPLIT, function_info, train_non_data_kwargs)
+            operator_call_info_train = OperatorCallInfo(train_operator_context, [input_info])
+            dag_node = DagNode(singleton.get_next_op_id(operator_call_info_train),
                                BasicCodeLocation(caller_filename, lineno),
-                               operator_context,
+                               train_operator_context,
                                DagNodeDetails(description, columns, OptimizerInfo(0, get_df_shape(result[0]),
                                                                                   get_df_memory(result[0]))),
                                get_optional_code_info_or_none(optional_code_reference, optional_source_code),
@@ -153,9 +158,14 @@ class SklearnModelSelectionPatching:
             new_train_result = train_function_call_result.function_result
 
             description = "(Test Data)"
-            dag_node = DagNode(singleton.get_next_op_id(operator_call_info),
+            test_non_data_kwargs = non_data_kwargs.copy()
+            test_non_data_kwargs['description'] = description
+            test_operator_context = OperatorContext(OperatorType.TRAIN_TEST_SPLIT, function_info,
+                                                     test_non_data_kwargs)
+            operator_call_info_test = OperatorCallInfo(test_operator_context, [input_info])
+            dag_node = DagNode(singleton.get_next_op_id(operator_call_info_test),
                                BasicCodeLocation(caller_filename, lineno),
-                               operator_context,
+                               test_operator_context,
                                DagNodeDetails(description, columns, OptimizerInfo(0, get_df_shape(result[1]),
                                                                                   get_df_memory(result[1]))),
                                get_optional_code_info_or_none(optional_code_reference, optional_source_code),
@@ -1961,7 +1971,7 @@ class SklearnDecisionTreePatching:
                                                               self.mlinspect_optional_source_code),
                                processing_func,
                                create_func)
-            function_call_result = FunctionCallResult(None)
+            function_call_result = FunctionCallResult(self)
             add_dag_node(dag_node, [train_data_node, train_labels_node], function_call_result)
         else:
             original(self, *args, **kwargs)
@@ -2190,7 +2200,7 @@ class SklearnSGDClassifierPatching:
                                                               self.mlinspect_optional_source_code),
                                processing_func,
                                create_func)
-            function_call_result = FunctionCallResult(None)
+            function_call_result = FunctionCallResult(self)
             add_dag_node(dag_node, [train_data_node, train_labels_node], function_call_result)
         else:
             original(self, *args, **kwargs)
@@ -2419,7 +2429,7 @@ class SklearnLogisticRegressionPatching:
                                                               self.mlinspect_optional_source_code),
                                processing_func,
                                create_func)
-            function_call_result = FunctionCallResult(None)
+            function_call_result = FunctionCallResult(self)
             add_dag_node(dag_node, [train_data_node, train_labels_node], function_call_result)
         else:
             original(self, *args, **kwargs)
@@ -2664,7 +2674,7 @@ class SklearnKerasClassifierPatching:
                                                               self.mlinspect_optional_source_code),
                                processing_func,
                                create_func)
-            function_call_result = FunctionCallResult(None)
+            function_call_result = FunctionCallResult(self)
             add_dag_node(dag_node, [train_data_dag_node, train_labels_dag_node], function_call_result)
         else:
             call_info_singleton.scikeras_classifier_active = True
@@ -2955,7 +2965,7 @@ class SklearnDummyClassifierPatching:
                                                               self.mlinspect_optional_source_code),
                                processing_func,
                                create_func)
-            function_call_result = FunctionCallResult(None)
+            function_call_result = FunctionCallResult(self)
             add_dag_node(dag_node, [train_data_node, train_labels_node], function_call_result)
         else:
             original(self, *args, **kwargs)
@@ -3192,7 +3202,7 @@ class SklearnSVCPatching:
                                                               self.mlinspect_optional_source_code),
                                processing_func,
                                create_func)
-            function_call_result = FunctionCallResult(None)
+            function_call_result = FunctionCallResult(self)
             add_dag_node(dag_node, [train_data_node, train_labels_node], function_call_result)
         else:
             original(self, *args, **kwargs)
