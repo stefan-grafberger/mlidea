@@ -149,7 +149,8 @@ class OperatorImpact(WhatIfAnalysis):
             replacement_desc = "Do nothing"
 
         non_data_kwargs = {'replacement_func': replacement_func, 'replacement_desc': replacement_desc}
-        replacement_node = DagNode(singleton.get_next_op_id(),
+        # FIXME: This shouldn't use None
+        replacement_node = DagNode(singleton.get_next_op_id(None),
                                    operator_to_replace.code_location,
                                    OperatorContext(OperatorType.TRANSFORMER, None, non_data_kwargs),
                                    DagNodeDetails(replacement_desc, operator_to_replace.details.columns),

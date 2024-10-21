@@ -121,7 +121,8 @@ class CleanLearn(WhatIfAnalysis):
                 filter_func = partial(drop_outliers, column=self.column, outlier_func=self.outlier_func)
 
                 non_data_kwargs = {'func': drop_outliers, 'column': self.column, 'outlier_func': self.outlier_func}
-                new_test_cleaning_node = DagNode(singleton.get_next_op_id(),
+                # FIXME: This shouldn't use None
+                new_test_cleaning_node = DagNode(singleton.get_next_op_id(None),
                                                  BasicCodeLocation("Data Cleaning", None),
                                                  OperatorContext(OperatorType.SELECTION, None, non_data_kwargs),
                                                  DagNodeDetails(
@@ -144,7 +145,8 @@ class CleanLearn(WhatIfAnalysis):
                                      outlier_func=self.outlier_func)
                 non_data_kwargs = {'func': impute_outliers, 'column': self.column, 'outlier_func': self.outlier_func,
                                    'constant': self.impute_constant}
-                new_projection_node = DagNode(singleton.get_next_op_id(),
+                # FIXME: This shouldn't use None
+                new_projection_node = DagNode(singleton.get_next_op_id(None),
                                               BasicCodeLocation("DataCorruption", None),
                                               OperatorContext(OperatorType.PROJECTION_MODIFY, None, non_data_kwargs),
                                               DagNodeDetails(f"Clean {self.column}: impute", None),

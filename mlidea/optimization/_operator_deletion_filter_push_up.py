@@ -271,7 +271,8 @@ class OperatorDeletionFilterPushUp(QueryOptimizationRule):
                                                  if node not in all_operators_associated_with_filter])
 
         def get_new_dag_node_id_new_node_label(node: DagNode) -> DagNode:
-            return DagNode(self._pipeline_executor.get_next_op_id(),
+            # FIXME: This shouldn't use None
+            return DagNode(self._pipeline_executor.get_next_op_id(None),
                            node.code_location,
                            node.operator_info,
                            node.details,
