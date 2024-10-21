@@ -342,7 +342,7 @@ class FairnessSlices(ShadowPipeline):
         self.fix_strategy_names.append(fix_strategy.value)
         processing_func = partial(FairnessSlices.fix_data, fix_strategy=fix_strategy,
                                   database_path=self.database_path)
-        description = "Trying to fix unfair slice data errors"
+        description = f"Trying to fix slice: {fix_strategy.value}"
         non_data_kwargs = {'description': description, 'func': FairnessSlices.fix_data, 'fix_strategy': fix_strategy}
         operator_context = OperatorContext(OperatorType.ESTIMATOR, None, non_data_kwargs)
         parents = [data_parent, slice_finder_indices_node]

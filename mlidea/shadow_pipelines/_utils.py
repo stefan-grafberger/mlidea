@@ -638,7 +638,7 @@ def prov_join_node_with_data_sources(singleton, data_sources_with_sensitive_colu
         projection_processing_func = wrap_projection_func(
             partial(projection, column_names))
 
-        description = "Select sensitive attributes"
+        description = f"Select sensitive attributes: {column_names}"
         operator_context = OperatorContext(OperatorType.PROJECTION, None, {'description': description,
                                                                            'func': projection,
                                                                            'column_names': column_names})
@@ -655,7 +655,7 @@ def prov_join_node_with_data_sources(singleton, data_sources_with_sensitive_colu
     for data_source, column_names in data_sources_prov_join.items():
         projection_processing_func = wrap_projection_func(
             partial(projection, column_names))
-        description = "Select sensitive attributes"
+        description = f"Select sensitive attributes: {column_names}"
         operator_context = OperatorContext(OperatorType.PROJECTION, None, {'description': description,
                                                                            'func': projection_processing_func})
         operator_call_info = OperatorCallInfo(operator_context, [data_source])

@@ -1,6 +1,7 @@
 """
 Monkey patching for numpy
 """
+import dataclasses
 from typing import Any
 
 import numpy
@@ -31,6 +32,15 @@ class MlinspectTuple(tuple):
     _mlinspect_dag_node = None
     _mlinspect_annotation = None
     _mlinspect_provenance = None
+
+
+@dataclasses.dataclass
+class TrainTestSplitResult:
+    """
+    Additional info about the DAG node
+    """
+    train: any or None = None
+    test: any or None = None
 
 
 class MlinspectNdarray(numpy.ndarray):

@@ -29,7 +29,7 @@ from mlidea.execution._stat_tracking import capture_optimizer_info, get_df_shape
 from mlidea.instrumentation._operator_types import OperatorContext, FunctionInfo, OperatorType
 from mlidea.instrumentation._dag_node import DagNode, BasicCodeLocation, DagNodeDetails, CodeReference, OptimizerInfo
 from mlidea.execution._pipeline_executor import singleton
-from mlidea.monkeypatching._mlinspect_ndarray import MlinspectNdarray
+from mlidea.monkeypatching._mlinspect_ndarray import MlinspectNdarray, TrainTestSplitResult
 from mlidea.monkeypatching._monkey_patching_utils import add_dag_node, \
     execute_patched_func_indirect_allowed, get_input_info, execute_patched_func_no_op_id, \
     get_optional_code_info_or_none, get_dag_node_for_id, add_train_data_node, \
@@ -84,15 +84,6 @@ class SklearnPreprocessingPatching:
         return execute_patched_func_no_op_id(original, execute_inspections, *args, **kwargs)
 
 
-@dataclasses.dataclass
-class TrainTestSplitResult:
-    """
-    Additional info about the DAG node
-    """
-    train: any or None = None
-    test: any or None = None
-
-
 @gorilla.patches(model_selection)
 class SklearnModelSelectionPatching:
     """ Patches for sklearn """
@@ -116,13 +107,15 @@ class SklearnModelSelectionPatching:
             operator_context = OperatorContext(OperatorType.TRAIN_TEST_SPLIT, function_info, non_data_kwargs)
             operator_call_info_orig = OperatorCallInfo(operator_context, [input_info])
             op_id = singleton.get_next_op_id(operator_call_info_orig)
-            curried_original_func = wrap_train_test_split_func(lambda df: original(df, *args[1:], **kwargs))
-            initial_func = partial(curried_original_func, input_info.annotated_dfobject.result_data)
-            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info_orig, initial_func)
+            curried_original_func = lambda df: original(df, *args[1:], **kwargs)
 
             def train_test_split_and_wrapping(df_object):
                 split_result = curried_original_func(df_object)
                 return TrainTestSplitResult(*split_result)
+
+            prov_func_w_wrapping = wrap_train_test_split_func(train_test_split_and_wrapping)
+            initial_func = partial(prov_func_w_wrapping, input_info.annotated_dfobject.result_data)
+            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info_orig, initial_func)
 
             def train_test_split_train(split_result):
                 return split_result.train
@@ -130,7 +123,7 @@ class SklearnModelSelectionPatching:
             def train_test_split_test(split_result):
                 return split_result.test
 
-            columns = list(result[0].columns)
+            columns = list(result.train.columns)
             main_dag_node = DagNode(op_id,
                                     BasicCodeLocation(caller_filename, lineno),
                                     operator_context,
@@ -138,7 +131,7 @@ class SklearnModelSelectionPatching:
                                     get_optional_code_info_or_none(optional_code_reference, optional_source_code),
                                     train_test_split_and_wrapping)
             add_dag_node(main_dag_node, [input_info.dag_node],
-                         FunctionCallResult(TrainTestSplitResult(*result)))
+                         FunctionCallResult(result))
 
             description = "(Train Data)"
             train_non_data_kwargs = non_data_kwargs.copy()
@@ -148,12 +141,12 @@ class SklearnModelSelectionPatching:
             dag_node = DagNode(singleton.get_next_op_id(operator_call_info_train),
                                BasicCodeLocation(caller_filename, lineno),
                                train_operator_context,
-                               DagNodeDetails(description, columns, OptimizerInfo(0, get_df_shape(result[0]),
-                                                                                  get_df_memory(result[0]))),
+                               DagNodeDetails(description, columns, OptimizerInfo(0, get_df_shape(
+                                   result.train), get_df_memory(result.train))),
                                get_optional_code_info_or_none(optional_code_reference, optional_source_code),
                                train_test_split_train)
 
-            train_function_call_result = FunctionCallResult(result[0])
+            train_function_call_result = FunctionCallResult(result.train)
             add_dag_node(dag_node, [main_dag_node], train_function_call_result)
             new_train_result = train_function_call_result.function_result
 
@@ -166,12 +159,13 @@ class SklearnModelSelectionPatching:
             dag_node = DagNode(singleton.get_next_op_id(operator_call_info_test),
                                BasicCodeLocation(caller_filename, lineno),
                                test_operator_context,
-                               DagNodeDetails(description, columns, OptimizerInfo(0, get_df_shape(result[1]),
-                                                                                  get_df_memory(result[1]))),
+                               DagNodeDetails(description, columns, OptimizerInfo(
+                                   0, get_df_shape(result.test),
+                                   get_df_memory(result.test))),
                                get_optional_code_info_or_none(optional_code_reference, optional_source_code),
                                train_test_split_test)
 
-            test_function_call_result = FunctionCallResult(result[1])
+            test_function_call_result = FunctionCallResult(result.test)
             add_dag_node(dag_node, [main_dag_node], test_function_call_result)
             new_test_result = test_function_call_result.function_result
 
