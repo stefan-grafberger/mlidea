@@ -2,6 +2,7 @@
 Tests whether the fluent API works
 """
 import os
+from inspect import cleandoc
 
 import networkx
 from testfixtures import compare
@@ -308,6 +309,79 @@ def test_changed_pipeline_code_what_if(tmpdir):
 
     report = analysis_result.analysis_to_result_reports[data_cleaning]
     assert report.shape == (19, 4)
+
+
+def test_dataframe_update(tmpdir):
+    """
+    Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
+    """
+    test_code = cleandoc("""
+        import pandas as pd
+        from sklearn.preprocessing import label_binarize, StandardScaler
+        from sklearn.tree import DecisionTreeClassifier
+        import numpy as np
+
+        df = pd.DataFrame({'A': [0, 0, 0, 0], 'B': [0, 1, 3, 4], 'race': ['cat_a', 'cat_a', 'cat_a', 'cat_b'], 
+                           'target': ['no', 'no', 'yes', 'yes']})
+
+        standard_scaler = StandardScaler()
+        train = standard_scaler.fit_transform(df[['A', 'B']])
+        target = label_binarize(df['target'], classes=['no', 'yes'])
+
+        clf = DecisionTreeClassifier()
+        clf = clf.fit(train, target)
+
+        test_df = pd.DataFrame({'A': [0, 0, 0, 0], 'B':  [4, 3, 4, 3], 
+            'race': ["cat_a", "cat_b", "cat_a", "cat_b"], 'target': ['yes', 'yes', 'yes', 'yes']})
+        test_data = standard_scaler.transform(test_df[['A', 'B']])
+        test_labels = label_binarize(test_df['target'], classes=['no', 'yes'])
+        test_score = clf.score(test_data, test_labels)
+        assert test_score == 1.0
+        """)
+
+    slices = FairnessSlices(database_path=DATABASE_PATH_FUNC_TRANSFORMER)
+    analysis_result = PipelineAnalyzer \
+        .on_pipeline_from_string(test_code) \
+        .add_shadow_pipeline(slices) \
+        .execute()
+
+    report = analysis_result.shadow_pipelines_to_result_reports[slices]
+    assert "No problematic slice could be found" in report
+    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-old"))
+    analysis_result.save_shadow_pipeline_dags_to_path(os.path.join(str(tmpdir), "shadow-old"))
+
+    test_code_modified = cleandoc("""
+            import pandas as pd
+            from sklearn.preprocessing import label_binarize, StandardScaler
+            from sklearn.tree import DecisionTreeClassifier
+            import numpy as np
+
+            df = pd.DataFrame({'A': [0, 0, 0, 5], 'B': [0, 1, 3, 4], 'race': ['cat_a', 'cat_a', 'cat_a', 'cat_b'], 
+                               'target': ['no', 'no', 'yes', 'yes']})
+
+            standard_scaler = StandardScaler()
+            train = standard_scaler.fit_transform(df[['A', 'B']])
+            target = label_binarize(df['target'], classes=['no', 'yes'])
+
+            clf = DecisionTreeClassifier()
+            clf = clf.fit(train, target)
+
+            test_df = pd.DataFrame({'A': [0, 0, 0, 0], 'B':  [4, 3, 4, 3], 
+                'race': ["cat_a", "cat_b", "cat_a", "cat_b"], 'target': ['yes', 'yes', 'yes', 'yes']})
+            test_data = standard_scaler.transform(test_df[['A', 'B']])
+            test_labels = label_binarize(test_df['target'], classes=['no', 'yes'])
+            test_score = clf.score(test_data, test_labels)
+            assert test_score == 1.0
+            """)
+
+    analysis_result = PipelineAnalyzer \
+        .on_changed_pipeline_from_string(analysis_result.dag_extraction_info, test_code_modified) \
+        .add_shadow_pipeline(slices) \
+        .execute()
+    report = analysis_result.shadow_pipelines_to_result_reports[slices]
+    assert "No problematic slice could be found" in report
+    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-new"))
+    analysis_result.save_shadow_pipeline_dags_to_path(os.path.join(str(tmpdir), "shadow-new"))
 
 
 def assert_healthcare_pipeline_output_complete(inspector_result):

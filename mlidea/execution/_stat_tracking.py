@@ -25,7 +25,6 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
         -> tuple[OptimizerInfo, any]:
     """Function to measure the runtime of instrumented user function calls and get output metadata"""
     execution_start = time.time()
-    # FIXME: Check for obj_for_inplace_ops necessary?
     if ((obj_for_inplace_ops is None or estimator_transformer_state is not None) and
             operator_call_info in singleton.operator_context_parents_to_result):
         dag_node = singleton.operator_context_parents_to_result[operator_call_info]
