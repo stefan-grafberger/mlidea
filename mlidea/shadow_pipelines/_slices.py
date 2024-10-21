@@ -191,9 +191,12 @@ class FairnessSlices(ShadowPipeline):
                                  rag_join_operators, score_operators, test_data_operators):
         description = "Compute slice finder indexes"
         non_data_kwargs = {'description': description, 'func': FairnessSlices.extract_slice_finder_result}
-        slice_finder_indices_node = DagNode(singleton.get_next_op_id(),
+        operator_context = OperatorContext(OperatorType.GROUP_BY_AGG, None, non_data_kwargs)
+        parents = [new_slice_finder_node, conditional_slices_found_node]
+        operator_call_info = OperatorCallInfo(operator_context, parents)
+        slice_finder_indices_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                             BasicCodeLocation("Fairness Slices", None),
-                                            OperatorContext(OperatorType.GROUP_BY_AGG, None, non_data_kwargs),
+                                            operator_context,
                                             DagNodeDetails(description, None),
                                             None,
                                             FairnessSlices.extract_slice_finder_result)
@@ -237,9 +240,12 @@ class FairnessSlices(ShadowPipeline):
         # Operator to get the rag join results
         description = "RAG join for test set diff"
         non_data_kwargs = {'description': description, 'func': rag_join_update}
-        new_rag_join_update_node = DagNode(singleton.get_next_op_id(),
+        operator_context = OperatorContext(OperatorType.RAG_JOIN, None, non_data_kwargs)
+        parents = [rag_join_operators[0], new_fix_diff_filter_node]
+        operator_call_info = OperatorCallInfo(operator_context, parents)
+        new_rag_join_update_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                            BasicCodeLocation("Fairness Slices", None),
-                                           OperatorContext(OperatorType.RAG_JOIN, None, non_data_kwargs),
+                                           operator_context,
                                            DagNodeDetails(description, None),
                                            None,
                                            rag_join_update)

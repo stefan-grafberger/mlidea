@@ -428,9 +428,12 @@ class DataErrorRobustness(ShadowPipeline):
         new_dag.add_edge(new_corruption_diff_filter_node, extraction_node, arg_index=0)
         # Evaluate with corrupted data
         # Operator to get the rag join results
-        new_rag_join_update_node = DagNode(singleton.get_next_op_id(),
+        operator_context = OperatorContext(OperatorType.RAG_JOIN, None, {'func': rag_join_update})
+        parents = [rag_join_operators[0], new_corruption_diff_filter_node]
+        operator_call_info = OperatorCallInfo(operator_context, parents)
+        new_rag_join_update_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                            BasicCodeLocation("Data Errors", None),
-                                           OperatorContext(OperatorType.RAG_JOIN, None, {'func': rag_join_update}),
+                                           operator_context,
                                            DagNodeDetails("RAG join for test set diff", None),
                                            None,
                                            rag_join_update)
@@ -463,9 +466,12 @@ class DataErrorRobustness(ShadowPipeline):
         new_dag.add_edge(conditional_fixes_changed_something_node, new_fix_diff_filter_node, arg_index=2)
         # Evaluate with fixed data
         # Operator to get the rag join results
-        new_rag_join_update_node = DagNode(singleton.get_next_op_id(),
+        operator_context = OperatorContext(OperatorType.RAG_JOIN, None, {'func': rag_join_update})
+        parents = [rag_join_operators[0], new_fix_diff_filter_node]
+        operator_caller_info = OperatorCallInfo(operator_context, parents)
+        new_rag_join_update_node = DagNode(singleton.get_next_op_id(operator_caller_info),
                                            BasicCodeLocation("Data Errors", None),
-                                           OperatorContext(OperatorType.RAG_JOIN, None, {'func': rag_join_update}),
+                                           operator_context,
                                            DagNodeDetails("RAG join for test set diff", None),
                                            None,
                                            rag_join_update)

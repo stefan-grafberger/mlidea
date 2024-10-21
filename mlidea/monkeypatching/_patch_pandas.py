@@ -921,7 +921,7 @@ class SeriesPatching:
             # No input_infos copy needed because it's only a selection and the rows not being removed don't change
             processing_func = wrap_projection_func(lambda df: original(df, *args, **kwargs))
             initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
-            optimizer_info, result = capture_optimizer_info(initial_func, self)
+            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, initial_func, self)
             if isinstance(args[0], dict):
                 replacement_items = list(args[0].items())[1:]
                 to_replace, replacement = list(args[0].items())[0]

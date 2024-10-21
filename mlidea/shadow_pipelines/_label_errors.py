@@ -250,9 +250,12 @@ class LabelErrors(ShadowPipeline):
                                         train_labels_operators):
         non_data_kwargs = {'cleaning_batch_size': self._cleaning_batch_size,
                            'func': LabelErrors._get_rows_to_flip_llm}
-        new_label_flip_indices_node = DagNode(singleton.get_next_op_id(),
+        operator_context = OperatorContext(OperatorType.PROJECTION, None, non_data_kwargs)
+        parents = [rag_join_operators[0], new_shapley_node, likely_mislabeled_rows_condition_node]
+        operator_call_info = OperatorCallInfo(operator_context, parents)
+        new_label_flip_indices_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                               BasicCodeLocation("Label Errors", None),
-                                              OperatorContext(OperatorType.PROJECTION, None, non_data_kwargs),
+                                              operator_context,
                                               DagNodeDetails(
                                                   f"Flip {self._cleaning_batch_size} most likely incorrect labels",
                                                   None),
@@ -263,9 +266,13 @@ class LabelErrors(ShadowPipeline):
         new_dag.add_edge(likely_mislabeled_rows_condition_node, new_label_flip_indices_node, arg_index=2)
         non_data_kwargs = {'cleaning_batch_size': self._cleaning_batch_size,
                            'func': LabelErrors._label_flip_processing_func_llm}
-        new_label_flip_node = DagNode(singleton.get_next_op_id(),
+        operator_context = OperatorContext(OperatorType.PROJECTION, None, non_data_kwargs)
+        parents = [rag_join_operators[0], train_labels_operators[0], new_shapley_node, new_label_flip_indices_node,
+                   test_data_operators[0], likely_mislabeled_rows_condition_node]
+        operator_call_info = OperatorCallInfo(operator_context, parents)
+        new_label_flip_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                       BasicCodeLocation("Label Errors", None),
-                                      OperatorContext(OperatorType.PROJECTION, None, non_data_kwargs),
+                                      operator_context,
                                       DagNodeDetails(
                                           f"Flip {self._cleaning_batch_size} most likely incorrect labels", None),
                                       None,
@@ -307,9 +314,12 @@ class LabelErrors(ShadowPipeline):
                            'test_fraction_to_consider': self._test_fraction_to_consider,
                            'only_consider_negative_shapley_values': self._only_consider_negative_shapley_values,
                            'label_encoding_op': label_encoder_operators[0]}
-        new_shapley_node = DagNode(singleton.get_next_op_id(),
+        operator_context = OperatorContext(OperatorType.GROUP_BY_AGG, None, non_data_kwargs)
+        parents = [rag_join_operators[0], train_labels_before_dict, test_data_operators[0], test_labels_operators[0]]
+        operator_call_info = OperatorCallInfo(operator_context, parents)
+        new_shapley_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                    BasicCodeLocation("Label Errors", None),
-                                   OperatorContext(OperatorType.GROUP_BY_AGG, None, non_data_kwargs),
+                                   operator_context,
                                    DagNodeDetails(
                                        f"Top {self._cleaning_batch_size} Shapley values", None),
                                    None,

@@ -640,7 +640,8 @@ def prov_join_node_with_data_sources(singleton, data_sources_with_sensitive_colu
 
         description = "Select sensitive attributes"
         operator_context = OperatorContext(OperatorType.PROJECTION, None, {'description': description,
-                                                                           'func': projection_processing_func})
+                                                                           'func': projection,
+                                                                           'column_names': column_names})
         parents = [data_source]
         operator_call_info = OperatorCallInfo(operator_context, parents)
         projection_node = DagNode(singleton.get_next_op_id(operator_call_info),
