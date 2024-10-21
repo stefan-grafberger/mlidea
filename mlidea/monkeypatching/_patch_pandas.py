@@ -401,7 +401,7 @@ class DataFramePatching:
                 processing_func_prov = wrap_projection_func(processing_func)
                 initial_func = partial(processing_func_prov, self)
             if isinstance(args[0], str):
-                optimizer_info, result = capture_optimizer_info(initial_func, self)
+                optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, initial_func, self)
                 columns = list(self.columns)  # pylint: disable=no-member
                 description = f"modifies {[args[0]]}"
             else:
@@ -546,7 +546,7 @@ class DataFramePatching:
             input_info = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
                                         optional_source_code)
             initial_func = partial(original, self, *args, **kwargs)
-            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, initial_func)
+            optimizer_info, result = capture_optimizer_info(singleton, None, initial_func)
             result._mlinspect_dag_node = input_info.dag_node.node_id  # pylint: disable=protected-access
             process_funct = lambda df: original(df, *args, **kwargs)
             result._mlinspect_groupby_func = process_funct  # pylint: disable=protected-access

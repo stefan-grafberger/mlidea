@@ -53,8 +53,7 @@ class DagExecutor:
                         inputs = inputs[:-1]
             if stop_signal_received is False:
                 executable_processing_func = partial(current_node.processing_func, *inputs)
-                # FIXME: Do not use None here. However, if there is an estiamtor transformer state, there seems to be an error if we do not use None
-                optimizer_info, result_df = capture_optimizer_info(self.pipeline_executor, None,
+                optimizer_info, result_df = capture_optimizer_info(self.pipeline_executor, operator_call_info,
                                                                    executable_processing_func)
             elif current_node.operator_info.operator == OperatorType.EXTRACT_RESULT:
                 executable_processing_func = partial(current_node.processing_func, ConditionalResult.STOP_EXECUTION)

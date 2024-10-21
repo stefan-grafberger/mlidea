@@ -654,22 +654,25 @@ def prov_join_node_with_data_sources(singleton, data_sources_with_sensitive_colu
     for data_source, column_names in data_sources_prov_join.items():
         projection_processing_func = wrap_projection_func(
             partial(projection, column_names))
-
         description = "Select sensitive attributes"
-        projection_node = DagNode(singleton.get_next_op_id(),
+        operator_context = OperatorContext(OperatorType.PROJECTION, None, {'description': description,
+                                                                           'func': projection_processing_func})
+        operator_call_info = OperatorCallInfo(operator_context, [data_source])
+        projection_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                   BasicCodeLocation("Fairness Slices", None),
-                                  OperatorContext(OperatorType.PROJECTION, None, {'description': description,
-                                                                                  'func': projection_processing_func}),
+                                  operator_context,
                                   DagNodeDetails(description, None),
                                   None,
                                   projection_processing_func)
         new_dag.add_edge(data_source, projection_node, arg_index=0)
 
         description = "Join on provenance"
-        join_node = DagNode(singleton.get_next_op_id(),
+        operator_context = OperatorContext(OperatorType.JOIN, None, {'description': description,
+                                                                      'func': prov_join_with_data_source})
+        operator_call_info = OperatorCallInfo(operator_context, [node_requiring_side_info, projection_node])
+        join_node = DagNode(singleton.get_next_op_id(operator_call_info),
                             BasicCodeLocation("Fairness Slices", None),
-                            OperatorContext(OperatorType.JOIN, None, {'description': description,
-                                                                      'func': prov_join_with_data_source}),
+                            operator_context,
                             DagNodeDetails(description, None),
                             None,
                             prov_join_with_data_source)

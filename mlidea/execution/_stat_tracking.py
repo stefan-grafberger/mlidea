@@ -32,6 +32,8 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
         result = singleton.cached_intermediates[dag_node]
     else:
         result = instrumented_function_call()
+        if estimator_transformer_state is not None:
+            result._mlinspect_annotation = estimator_transformer_state
     execution_duration = time.time() - execution_start
     execution_duration_in_ms = execution_duration * 1000
     if result is not None:

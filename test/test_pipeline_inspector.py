@@ -185,23 +185,23 @@ def test_changed_pipeline_code_shadow_pipelines(tmpdir):
     report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
     report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
     report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
-    # assert "the pipeline metric was" in report_label_errors
-    # assert "the pipeline metric was" in report_data_errors
-    # assert "The original result" in report_fairness_slices
+    assert "the pipeline metric was" in report_label_errors
+    assert "the pipeline metric was" in report_data_errors
+    assert "The original result" in report_fairness_slices
 
     analysis_result = PipelineAnalyzer \
         .on_changed_pipeline_from_py_file(analysis_result.dag_extraction_info, ADULT_COMPLEX_MODIFIED_PY) \
-        .add_shadow_pipelines([label_errors, slices]) \
+        .add_shadow_pipelines(shadow_pipelines) \
         .execute()
     analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-new"))
     analysis_result.save_shadow_pipeline_dags_to_path(os.path.join(str(tmpdir), "shadow-new"))
 
-    # report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    # report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
-    # report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
-    # assert "the pipeline metric was" in report_label_errors
-    # assert "the pipeline metric was" in report_data_errors
-    # assert "The original result" in report_fairness_slices
+    report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
+    report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
+    report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
+    assert "the pipeline metric was" in report_label_errors
+    assert "the pipeline metric was" in report_data_errors
+    assert "The original result" in report_fairness_slices
 
 
 def test_changed_pipeline_code_what_if(tmpdir):

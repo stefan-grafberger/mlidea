@@ -152,12 +152,11 @@ class PipelineExecutor:
 
         logger.info(f'Starting execution of {len(self.analyses)} what-if analyses...')
         self.run_what_if_analyses()
+        self.gen_and_exec_shadow_pipelines()
 
         self.analysis_results.dag_extraction_info = DagExtractionInfo(
             self.analysis_results.original_dag.copy(), self.original_pipeline_labels_to_extracted_plan_results.copy(),
             self.next_op_id, self.next_missing_op_id, self.cached_intermediates)
-
-        self.gen_and_exec_shadow_pipelines()
 
         logger.info('Done!')
         return self.analysis_results
