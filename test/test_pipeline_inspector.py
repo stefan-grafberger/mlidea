@@ -118,32 +118,6 @@ def test_dag_extraction_reuse():
     assert report.shape == (19, 4)
 
 
-def test_changed_pipeline_code(tmpdir):
-    """
-    Tests whether the Data Cleaning analysis works for a very simple pipeline with a DecisionTree score
-    """
-
-    analysis_result = PipelineAnalyzer \
-        .on_pipeline_from_py_file(ADULT_COMPLEX_PY) \
-        .execute()
-
-    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-old"))
-
-    data_cleaning = DataCleaning({'education': ErrorType.CAT_MISSING_VALUES,
-                                  'age': ErrorType.NUM_MISSING_VALUES,
-                                  'hours-per-week': ErrorType.OUTLIERS,
-                                  None: ErrorType.MISLABEL})
-
-    analysis_result = PipelineAnalyzer \
-        .on_changed_pipeline_from_py_file(analysis_result.dag_extraction_info, ADULT_COMPLEX_MODIFIED_PY) \
-        .add_what_if_analysis(data_cleaning) \
-        .execute()
-    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-new"))
-
-    report = analysis_result.analysis_to_result_reports[data_cleaning]
-    assert report.shape == (19, 4)
-
-
 def test_estimation():
     """
     Tests whether the Data Cleaning analysis works for a very simple pipeline with a DecisionTree score
@@ -189,6 +163,73 @@ def test_multiple_shadow_pipelines(tmpdir):
     assert "The original result" in report_fairness_slices
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
+
+
+def test_changed_pipeline_code_shadow_pipelines(tmpdir):
+    """
+    Tests whether the Data Cleaning analysis works for a very simple pipeline with a DecisionTree score
+    """
+    label_errors = LabelErrors(proxy_model=True)
+    data_errors = DataErrorRobustness(corruption_significant_relative_threshold=1.0)
+    slices = FairnessSlices(database_path=DATABASE_PATH_FUNC_TRANSFORMER)
+    shadow_pipelines = [label_errors, data_errors, slices]
+
+    analysis_result = PipelineAnalyzer \
+        .on_pipeline_from_py_file(ADULT_COMPLEX_PY) \
+        .add_shadow_pipelines(shadow_pipelines) \
+        .execute()
+
+    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-old"))
+    analysis_result.save_shadow_pipeline_dags_to_path(os.path.join(str(tmpdir), "shadow-old"))
+
+    report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
+    report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
+    report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
+    # assert "the pipeline metric was" in report_label_errors
+    # assert "the pipeline metric was" in report_data_errors
+    # assert "The original result" in report_fairness_slices
+
+    analysis_result = PipelineAnalyzer \
+        .on_changed_pipeline_from_py_file(analysis_result.dag_extraction_info, ADULT_COMPLEX_MODIFIED_PY) \
+        .add_shadow_pipelines([label_errors, slices]) \
+        .execute()
+    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-new"))
+    analysis_result.save_shadow_pipeline_dags_to_path(os.path.join(str(tmpdir), "shadow-new"))
+
+    # report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
+    # report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
+    # report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
+    # assert "the pipeline metric was" in report_label_errors
+    # assert "the pipeline metric was" in report_data_errors
+    # assert "The original result" in report_fairness_slices
+
+
+def test_changed_pipeline_code_what_if(tmpdir):
+    """
+    Tests whether the Data Cleaning analysis works for a very simple pipeline with a DecisionTree score
+    """
+    data_cleaning = DataCleaning({'education': ErrorType.CAT_MISSING_VALUES,
+                                  'age': ErrorType.NUM_MISSING_VALUES,
+                                  'hours-per-week': ErrorType.OUTLIERS,
+                                  None: ErrorType.MISLABEL})
+
+    analysis_result = PipelineAnalyzer \
+        .on_pipeline_from_py_file(ADULT_COMPLEX_PY) \
+        .add_what_if_analysis(data_cleaning) \
+        .execute()
+
+    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-old"))
+    analysis_result.save_optimised_what_if_dags_to_path(os.path.join(str(tmpdir), "what-if-old"))
+
+    analysis_result = PipelineAnalyzer \
+        .on_changed_pipeline_from_py_file(analysis_result.dag_extraction_info, ADULT_COMPLEX_MODIFIED_PY) \
+        .add_what_if_analysis(data_cleaning) \
+        .execute()
+    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-new"))
+    analysis_result.save_optimised_what_if_dags_to_path(os.path.join(str(tmpdir), "what-if-new"))
+
+    report = analysis_result.analysis_to_result_reports[data_cleaning]
+    assert report.shape == (19, 4)
 
 
 def assert_healthcare_pipeline_output_complete(inspector_result):

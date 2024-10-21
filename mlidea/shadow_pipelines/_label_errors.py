@@ -7,6 +7,7 @@ import pandas
 from numba import prange, njit
 from scipy.sparse import csr_matrix
 
+from mlidea.instrumentation._operator_call_info import OperatorCallInfo
 from mlidea import OperatorType, DagNode, BasicCodeLocation, OperatorContext, DagNodeDetails
 from mlidea.analysis._analysis_utils import find_nodes_by_type
 from mlidea.execution._pipeline_executor import singleton
@@ -169,9 +170,12 @@ class LabelErrors(ShadowPipeline):
         # pylint: disable=too-many-arguments
         non_data_kwargs = {'cleaning_batch_size': self._cleaning_batch_size,
                            'func': LabelErrors._label_flip_processing_func_ml}
-        new_label_flip_node = DagNode(singleton.get_next_op_id(),
+        operator_context = OperatorContext(OperatorType.PROJECTION, None, non_data_kwargs)
+        parents = [train_labels_operators[0], new_shapley_node, likely_mislabeled_rows_condition_node]
+        operator_call_info = OperatorCallInfo(operator_context, parents)
+        new_label_flip_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                       BasicCodeLocation("Label Errors", None),
-                                      OperatorContext(OperatorType.PROJECTION, None, non_data_kwargs),
+                                      operator_context,
                                       DagNodeDetails(
                                           f"Flip {self._cleaning_batch_size} most likely incorrect labels", None),
                                       None,
@@ -182,7 +186,8 @@ class LabelErrors(ShadowPipeline):
         if self._proxy_model is False:
             new_model_node = copy_node_with_new_id(singleton, model_operators[0])
         else:
-            new_model_node = get_proxy_model_node(singleton, model_operators[0])
+            parent_nodes = [train_data_operators[0], new_label_flip_node]
+            new_model_node = get_proxy_model_node(singleton, model_operators[0], parent_nodes)
         new_dag.add_edge(train_data_operators[0], new_model_node, arg_index=0)
         new_dag.add_edge(new_label_flip_node, new_model_node, arg_index=1)
         new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
@@ -196,7 +201,8 @@ class LabelErrors(ShadowPipeline):
                                              train_data_operators,
                                              train_labels_operators):
         if self._proxy_model is True:
-            new_model_node = get_proxy_model_node(singleton, model_operators[0])
+            parent_nodes = [train_data_operators[0], train_labels_operators[0], likely_mislabeled_rows_condition_node]
+            new_model_node = get_proxy_model_node(singleton, model_operators[0], parent_nodes)
             new_dag.add_edge(train_data_operators[0], new_model_node, arg_index=0)
             new_dag.add_edge(train_labels_operators[0], new_model_node, arg_index=1)
             new_dag.add_edge(likely_mislabeled_rows_condition_node, new_model_node, arg_index=2)
@@ -221,9 +227,12 @@ class LabelErrors(ShadowPipeline):
                            'train_fraction_to_consider': self._train_fraction_to_consider,
                            'test_fraction_to_consider': self._test_fraction_to_consider,
                            'only_consider_negative_shapley_values': self._only_consider_negative_shapley_values}
-        new_shapley_node = DagNode(singleton.get_next_op_id(),
+        operator_context = OperatorContext(OperatorType.GROUP_BY_AGG, None, non_data_kwargs)
+        operator_call_info = OperatorCallInfo(operator_context, [train_data_operators[0], train_labels_operators[0],
+                                                                 test_data_operators[0], test_labels_operators[0]])
+        new_shapley_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                    BasicCodeLocation("Label Errors", None),
-                                   OperatorContext(OperatorType.GROUP_BY_AGG, None, non_data_kwargs),
+                                   operator_context,
                                    DagNodeDetails(
                                        f"Top {self._cleaning_batch_size} Shapley values", None),
                                    None,
@@ -267,12 +276,14 @@ class LabelErrors(ShadowPipeline):
         new_dag.add_edge(new_label_flip_indices_node, new_label_flip_node, arg_index=3)
         new_dag.add_edge(test_data_operators[0], new_label_flip_node, arg_index=4)
         new_dag.add_edge(likely_mislabeled_rows_condition_node, new_label_flip_indices_node, arg_index=5)
-        new_fix_diff_filter_node = get_diff_filter_node(singleton, "Data Errors")
+        parents = [new_label_flip_node, new_label_flip_indices_node]
+        new_fix_diff_filter_node = get_diff_filter_node(singleton, "Data Errors", parents)
         new_dag.add_edge(new_label_flip_node, new_fix_diff_filter_node, arg_index=0)
         new_dag.add_edge(new_label_flip_indices_node, new_fix_diff_filter_node, arg_index=1)
         new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
         new_dag.add_edge(new_fix_diff_filter_node, new_predict_node, arg_index=0)
-        new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, "Label Errors")
+        parents = [predict_operators[0], new_predict_node, new_label_flip_indices_node]
+        new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, "Label Errors", parents)
         new_dag.add_edge(predict_operators[0], new_fix_predict_diff_update_node, arg_index=0)
         new_dag.add_edge(new_predict_node, new_fix_predict_diff_update_node, arg_index=1)
         new_dag.add_edge(new_label_flip_indices_node, new_fix_predict_diff_update_node, arg_index=2)
