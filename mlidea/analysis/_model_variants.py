@@ -66,7 +66,8 @@ class ModelVariants(WhatIfAnalysis):
         estimator_node = estimator_nodes[0]
         new_processing_func = partial(self.fit_model_variant, make_classifier_func=model_function)
         new_description = f"Model Variant: {model_description}"
-        new_estimator_node = DagNode(singleton.get_next_op_id(),
+        # FIXME: This shouldn't use None
+        new_estimator_node = DagNode(singleton.get_next_op_id(None),
                                      estimator_node.code_location,
                                      estimator_node.operator_info,
                                      DagNodeDetails(new_description, estimator_node.details.columns,

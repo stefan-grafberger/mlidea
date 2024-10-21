@@ -234,9 +234,10 @@ class PipelineExecutor:
             self.analysis_results.runtime_info.what_if_execution_combined_model_training = sum(
                 analysis_estimator_runtimes)
 
-            for node in self.analysis_results.combined_optimized_dag.nodes:
-                if node in self.operators_to_runtime_during_analysis:
-                    node.details.optimizer_info = self.operators_to_runtime_during_analysis[node]
+            if self.skip_optimizer is False:
+                for node in self.analysis_results.combined_optimized_dag.nodes:
+                    if node in self.operators_to_runtime_during_analysis:
+                        node.details.optimizer_info = self.operators_to_runtime_during_analysis[node]
             # Some debugging code to look at actual executon time of different operators in optimized plan
             # ops_with_runtimes = [(operator, optimizer_info.runtime) for operator, optimizer_info
             #                      in self.operators_to_runtime_during_analysis]
