@@ -118,7 +118,7 @@ def test_train_test_split():
                                                                        RangeComparison(0, 800))),
                              OptionalCodeInfo(CodeReference(5, 24, 5, 67),
                                               'train_test_split(pandas_df, random_state=0)'),
-                             Comparison(FunctionType))
+                             Comparison(partial))
     expected_dag.add_edge(expected_source, expected_split, arg_index=0)
     expected_train = DagNode(2,
                              BasicCodeLocation("<string-source>", 5),
@@ -176,9 +176,9 @@ def test_standard_scaler():
                 standard_scaler = StandardScaler()
                 encoded_data = standard_scaler.fit_transform(df)
                 assert np.allclose(encoded_data._mlinspect_provenance["0_0"], np.array([0, 1, 2, 3]))
-                test_df = pd.DataFrame({'A': [1, 2, 10, 5]})
+                test_df = pd.DataFrame({'A': [1, 2, 10, 1]})
                 encoded_data = standard_scaler.transform(test_df)
-                expected = np.array([[-1.], [-0.71428571], [1.57142857], [0.14285714]])
+                expected = np.array([[-1.], [-0.71428571], [1.57142857], [-1.]])
                 assert np.allclose(encoded_data, expected)
                 assert np.allclose(encoded_data._mlinspect_provenance["2_0"], np.array([0, 1, 2, 3]))
                 """)
@@ -213,7 +213,7 @@ def test_standard_scaler():
                                        DagNodeDetails(None, ['A'], OptimizerInfo(RangeComparison(0, 200), (4, 1),
                                                                                  RangeComparison(0, 800))),
                                        OptionalCodeInfo(CodeReference(9, 10, 9, 44),
-                                                        "pd.DataFrame({'A': [1, 2, 10, 5]})"),
+                                                        "pd.DataFrame({'A': [1, 2, 10, 1]})"),
                                        Comparison(partial))
     expected_transformer_two = DagNode(3,
                                        BasicCodeLocation("<string-source>", 6),
@@ -258,10 +258,10 @@ def test_robust_scaler():
                 df = pd.DataFrame({'A': [1, 2, 10, 5]})
                 standard_scaler = RobustScaler()
                 encoded_data = standard_scaler.fit_transform(df)
-                test_df = pd.DataFrame({'A': [1, 2, 10, 5]})
+                test_df = pd.DataFrame({'A': [1, 2, 10, 1]})
                 encoded_data = standard_scaler.transform(test_df)
                 print(encoded_data)
-                expected = np.array([[-0.55555556], [-0.33333333], [ 1.44444444], [ 0.33333333]])
+                expected = np.array([[-0.55555556], [-0.33333333], [ 1.44444444], [-0.55555556]])
                 assert np.allclose(encoded_data, expected)
                 """)
 
@@ -295,7 +295,7 @@ def test_robust_scaler():
                                        DagNodeDetails(None, ['A'], OptimizerInfo(RangeComparison(0, 200), (4, 1),
                                                                                  RangeComparison(0, 800))),
                                        OptionalCodeInfo(CodeReference(8, 10, 8, 44),
-                                                        "pd.DataFrame({'A': [1, 2, 10, 5]})"),
+                                                        "pd.DataFrame({'A': [1, 2, 10, 1]})"),
                                        Comparison(partial))
     expected_transformer_two = DagNode(3,
                                        BasicCodeLocation("<string-source>", 6),
@@ -436,9 +436,9 @@ def test_function_transformer():
                 df = pd.DataFrame({'A': [1, 2, 10, 5]})
                 function_transformer = FunctionTransformer(lambda x: safe_log(x))
                 encoded_data = function_transformer.fit_transform(df)
-                test_df = pd.DataFrame({'A': [1, 2, 10, 5]})
+                test_df = pd.DataFrame({'A': [1, 2, 10, 1]})
                 encoded_data = function_transformer.transform(test_df)
-                expected = pd.DataFrame({'A': [0, 0, 2, 1]})
+                expected = pd.DataFrame({'A': [0, 0, 2, 0]})
                 pd.testing.assert_frame_equal(encoded_data.reset_index(drop=True), expected.reset_index(drop=True))
                 """)
 
@@ -474,7 +474,7 @@ def test_function_transformer():
                                        DagNodeDetails(None, ['A'], OptimizerInfo(RangeComparison(0, 200), (4, 1),
                                                                                  RangeComparison(0, 800))),
                                        OptionalCodeInfo(CodeReference(11, 10, 11, 44),
-                                                        "pd.DataFrame({'A': [1, 2, 10, 5]})"),
+                                                        "pd.DataFrame({'A': [1, 2, 10, 1]})"),
                                        Comparison(partial))
     expected_transformer_two = DagNode(3,
                                        BasicCodeLocation("<string-source>", 9),
@@ -520,9 +520,9 @@ def test_kbins_discretizer():
                 df = pd.DataFrame({'A': [1, 2, 10, 5]})
                 discretizer = KBinsDiscretizer(n_bins=3, encode='ordinal', strategy='uniform')
                 encoded_data = discretizer.fit_transform(df)
-                test_df = pd.DataFrame({'A': [1, 2, 10, 5]})
+                test_df = pd.DataFrame({'A': [1, 2, 10, 1]})
                 encoded_data = discretizer.transform(test_df)
-                expected = np.array([[0.], [0.], [2.], [1.]])
+                expected = np.array([[0.], [0.], [2.], [0.]])
                 assert np.allclose(encoded_data, expected)
                 """)
 
@@ -557,7 +557,7 @@ def test_kbins_discretizer():
                                        DagNodeDetails(None, ['A'], OptimizerInfo(RangeComparison(0, 200), (4, 1),
                                                                                  RangeComparison(0, 800))),
                                        OptionalCodeInfo(CodeReference(8, 10, 8, 44),
-                                                        "pd.DataFrame({'A': [1, 2, 10, 5]})"),
+                                                        "pd.DataFrame({'A': [1, 2, 10, 1]})"),
                                        Comparison(partial))
     expected_transformer_two = DagNode(3,
                                        BasicCodeLocation("<string-source>", 6),
@@ -604,9 +604,9 @@ def test_simple_imputer():
                 df = pd.DataFrame({'A': ['cat_a', np.nan, 'cat_a', 'cat_c']})
                 imputer = SimpleImputer(missing_values=np.nan, strategy='most_frequent')
                 imputed_data = imputer.fit_transform(df)
-                test_df = pd.DataFrame({'A': ['cat_a', np.nan, 'cat_a', 'cat_c']})
+                test_df = pd.DataFrame({'A': ['cat_a', np.nan, 'cat_a', 'cat_d']})
                 imputed_data = imputer.transform(test_df)
-                expected = np.array([['cat_a'], ['cat_a'], ['cat_a'], ['cat_c']])
+                expected = np.array([['cat_a'], ['cat_a'], ['cat_a'], ['cat_d']])
                 assert np.array_equal(imputed_data, expected)
                 """)
 
@@ -642,7 +642,7 @@ def test_simple_imputer():
                                        DagNodeDetails(None, ['A'], OptimizerInfo(RangeComparison(0, 200), (4, 1),
                                                                                  RangeComparison(0, 800))),
                                        OptionalCodeInfo(CodeReference(8, 10, 8, 66),
-                                                        "pd.DataFrame({'A': ['cat_a', np.nan, 'cat_a', 'cat_c']})"),
+                                                        "pd.DataFrame({'A': ['cat_a', np.nan, 'cat_a', 'cat_d']})"),
                                        Comparison(partial))
     expected_transformer_two = DagNode(3,
                                        BasicCodeLocation("<string-source>", 6),
@@ -691,7 +691,7 @@ def test_one_hot_encoder_not_sparse():
                 expected = np.array([[1., 0., 0.], [0., 1., 0.], [1., 0., 0.], [0., 0., 1.]])
                 print(encoded_data)
                 assert np.allclose(encoded_data, expected)
-                test_df = pd.DataFrame({'A': ['cat_a', 'cat_b', 'cat_a', 'cat_c']})
+                test_df = pd.DataFrame({'A': ['cat_a', 'cat_b', 'cat_a', 'cat_b']})
                 encoded_data = one_hot_encoder.transform(test_df)
                 """)
 
@@ -726,7 +726,7 @@ def test_one_hot_encoder_not_sparse():
                                        DagNodeDetails(None, ['A'], OptimizerInfo(RangeComparison(0, 200), (4, 1),
                                                                                  RangeComparison(0, 800))),
                                        OptionalCodeInfo(CodeReference(11, 10, 11, 67),
-                                                        "pd.DataFrame({'A': ['cat_a', 'cat_b', 'cat_a', 'cat_c']})"),
+                                                        "pd.DataFrame({'A': ['cat_a', 'cat_b', 'cat_a', 'cat_b']})"),
                                        Comparison(partial))
     expected_transformer_two = DagNode(3,
                                        BasicCodeLocation("<string-source>", 6),
@@ -826,7 +826,7 @@ def test_hashing_vectorizer():
                 encoded_data = vectorizer.fit_transform(df['A'])
                 expected = csr_matrix([[-0., 0., 0., -1.], [0., -1., -0., 0.], [0., 0., 0., -1.], [0., 0., 0., -1.]])
                 assert np.allclose(encoded_data.A, expected.A)
-                test_df = pd.DataFrame({'A': ['cat_a', 'cat_b', 'cat_a', 'cat_c']})
+                test_df = pd.DataFrame({'A': ['cat_a', 'cat_b', 'cat_a', 'cat_d']})
                 encoded_data = vectorizer.transform(test_df['A'])
                 """)
 
@@ -1005,7 +1005,7 @@ def test_column_transformer_one_transformer_single_column_projection():
                 encoded_data = column_transformer.fit_transform(df)
                 expected = csr_matrix([[-0., 0., 0., -1.], [0., -1., -0., 0.], [0., 0., 0., -1.], [0., 0., 0., -1.]])
                 assert np.allclose(encoded_data.A, expected.A)
-                test_df = pd.DataFrame({'A': ['cat_a', 'cat_b', 'cat_a', 'cat_c'],  'B': [1, 2, 10, 5]})
+                test_df = pd.DataFrame({'A': ['cat_a', 'cat_b', 'cat_a', 'cat_c'],  'B': [1, 2, 10, 1]})
                 encoded_data = column_transformer.transform(test_df)
                 """)
 
@@ -1338,10 +1338,10 @@ def test_column_transformer_transform_after_fit_transform():
                     ('categorical', OneHotEncoder(sparse_output=True), ['B'])
                 ])
                 encoded_data = column_transformer.fit_transform(df)
-                test_df = pd.DataFrame({'A': [1, 2, 10, 5], 'B': ['cat_a', 'cat_b', 'cat_a', 'cat_c']})
+                test_df = pd.DataFrame({'A': [1, 2, 10, 1], 'B': ['cat_a', 'cat_b', 'cat_a', 'cat_c']})
                 encoded_data = column_transformer.transform(test_df)
                 expected = numpy.array([[-1., 1., 0., 0.], [-0.71428571, 0., 1., 0.], [ 1.57142857, 1., 0., 0.], 
-                    [0.14285714, 0., 0., 1.]])
+                    [-1., 0., 0., 1.]])
                 print(encoded_data)
                 assert numpy.allclose(encoded_data, expected)
                 """)
@@ -1359,7 +1359,7 @@ def test_column_transformer_transform_after_fit_transform():
                                    DagNodeDetails(None, ['A', 'B'], OptimizerInfo(RangeComparison(0, 200), (4, 2),
                                                                                   RangeComparison(0, 800))),
                                    OptionalCodeInfo(CodeReference(13, 10, 13, 87),
-                                                    "pd.DataFrame({'A': [1, 2, 10, 5], "
+                                                    "pd.DataFrame({'A': [1, 2, 10, 1], "
                                                     "'B': ['cat_a', 'cat_b', 'cat_a', 'cat_c']})"),
                                    Comparison(partial))
     expected_projection_1 = DagNode(7,

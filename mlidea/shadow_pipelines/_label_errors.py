@@ -554,6 +554,10 @@ class LabelErrors(ShadowPipeline):
             modified_encoded_train_labels[unfair_indices] = 1 - modified_encoded_train_labels[unfair_indices]
             if is_bool:
                 modified_encoded_train_labels = modified_encoded_train_labels.astype(bool)
-        else:
+        elif modified_encoded_train_labels.ndim == 2:
             modified_encoded_train_labels[unfair_indices, :] = 1 - modified_encoded_train_labels[unfair_indices, :]
+        elif modified_encoded_train_labels.ndim == 1:
+            modified_encoded_train_labels[unfair_indices] = 1 - modified_encoded_train_labels[unfair_indices]
+        else:
+            raise NotImplementedError("TODO")
         return modified_encoded_train_labels

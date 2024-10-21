@@ -129,7 +129,7 @@ class SklearnModelSelectionPatching:
                                     operator_context,
                                     DagNodeDetails(None, columns, optimizer_info),
                                     get_optional_code_info_or_none(optional_code_reference, optional_source_code),
-                                    train_test_split_and_wrapping)
+                                    prov_func_w_wrapping)
             add_dag_node(main_dag_node, [input_info.dag_node],
                          FunctionCallResult(result))
 
@@ -738,7 +738,7 @@ class SklearnCountVectorizerPatching:
             operator_call_info = OperatorCallInfo(operator_context, [transformer_dag_node, input_info.dag_node])
             orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
             initial_func = partial(orig_func_prov, self, input_info.annotated_dfobject.result_data)
-            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, singleton, operator_call_info, initial_func)
+            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, initial_func)
             dag_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                BasicCodeLocation(self.mlinspect_caller_filename, self.mlinspect_lineno),
                                operator_context,
@@ -3022,12 +3022,13 @@ class SklearnDummyClassifierPatching:
             function_call_result = FunctionCallResult(result_predict)
             add_dag_node(dag_node_predict, [estimator_dag_node, test_data_node], function_call_result)
 
-            initial_func_score = partial(processing_func_score, result_predict, test_labels_result)
-            optimizer_info_score, result_score = capture_optimizer_info(singleton, operator_call_info, initial_func_score)
             non_data_kwargs = get_simple_non_data_kwargs(**kwargs)
             operator_context_score = OperatorContext(OperatorType.SCORE, function_info, non_data_kwargs)
             operator_call_info_score = OperatorCallInfo(operator_context_score,
                                                           [dag_node_predict, test_labels_node])
+            initial_func_score = partial(processing_func_score, result_predict, test_labels_result)
+            optimizer_info_score, result_score = capture_optimizer_info(singleton, operator_call_info_score,
+                                                                        initial_func_score)
             dag_node_score = DagNode(singleton.get_next_op_id(operator_call_info_score),
                                      BasicCodeLocation(caller_filename, lineno),
                                      operator_context_score,

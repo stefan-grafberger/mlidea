@@ -86,9 +86,11 @@ class PermutationFeatureImportance(WhatIfAnalysis):
         #  https://stackoverflow.com/questions/3431676/creating-functions-in-a-loop
         description = f"Permute '{column}' randomly"
         permute_columns_with_proper_bindings = wrap_filter_func(partial(permute_columns, column=column))
-        new_permutation_node = DagNode(singleton.get_next_op_id(),
+        operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, None, {'column': column})
+        # FIXME: This shouldn't use None
+        new_permutation_node = DagNode(singleton.get_next_op_id(None),
                                        BasicCodeLocation("DataCorruption", None),
-                                       OperatorContext(OperatorType.PROJECTION_MODIFY, None, {'column': column}),
+                                       operator_context,
                                        DagNodeDetails(description, None),
                                        None,
                                        permute_columns_with_proper_bindings)

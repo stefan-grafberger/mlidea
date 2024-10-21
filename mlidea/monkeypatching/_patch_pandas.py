@@ -147,7 +147,7 @@ class DataFramePatching:
             operator_call_info = OperatorCallInfo(operator_context, [])
             op_id = singleton.get_next_op_id(operator_call_info)
             process_func = wrap_data_source_func(partial(original, cls, *args, **kwargs), op_id=op_id)
-            optimizer_info, result = capture_optimizer_info(process_func)
+            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, process_func)
 
             columns = list(result.columns)
             dag_node = DagNode(op_id,
