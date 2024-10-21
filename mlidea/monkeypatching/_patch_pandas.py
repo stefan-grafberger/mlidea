@@ -442,7 +442,7 @@ class DataFramePatching:
             # No input_infos copy needed because it's only a selection and the rows not being removed don't change
             processing_func = wrap_projection_func(lambda df: original(df, *args, **kwargs))
             initial_func = partial(processing_func, input_info.annotated_dfobject.result_data)
-            optimizer_info, result = capture_optimizer_info(initial_func, self)
+            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, initial_func, self)
             if isinstance(args[0], dict):
                 raise NotImplementedError("TODO: Add support for replace with dicts")
             description = f"Replace '{args[0]}' with '{args[1]}'"
@@ -746,7 +746,7 @@ class SeriesPatching:
             def initial_func_prov():
                 initial_func()
                 generate_and_add_provenance_data_source(self, op_id=op_id)
-            optimizer_info, _ = capture_optimizer_info(initial_func_prov, self)
+            optimizer_info, _ = capture_optimizer_info(singleton, operator_call_info, initial_func_prov, self)
             result = self
 
             process_func = wrap_data_source_func(partial(pandas.Series, *args, **kwargs), op_id=op_id)
