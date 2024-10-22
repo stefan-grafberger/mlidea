@@ -3,7 +3,6 @@ from copy import copy
 from enum import Enum
 from functools import partial
 from inspect import getframeinfo, currentframe
-from pathlib import Path
 
 import duckdb
 import networkx
@@ -15,15 +14,14 @@ from fairlearn.metrics import MetricFrame
 from sklearn.linear_model import SGDClassifier
 from sklearn.preprocessing import FunctionTransformer
 
+from mlidea.instrumentation._dag_node import DagNode, OperatorContext, DagNodeDetails, BasicCodeLocation
 from mlidea.instrumentation._operator_call_info import OperatorCallInfo
 from mlidea.instrumentation._operator_types import ConditionalResult, FunctionInfo
-from mlidea.instrumentation._dag_node import DagNode, OperatorContext, DagNodeDetails, BasicCodeLocation
 from mlidea.instrumentation._operator_types import OperatorType
-from mlidea.shadow_pipelines.cached_text_transformer import CachedTextTransformer
 from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
 from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
 from mlidea.monkeypatching._provenance_propagation import wrap_projection_func
-from utils import get_project_root
+from mlidea.shadow_pipelines.cached_text_transformer import CachedTextTransformer
 
 
 def get_intermediate_extraction_node(singleton, dag, dag_node, label: str):
@@ -713,20 +711,22 @@ def prov_join_node_with_data_sources(singleton, data_sources_with_sensitive_colu
     return concat_node
 
 
-def get_proxy_model_node(executor_singleton, old_estimator_node, parent_nodes):
-    model_function = partial(SGDClassifier, loss='log_loss', max_iter=30, n_jobs=1)
+def get_proxy_model_node(executor_singleton, dag, parent_nodes):
+    non_data_kwargs = {'loss': 'log_loss', 'max_iter': 30, 'n_jobs': 1}
+    model_function = partial(SGDClassifier, **non_data_kwargs)
     new_processing_func = partial(_fit_model_variant, make_classifier_func=model_function)
     new_description = "Fast proxy model"
-    operator_context = old_estimator_node.operator_info
-    # TODO: Use new FunctionInfo
+    operator_context = OperatorContext(OperatorType.ESTIMATOR,
+                                       FunctionInfo('sklearn.linear_model._stochastic_gradient', 'SGDClassifier'),
+                                       non_data_kwargs)
     operator_call_info = OperatorCallInfo(operator_context, parent_nodes)
     new_estimator_node = DagNode(executor_singleton.get_next_op_id(operator_call_info),
-                                 old_estimator_node.code_location,
+                                 get_basic_code_location_for_current_line(),
                                  operator_context,
-                                 DagNodeDetails(new_description, old_estimator_node.details.columns,
-                                                old_estimator_node.details.optimizer_info),
-                                 old_estimator_node.optional_code_info,
+                                 DagNodeDetails(new_description, None, None),
+                                 None,
                                  new_processing_func)
+    add_parent_node_edges(dag, new_estimator_node, parent_nodes)
     return new_estimator_node
 
 

@@ -186,11 +186,11 @@ class LabelErrors(ShadowPipeline):
         new_dag.add_edge(likely_mislabeled_rows_condition_node, new_label_flip_node, arg_index=4)
         if self._proxy_model is False:
             new_model_node = copy_node_with_new_id(singleton, model_operators[0])
+            new_dag.add_edge(train_data_operators[0], new_model_node, arg_index=0)
+            new_dag.add_edge(new_label_flip_node, new_model_node, arg_index=1)
         else:
             parent_nodes = [train_data_operators[0], new_label_flip_node]
-            new_model_node = get_proxy_model_node(singleton, model_operators[0], parent_nodes)
-        new_dag.add_edge(train_data_operators[0], new_model_node, arg_index=0)
-        new_dag.add_edge(new_label_flip_node, new_model_node, arg_index=1)
+            new_model_node = get_proxy_model_node(singleton, new_dag, parent_nodes)
         new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
         new_dag.add_edge(new_model_node, new_predict_node, arg_index=0)
         new_dag.add_edge(test_data_operators[0], new_predict_node, arg_index=1)
@@ -203,10 +203,7 @@ class LabelErrors(ShadowPipeline):
                                              train_labels_operators):
         if self._proxy_model is True:
             parent_nodes = [train_data_operators[0], train_labels_operators[0], likely_mislabeled_rows_condition_node]
-            new_model_node = get_proxy_model_node(singleton, model_operators[0], parent_nodes)
-            new_dag.add_edge(train_data_operators[0], new_model_node, arg_index=0)
-            new_dag.add_edge(train_labels_operators[0], new_model_node, arg_index=1)
-            new_dag.add_edge(likely_mislabeled_rows_condition_node, new_model_node, arg_index=2)
+            new_model_node = get_proxy_model_node(singleton, new_dag, parent_nodes)
 
             new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
             new_dag.add_edge(new_model_node, new_predict_node, arg_index=0)
