@@ -23,7 +23,7 @@ from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
 from mlidea.monkeypatching._provenance_propagation import wrap_projection_func
 
 
-def get_intermediate_extraction_node(singleton, dag_node, label: str):
+def get_intermediate_extraction_node(singleton, dag, dag_node, label: str):
     """Add a new node behind some given node to extract the intermediate result of that given node"""
 
     def extract_intermediate(intermediate_value):
@@ -36,6 +36,7 @@ def get_intermediate_extraction_node(singleton, dag_node, label: str):
                                   DagNodeDetails(None, dag_node.details.columns),
                                   None,
                                   extract_intermediate)
+    dag.add_edge(dag_node, new_extraction_node, arg_index=0)
     return new_extraction_node
 
 
@@ -398,9 +399,7 @@ def get_relative_score_change(*old_scores_and_new_scores, max_not_min=True):
 
 def add_orig_score_extraction_nodes(singleton, new_dag, score_operators):
     for score_index, score_operator in enumerate(score_operators):
-        orig_extraction_node = get_intermediate_extraction_node(singleton, score_operator,
-                                                                f"orig-{score_index}")
-        new_dag.add_edge(score_operator, orig_extraction_node, arg_index=0)
+        _ = get_intermediate_extraction_node(singleton, new_dag, score_operator, f"orig-{score_index}")
 
 
 def apply_diff_filter(input_df, corrupted_index):
@@ -579,9 +578,7 @@ def add_new_score_and_score_extraction_nodes(singleton, new_dag, new_predict_nod
             # TODO: There might be shadow pipeline edge cases where this does not work without further work
             new_dag.add_edge(parent, new_score_node, arg_index=parent_index + 1)
 
-        retrain_extraction_node = get_intermediate_extraction_node(singleton, new_score_node,
-                                                                   f"{label_prefix}-{score_index}")
-        new_dag.add_edge(new_score_node, retrain_extraction_node, arg_index=0)
+        _ = get_intermediate_extraction_node(singleton, new_dag, new_score_node, f"{label_prefix}-{score_index}")
     return new_score_nodes
 
 

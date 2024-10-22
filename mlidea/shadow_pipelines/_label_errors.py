@@ -241,8 +241,7 @@ class LabelErrors(ShadowPipeline):
         new_dag.add_edge(train_labels_operators[0], new_shapley_node, arg_index=1)
         new_dag.add_edge(test_data_operators[0], new_shapley_node, arg_index=2)
         new_dag.add_edge(test_labels_operators[0], new_shapley_node, arg_index=3)
-        extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node, "label-errors-shapley-values")
-        new_dag.add_edge(new_shapley_node, extraction_node, arg_index=0)
+        _ = get_intermediate_extraction_node(singleton, new_dag, new_shapley_node, "label-errors-shapley-values")
         return new_shapley_node
 
     def _add_label_flip_computation_llm(self, likely_mislabeled_rows_condition_node, new_dag, new_shapley_node,
@@ -324,8 +323,7 @@ class LabelErrors(ShadowPipeline):
         new_dag.add_edge(train_labels_before_dict, new_shapley_node, arg_index=1)
         new_dag.add_edge(test_data_operators[0], new_shapley_node, arg_index=2)
         new_dag.add_edge(test_labels_operators[0], new_shapley_node, arg_index=3)
-        extraction_node = get_intermediate_extraction_node(singleton, new_shapley_node, "label-errors-shapley-values")
-        new_dag.add_edge(new_shapley_node, extraction_node, arg_index=0)
+        _ = get_intermediate_extraction_node(singleton, new_dag, new_shapley_node, "label-errors-shapley-values")
         return new_shapley_node
 
     @staticmethod

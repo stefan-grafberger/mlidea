@@ -223,14 +223,12 @@ class FairnessSlices(ShadowPipeline):
                                             rag_join_operators, score_operators):
         parents = [data_parent, new_fix_diff_node]
         new_unmodified_fix_filter_node = get_diff_filter_node(singleton, new_dag, "Fairness Slices", parents)
-        extraction_node = get_intermediate_extraction_node(singleton, new_unmodified_fix_filter_node,
-                                                           f"fairness-slices-data-to-fix-{fix_strategy_index}")
-        new_dag.add_edge(new_unmodified_fix_filter_node, extraction_node, arg_index=0)
+        _ = get_intermediate_extraction_node(singleton, new_dag, new_unmodified_fix_filter_node,
+                                             f"fairness-slices-data-to-fix-{fix_strategy_index}")
         parents = [new_fix_node, new_fix_diff_node, conditional_fix_function_made_changes_node]
         new_fix_diff_filter_node = get_diff_filter_node(singleton, new_dag, "Data Errors", parents)
-        extraction_node = get_intermediate_extraction_node(singleton, new_fix_diff_filter_node,
-                                                           f"fairness-slice-fixing-diff-{fix_strategy_index}")
-        new_dag.add_edge(new_fix_diff_filter_node, extraction_node, arg_index=0)
+        _ = get_intermediate_extraction_node(singleton, new_dag, new_fix_diff_filter_node,
+                                             f"fairness-slice-fixing-diff-{fix_strategy_index}")
         # Evaluate with updated data
         # Operator to get the rag join results
         description = "RAG join for test set diff"
@@ -294,14 +292,12 @@ class FairnessSlices(ShadowPipeline):
                                            score_operators):
         parents = [data_parent, new_fix_diff_node]
         new_unmodified_fix_filter_node = get_diff_filter_node(singleton, new_dag, "Fairness Slices", parents)
-        extraction_node = get_intermediate_extraction_node(singleton, new_unmodified_fix_filter_node,
-                                                           f"fairness-slices-data-to-fix-{fix_strategy_index}")
-        new_dag.add_edge(new_unmodified_fix_filter_node, extraction_node, arg_index=0)
+        _ = get_intermediate_extraction_node(singleton, new_dag, new_unmodified_fix_filter_node,
+                                             f"fairness-slices-data-to-fix-{fix_strategy_index}")
         parents = [new_fix_node, new_fix_diff_node, conditional_fix_function_made_changes_node]
         new_fix_diff_filter_node = get_diff_filter_node(singleton, new_dag, "Data Errors", parents)
-        extraction_node = get_intermediate_extraction_node(singleton, new_fix_diff_filter_node,
-                                                           f"fairness-slice-fixing-diff-{fix_strategy_index}")
-        new_dag.add_edge(new_fix_diff_filter_node, extraction_node, arg_index=0)
+        _ = get_intermediate_extraction_node(singleton, new_dag, new_fix_diff_filter_node,
+                                             f"fairness-slice-fixing-diff-{fix_strategy_index}")
         # Evaluate with updated data
         old_copied_nodes, new_nodes = duplicate_descendants(
             dag, new_dag, data_parent, new_fix_diff_filter_node, singleton)
@@ -362,9 +358,8 @@ class FairnessSlices(ShadowPipeline):
         new_dag.add_edge(concat_node, new_slice_finder_node, arg_index=0)
         new_dag.add_edge(test_labels_operators[0], new_slice_finder_node, arg_index=1)
         new_dag.add_edge(predict_operators[0], new_slice_finder_node, arg_index=2)
-        extraction_node = get_intermediate_extraction_node(singleton, new_slice_finder_node,
-                                                           "fairness-slices-slice-line-result")
-        new_dag.add_edge(new_slice_finder_node, extraction_node, arg_index=0)
+        _ = get_intermediate_extraction_node(singleton, new_dag, new_slice_finder_node,
+                                             "fairness-slices-slice-line-result")
         return new_slice_finder_node
 
     def generate_final_report(self, extracted_plan_results: dict[str, any]) -> any:
