@@ -337,9 +337,7 @@ class FairnessSlices(ShadowPipeline):
         new_dag.add_edge(data_parent, new_fix_node, arg_index=0)
         new_dag.add_edge(slice_finder_indices_node, new_fix_node, arg_index=1)
         parents = [data_parent, new_fix_node]
-        new_fix_diff_node = get_changed_indices_node(singleton, "Fairness Slices", parents)
-        new_dag.add_edge(data_parent, new_fix_diff_node, arg_index=0)
-        new_dag.add_edge(new_fix_node, new_fix_diff_node, arg_index=1)
+        new_fix_diff_node = get_changed_indices_node(singleton, new_dag, "Fairness Slices", parents)
         return new_fix_diff_node, new_fix_node
 
     def _add_slice_finder_computation(self, data_sources_with_sensitive_columns, new_dag, predict_operators,

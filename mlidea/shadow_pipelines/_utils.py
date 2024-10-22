@@ -536,7 +536,7 @@ def add_parent_node_edges(dag, node_with_parents, parents):
         dag.add_edge(parent, node_with_parents, arg_index=arg_index)
 
 
-def get_changed_indices_node(singleton, shadow_pipeline_name, parent_nodes):
+def get_changed_indices_node(singleton, dag, shadow_pipeline_name, parent_nodes):
     description = "Detect changed indices"
     non_data_kwargs = {'description': description,
                        'func': changed_data_diff_detection}
@@ -548,6 +548,7 @@ def get_changed_indices_node(singleton, shadow_pipeline_name, parent_nodes):
                                        DagNodeDetails(description, None),
                                        None,
                                        changed_data_diff_detection)
+    add_parent_node_edges(dag, new_changed_indices_node, parent_nodes)
     return new_changed_indices_node
 
 

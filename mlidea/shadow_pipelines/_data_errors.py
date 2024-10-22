@@ -325,9 +325,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                            f"data-errors-corruption-diff-fix-{data_type_index}")
         new_dag.add_edge(fix_node_to_extract, extraction_node, arg_index=0)
         parents = [corruption_node, new_fix_node]
-        new_fix_diff_indices_node = get_changed_indices_node(singleton, "Data Errors", parents)
-        new_dag.add_edge(corruption_node, new_fix_diff_indices_node, arg_index=0)
-        new_dag.add_edge(new_fix_node, new_fix_diff_indices_node, arg_index=1)
+        new_fix_diff_indices_node = get_changed_indices_node(singleton, new_dag, "Data Errors", parents)
         return new_fix_diff_indices_node, new_fix_node
 
     def _get_corruption_significant_conditional_node(self, data_type_index, new_dag, new_score_nodes, score_operators):
@@ -363,9 +361,7 @@ class DataErrorRobustness(ShadowPipeline):
                                       processing_func)
         new_dag.add_edge(data_parent, new_corruption_node, arg_index=0)
         parents = [data_parent, new_corruption_node]
-        new_corruption_diff_node = get_changed_indices_node(singleton, "Data Errors", parents)
-        new_dag.add_edge(data_parent, new_corruption_diff_node, arg_index=0)
-        new_dag.add_edge(new_corruption_node, new_corruption_diff_node, arg_index=1)
+        new_corruption_diff_node = get_changed_indices_node(singleton, new_dag, "Data Errors", parents)
         return new_corruption_diff_node, new_corruption_node
 
     def _add_fix_computation_llm(self,
