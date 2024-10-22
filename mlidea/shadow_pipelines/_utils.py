@@ -2,6 +2,8 @@ import warnings
 from copy import copy
 from enum import Enum
 from functools import partial
+from inspect import getframeinfo, currentframe
+from pathlib import Path
 
 import duckdb
 import networkx
@@ -14,13 +16,14 @@ from sklearn.linear_model import SGDClassifier
 from sklearn.preprocessing import FunctionTransformer
 
 from mlidea.instrumentation._operator_call_info import OperatorCallInfo
-from mlidea.instrumentation._operator_types import ConditionalResult
+from mlidea.instrumentation._operator_types import ConditionalResult, FunctionInfo
 from mlidea.instrumentation._dag_node import DagNode, OperatorContext, DagNodeDetails, BasicCodeLocation
 from mlidea.instrumentation._operator_types import OperatorType
 from mlidea.shadow_pipelines.cached_text_transformer import CachedTextTransformer
 from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
 from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
 from mlidea.monkeypatching._provenance_propagation import wrap_projection_func
+from utils import get_project_root
 
 
 def get_intermediate_extraction_node(singleton, dag, dag_node, label: str):
@@ -275,7 +278,16 @@ def filter_estimator_transformer_edges(parent, child):
     return not is_transformer_edge
 
 
-def get_conditional_stop_node(singleton, condition_func, label, description, parent_node):
+def get_basic_code_location_for_current_line():
+    frame_info = getframeinfo(currentframe().f_back)
+    return BasicCodeLocation(frame_info.filename, frame_info.lineno)
+
+
+def get_conditional_stop_node(singleton, dag, condition_func, function_info,
+                              label, description, parent_nodes, udf_kwargs=None):
+    if udf_kwargs is None:
+        udf_kwargs = {}
+
     def check_condition(bound_condition_func, bound_label, *inputs):
         condition_bool = bound_condition_func(*inputs)
         if condition_bool is True:
@@ -286,18 +298,17 @@ def get_conditional_stop_node(singleton, condition_func, label, description, par
         return result
 
     processing_func = partial(check_condition, condition_func, label)
-    non_data_kwargs = {
-        # 'condition_func': condition_func, # TODO: Clean this up to not rely on the description only
-        'label': label, 'description': description}
-    operator_context = OperatorContext(OperatorType.CONDITIONAL_STOP, None, non_data_kwargs)
-    operator_call_info = OperatorCallInfo(operator_context, [parent_node])
-    new_extraction_node = DagNode(singleton.get_next_op_id(operator_call_info),
-                                  parent_node.code_location,
-                                  operator_context,
-                                  DagNodeDetails(description, parent_node.details.columns),
-                                  None,
-                                  processing_func)
-    return new_extraction_node
+    non_data_kwargs = {'label': label, 'description': description, **udf_kwargs}
+    operator_context = OperatorContext(OperatorType.CONDITIONAL_STOP, function_info, non_data_kwargs)
+    operator_call_info = OperatorCallInfo(operator_context, parent_nodes)
+    new_conditional_node = DagNode(singleton.get_next_op_id(operator_call_info),
+                                   get_basic_code_location_for_current_line(),
+                                   operator_context,
+                                   DagNodeDetails(description, None),
+                                   None,
+                                   processing_func)
+    add_parent_node_edges(dag, new_conditional_node, parent_nodes)
+    return new_conditional_node
 
 
 class DataType(Enum):
@@ -674,7 +685,7 @@ def prov_join_node_with_data_sources(singleton, data_sources_with_sensitive_colu
 
         description = "Join on provenance"
         operator_context = OperatorContext(OperatorType.JOIN, None, {'description': description,
-                                                                      'func': prov_join_with_data_source})
+                                                                     'func': prov_join_with_data_source})
         operator_call_info = OperatorCallInfo(operator_context, [node_requiring_side_info, projection_node])
         join_node = DagNode(singleton.get_next_op_id(operator_call_info),
                             BasicCodeLocation("Fairness Slices", None),
@@ -762,3 +773,7 @@ def indices_filter_computation_for_duplicated_concat_inputs(singleton, changed_i
 
 def df_or_array_non_empty(df):
     return len(df) != 0
+
+
+def df_or_array_non_empty_func_info():
+    return FunctionInfo('mlidea.shadow_pipelines._utils', 'df_or_array_non_empty')

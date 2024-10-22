@@ -16,7 +16,8 @@ from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
     get_conditional_stop_node, get_relative_score_change, add_orig_score_extraction_nodes, \
     get_diff_filter_node, merge_prediction_diff_with_old_predictions, add_new_score_and_score_extraction_nodes, \
-    assert_standard_llm_shape, assert_standard_ml_shape, get_proxy_model_node, df_or_array_non_empty
+    assert_standard_llm_shape, assert_standard_ml_shape, get_proxy_model_node, df_or_array_non_empty, \
+    df_or_array_non_empty_func_info
 
 
 class LabelErrors(ShadowPipeline):
@@ -328,10 +329,10 @@ class LabelErrors(ShadowPipeline):
 
     @staticmethod
     def _get_likely_mislabeled_rows_present_condition_node(new_dag, new_shapley_node):
+        function_info = df_or_array_non_empty_func_info()
         likely_mislabeled_rows_condition_node = get_conditional_stop_node(
-            singleton, df_or_array_non_empty, "label-errors-shapley-values-non-empty",
-            "Check if there are likely mislabeled rows", new_shapley_node)
-        new_dag.add_edge(new_shapley_node, likely_mislabeled_rows_condition_node, arg_index=0)
+            singleton, new_dag, df_or_array_non_empty, function_info, "label-errors-shapley-values-non-empty",
+            "Check if there are likely mislabeled rows", [new_shapley_node])
         return likely_mislabeled_rows_condition_node
 
     @staticmethod

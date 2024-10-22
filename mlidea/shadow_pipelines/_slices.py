@@ -1,6 +1,7 @@
 from collections import defaultdict
 from enum import Enum
 from functools import partial
+from pathlib import Path
 
 import networkx
 import numpy
@@ -11,7 +12,7 @@ from sklearn.preprocessing import OneHotEncoder
 from sliceline import Slicefinder
 
 from mlidea.instrumentation._operator_call_info import OperatorCallInfo
-from mlidea import OperatorType, DagNode, BasicCodeLocation, OperatorContext, DagNodeDetails
+from mlidea import OperatorType, DagNode, BasicCodeLocation, OperatorContext, DagNodeDetails, FunctionInfo
 from mlidea.analysis._analysis_utils import find_nodes_by_type
 from mlidea.analysis._cleaning_methods import detect_outlier_interquartile_range
 from mlidea.execution._pipeline_executor import singleton
@@ -23,7 +24,8 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     DataType, get_translate_transformer, get_relative_score_change, add_orig_score_extraction_nodes, rag_join_update, \
     get_diff_filter_node, get_changed_indices_node, merge_prediction_diff_with_old_predictions, \
     add_new_score_and_score_extraction_nodes, assert_standard_llm_shape, assert_standard_ml_shape, \
-    prov_join_node_with_data_sources, indices_filter_computation_for_duplicated_concat_inputs, df_or_array_non_empty
+    prov_join_node_with_data_sources, indices_filter_computation_for_duplicated_concat_inputs, df_or_array_non_empty, \
+    df_or_array_non_empty_func_info
 
 
 class FixType(Enum):
@@ -118,7 +120,7 @@ class FairnessSlices(ShadowPipeline):
                                                                    predict_operators, test_data_operators,
                                                                    test_labels_operators)
 
-        conditional_slices_found_node = self._get_slice_found_conditional_node(new_dag, new_slice_finder_node)
+        conditional_slices_found_node = FairnessSlices._get_slice_found_conditional_node(new_dag, new_slice_finder_node)
 
         self._add_fix_computation_ml(conditional_slices_found_node, dag, new_dag, new_slice_finder_node,
                                      score_operators)
@@ -256,21 +258,25 @@ class FairnessSlices(ShadowPipeline):
 
     @staticmethod
     def get_fix_made_changes_conditional_node(fix_strategy_index, new_dag, new_fix_diff_node):
+        function_info = df_or_array_non_empty_func_info()
         conditional_fix_made_changes_node = get_conditional_stop_node(
-            singleton, df_or_array_non_empty,
+            singleton, new_dag, df_or_array_non_empty, function_info,
             f"fairness-slices-fixing-made-changes-{fix_strategy_index}",
-            "Check if fixing function made changes", new_fix_diff_node)
-        new_dag.add_edge(new_fix_diff_node, conditional_fix_made_changes_node, arg_index=1)
+            "Check if fixing function made changes", [new_fix_diff_node])
         return conditional_fix_made_changes_node
 
-    def _get_slice_found_conditional_node(self, new_dag, new_slice_finder_node):
-        problematic_slice_found_func = lambda slice_finder_result: (slice_finder_result[0] is not None and
-                                                                    slice_finder_result[1] is not None)
+    @staticmethod
+    def _get_slice_found_conditional_node(new_dag, new_slice_finder_node):
+        function_info = FunctionInfo(f"mlidea.shadow_pipelines._slices.FairnessSlices", 'problematic_slice_found_func')
         conditional_fix_made_changes_node = get_conditional_stop_node(
-            singleton, problematic_slice_found_func, "fairness-slices-slice-line-problematic-slice-found",
-            "Check if problematic slice was found", new_slice_finder_node)
-        new_dag.add_edge(new_slice_finder_node, conditional_fix_made_changes_node, arg_index=0)
+            singleton, new_dag, FairnessSlices.problematic_slice_found_func, function_info,
+            "fairness-slices-slice-line-problematic-slice-found",
+            "Check if problematic slice was found", [new_slice_finder_node])
         return conditional_fix_made_changes_node
+
+    @staticmethod
+    def problematic_slice_found_func(slice_finder_result):
+        return slice_finder_result[0] is not None and slice_finder_result[1] is not None
 
     @staticmethod
     def get_data_sources_to_sensitive_columns(dag, additional_column_names):

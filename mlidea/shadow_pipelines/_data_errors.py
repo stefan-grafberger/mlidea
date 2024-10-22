@@ -1,4 +1,5 @@
 from functools import partial
+from pathlib import Path
 
 import networkx
 import numpy
@@ -9,7 +10,7 @@ from jenga.corruptions.numerical import Scaling
 from sklearn.impute import SimpleImputer
 
 from mlidea.instrumentation._operator_call_info import OperatorCallInfo
-from mlidea import OperatorType, DagNode, BasicCodeLocation, OperatorContext, DagNodeDetails
+from mlidea import OperatorType, DagNode, BasicCodeLocation, OperatorContext, DagNodeDetails, FunctionInfo
 from mlidea.analysis._analysis_utils import find_nodes_by_type
 from mlidea.analysis._cleaning_methods import detect_outlier_interquartile_range
 from mlidea.execution._pipeline_executor import singleton
@@ -21,7 +22,7 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     get_relative_score_change, add_orig_score_extraction_nodes, rag_join_update, \
     get_diff_filter_node, get_changed_indices_node, merge_prediction_diff_with_old_predictions, \
     add_new_score_and_score_extraction_nodes, assert_standard_llm_shape, assert_standard_ml_shape, get_top_n_df_rows, \
-    indices_filter_computation_for_duplicated_concat_inputs, df_or_array_non_empty
+    indices_filter_computation_for_duplicated_concat_inputs, df_or_array_non_empty, df_or_array_non_empty_func_info
 
 
 class DataErrorRobustness(ShadowPipeline):
@@ -263,10 +264,11 @@ class DataErrorRobustness(ShadowPipeline):
 
     @staticmethod
     def conditional_corruption_changed_something_node(data_type_index, new_corruption_diff_node, new_dag):
+        function_info = df_or_array_non_empty_func_info()
         conditional_corruption_made_changes_node = get_conditional_stop_node(
-            singleton, df_or_array_non_empty, f"data-errors-corruption-made-changes-{data_type_index}",
-            "Check if corrupt function made changes", new_corruption_diff_node)
-        new_dag.add_edge(new_corruption_diff_node, conditional_corruption_made_changes_node, arg_index=1)
+            singleton, new_dag, df_or_array_non_empty, function_info,
+            f"data-errors-corruption-made-changes-{data_type_index}",
+            "Check if corrupt function made changes", [new_corruption_diff_node])
         return conditional_corruption_made_changes_node
 
     @staticmethod
@@ -293,10 +295,11 @@ class DataErrorRobustness(ShadowPipeline):
 
     @staticmethod
     def _get_fix_function_made_changes_conditional_node(data_type_index, new_dag, new_fix_diff_indices_node):
+        function_info = df_or_array_non_empty_func_info()
         conditional_fixes_changed_something_node = get_conditional_stop_node(
-            singleton, df_or_array_non_empty, f"data-errors-corruption-diff-fix-not-empty-{data_type_index}",
-            "Check if fix function made changes", new_fix_diff_indices_node)
-        new_dag.add_edge(new_fix_diff_indices_node, conditional_fixes_changed_something_node, arg_index=0)
+            singleton, new_dag, df_or_array_non_empty, function_info,
+            f"data-errors-corruption-diff-fix-not-empty-{data_type_index}",
+            "Check if fix function made changes", [new_fix_diff_indices_node])
         return conditional_fixes_changed_something_node
 
     def _add_fix_function_computation(self, conditional_corruption_significant_node, corruption_diff_node,
@@ -329,15 +332,14 @@ class DataErrorRobustness(ShadowPipeline):
     def _get_corruption_significant_conditional_node(self, data_type_index, new_dag, new_score_nodes, score_operators):
         condition_processing_func = partial(DataErrorRobustness.condition_corruption_significant_function,
                                             self._corruption_significant_relative_threshold)
+        parents = [*score_operators, *new_score_nodes]
+        function_info = FunctionInfo('mlidea.shadow_pipelines._data_errors.DataErrorRobustness',
+                                     'condition_corruption_significant_function')
         conditional_corruption_significant_node = get_conditional_stop_node(
-            singleton, condition_processing_func, f"data-errors-corruption-significant-{data_type_index}",
-            "Check if fix function made changes", new_score_nodes[0])
-        for score_index, score_operator in enumerate(score_operators):
-            new_dag.add_edge(score_operator, conditional_corruption_significant_node,
-                             arg_index=score_index)
-        for score_index, score_operator in enumerate(new_score_nodes):
-            new_dag.add_edge(score_operator, conditional_corruption_significant_node,
-                             arg_index=score_index + self.score_operator_count)
+            singleton, new_dag, condition_processing_func, function_info,
+            f"data-errors-corruption-significant-{data_type_index}",
+            "Check if fix function made changes", parents,
+            {'corruption_significant_relative_threshold': self._corruption_significant_relative_threshold})
         return conditional_corruption_significant_node
 
     def _add_corruption_func_computation(self, data_parent, data_type, new_dag):
