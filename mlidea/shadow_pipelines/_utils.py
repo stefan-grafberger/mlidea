@@ -41,15 +41,16 @@ def get_intermediate_extraction_node(singleton, dag, dag_node, label: str):
     return new_extraction_node
 
 
-def copy_node_with_new_id(singleton, dag_node):
-    # FIXME: don't copy nodes here
-    result = DagNode(singleton.get_next_op_id(None),
-                     dag_node.code_location,
-                     dag_node.operator_info,
-                     dag_node.details,
-                     dag_node.optional_code_info,
-                     dag_node.processing_func,
-                     dag_node.make_classifier_func)
+def copy_node_with_new_id(singleton, dag, dag_node_to_copy, new_parents):
+    operator_call_info = OperatorCallInfo(dag_node_to_copy.operator_info, new_parents)
+    result = DagNode(singleton.get_next_op_id(operator_call_info),
+                     dag_node_to_copy.code_location,
+                     dag_node_to_copy.operator_info,
+                     dag_node_to_copy.details,
+                     dag_node_to_copy.optional_code_info,
+                     dag_node_to_copy.processing_func,
+                     dag_node_to_copy.make_classifier_func)
+    add_parent_node_edges(dag, result, new_parents)
     return result
 
 
@@ -231,9 +232,11 @@ def get_typo_fixer(column):
     return typo_fixer
 
 
-def duplicate_descendants(original_dag, new_dag, original_node, modified_copy, singleton):
+def duplicate_descendants_and_filter_concat_inputs(singleton, original_dag, new_dag, original_node, modified_copy,
+                                                   changed_indices_node, conditional_node, shadow_pipeline_name):
     # Create a mapping of old nodes to new nodes
     mapping = {original_node: modified_copy}
+    all_new_nodes = {modified_copy}
 
     # Get all descendants of the original node (children and their children recursively)
     descendants = networkx.descendants(original_dag, original_node)
@@ -244,15 +247,24 @@ def duplicate_descendants(original_dag, new_dag, original_node, modified_copy, s
     for node in queue:
         if node.operator_info.operator != OperatorType.EXTRACT_RESULT:
             new_parents = []
-            if node.operator_info.operator not in {OperatorType.EXTRACT_RESULT, OperatorType.SCORE}:
+            if node.operator_info.operator == OperatorType.CONCATENATION:
+                for concat_parent in get_sorted_parent_nodes(original_dag, node):
+                    if concat_parent not in all_new_nodes:  # Old nodes need to be filtered first
+                        parents = [concat_parent, changed_indices_node, conditional_node]
+                        new_concat_parent_filter_node = get_diff_filter_node(singleton, new_dag, shadow_pipeline_name,
+                                                                             parents)
+                        new_parents.append(new_concat_parent_filter_node)
+                    else:  # New node is already filtered
+                        new_parents.append(concat_parent)
+            elif node.operator_info.operator not in {OperatorType.EXTRACT_RESULT, OperatorType.SCORE}:
                 for parent in get_sorted_parent_nodes(original_dag, node):
                     if parent in mapping:
                         new_parents.append(mapping[parent])
                     else:
                         new_parents.append(parent)
-            new_node = copy_node_with_new_id(singleton, node)
-            add_parent_node_edges(new_dag, new_node, new_parents)
+            new_node = copy_node_with_new_id(singleton, new_dag, node, new_parents)
             mapping[node] = new_node
+            all_new_nodes.add(new_node)
 
     return set(mapping.keys()), set(mapping.values())
 
@@ -571,14 +583,10 @@ def merge_prediction_diff_with_old_predictions(singleton, dag, shadow_pipeline_n
 def add_new_score_and_score_extraction_nodes(singleton, new_dag, new_predict_node, score_operators, label_prefix):
     new_score_nodes = []
     for score_index, score_operator in enumerate(score_operators):
-        new_score_node = copy_node_with_new_id(singleton, score_operator)
+        new_score_node = copy_node_with_new_id(singleton, new_dag, score_operator,
+                                               [new_predict_node,
+                                                *get_sorted_parent_nodes(new_dag, score_operator)[1:]])
         new_score_nodes.append(new_score_node)
-        new_dag.add_edge(new_predict_node, new_score_node, arg_index=0)
-        parents = get_sorted_parent_nodes(new_dag, score_operator)[1:]
-        for parent_index, parent in enumerate(parents):
-            # TODO: There might be shadow pipeline edge cases where this does not work without further work
-            new_dag.add_edge(parent, new_score_node, arg_index=parent_index + 1)
-
         _ = get_intermediate_extraction_node(singleton, new_dag, new_score_node, f"{label_prefix}-{score_index}")
     return new_score_nodes
 
@@ -741,26 +749,6 @@ def get_top_n_df_rows(corruption_diff_fix_df, sample_size):
     else:
         raise NotImplementedError("TODO")
     return corruption_diff_fix_df_sample
-
-
-def indices_filter_computation_for_duplicated_concat_inputs(singleton, changed_indices_node, conditional_node, new_dag,
-                                                            new_nodes, shadow_pipeline_name):
-    concats = [node for node in new_nodes if node.operator_info.operator == OperatorType.CONCATENATION]
-    if len(concats) > 1:
-        raise NotImplementedError(
-            "Currently, Label Errors only supports pipelines following a very specific "
-            "pattern!")
-    if len(concats) == 1:
-        for concat in concats:
-            concat_parents = get_sorted_parent_nodes(new_dag, concat)
-            for concat_parent in concat_parents:
-                if concat_parent not in new_nodes:
-                    edge_data = new_dag.get_edge_data(concat_parent, concat)
-                    new_dag.remove_edge(concat_parent, concat)
-                    parents = [concat_parent, changed_indices_node, conditional_node]
-                    new_concat_parent_filter_node = get_diff_filter_node(singleton, new_dag, shadow_pipeline_name,
-                                                                         parents)
-                    new_dag.add_edge(new_concat_parent_filter_node, concat, **edge_data)
 
 
 def df_or_array_non_empty(df):

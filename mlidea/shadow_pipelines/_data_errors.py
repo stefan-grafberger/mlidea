@@ -17,12 +17,12 @@ from mlidea.execution._pipeline_executor import singleton
 from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
-    get_typo_adder, duplicate_descendants, \
+    get_typo_adder, duplicate_descendants_and_filter_concat_inputs, \
     get_typo_fixer, get_conditional_stop_node, DataType, get_transformer_parents_with_data_types, \
     get_relative_score_change, add_orig_score_extraction_nodes, rag_join_update, \
     get_diff_filter_node, get_changed_indices_node, merge_prediction_diff_with_old_predictions, \
     add_new_score_and_score_extraction_nodes, assert_standard_llm_shape, assert_standard_ml_shape, get_top_n_df_rows, \
-    indices_filter_computation_for_duplicated_concat_inputs, df_or_array_non_empty, df_or_array_non_empty_func_info
+    df_or_array_non_empty, df_or_array_non_empty_func_info
 
 
 class DataErrorRobustness(ShadowPipeline):
@@ -243,11 +243,9 @@ class DataErrorRobustness(ShadowPipeline):
         _ = get_intermediate_extraction_node(singleton, new_dag, new_corruption_diff_filter_node,
                                              f"data-errors-corruption-diff-{data_type_index}")
 
-        old_copied_nodes, new_nodes = duplicate_descendants(
-            dag, new_dag, data_parent, new_corruption_diff_filter_node, singleton)
-        indices_filter_computation_for_duplicated_concat_inputs(
-            singleton, new_corruption_diff_node, conditional_corruption_made_changes_node, new_dag, new_nodes,
-            "Data Errors")
+        old_copied_nodes, new_nodes = duplicate_descendants_and_filter_concat_inputs(
+            singleton, dag, new_dag, data_parent, new_corruption_diff_filter_node, new_corruption_diff_node,
+            conditional_corruption_made_changes_node, "Data Errors")
 
         test_predict = [node for node in new_nodes
                         if node.operator_info.operator == OperatorType.PREDICT][0]
@@ -278,11 +276,11 @@ class DataErrorRobustness(ShadowPipeline):
                                            score_operators):
         parents = [new_fix_node, new_fix_diff_indices_node, conditional_fixes_changed_something_node]
         new_fix_diff_filter_node = get_diff_filter_node(singleton, new_dag, "Data Errors", parents)
-        _, new_nodes = duplicate_descendants(
-            dag, new_dag, data_parent, new_fix_diff_filter_node, singleton)
-        indices_filter_computation_for_duplicated_concat_inputs(
-            singleton, new_fix_diff_indices_node, conditional_fixes_changed_something_node, new_dag, new_nodes,
-            "Data Errors")
+
+        _, new_nodes = duplicate_descendants_and_filter_concat_inputs(
+            singleton, dag, new_dag, data_parent, new_fix_diff_filter_node, new_fix_diff_indices_node,
+            conditional_fixes_changed_something_node, "Data Errors")
+
         test_predict = [node for node in new_nodes
                         if node.operator_info.operator == OperatorType.PREDICT][0]
         prediction_filter_index_node = new_fix_diff_indices_node
@@ -416,8 +414,7 @@ class DataErrorRobustness(ShadowPipeline):
         new_dag.add_edge(rag_join_operators[0], new_rag_join_update_node, arg_index=0)
         new_dag.add_edge(new_corruption_diff_filter_node, new_rag_join_update_node, arg_index=1)
         # Duplicate predict operator and connect with rag join result update and prediction update
-        test_predict = copy_node_with_new_id(singleton, predict_operators[0])
-        new_dag.add_edge(new_rag_join_update_node, test_predict, arg_index=0)
+        test_predict = copy_node_with_new_id(singleton, new_dag, predict_operators[0], [new_rag_join_update_node])
         old_predict = predict_operators[0]
         parents = [old_predict, test_predict, new_corruption_diff_node, conditional_corruption_made_changes_node]
         new_corrupt_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, new_dag,
@@ -447,8 +444,7 @@ class DataErrorRobustness(ShadowPipeline):
         new_dag.add_edge(rag_join_operators[0], new_rag_join_update_node, arg_index=0)
         new_dag.add_edge(new_fix_diff_filter_node, new_rag_join_update_node, arg_index=1)
         # Duplicate predict operator and connect with rag join result update and prediction update
-        test_predict = copy_node_with_new_id(singleton, predict_operators[0])
-        new_dag.add_edge(new_rag_join_update_node, test_predict, arg_index=0)
+        test_predict = copy_node_with_new_id(singleton, new_dag, predict_operators[0], [new_rag_join_update_node])
         prediction_filter_index_node = new_fix_diff_indices_node
         parents = [corrupted_predictions_node, test_predict, prediction_filter_index_node,
                    conditional_fixes_changed_something_node]

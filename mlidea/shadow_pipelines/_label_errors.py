@@ -185,15 +185,13 @@ class LabelErrors(ShadowPipeline):
         new_dag.add_edge(new_shapley_node, new_label_flip_node, arg_index=1)
         new_dag.add_edge(likely_mislabeled_rows_condition_node, new_label_flip_node, arg_index=4)
         if self._proxy_model is False:
-            new_model_node = copy_node_with_new_id(singleton, model_operators[0])
-            new_dag.add_edge(train_data_operators[0], new_model_node, arg_index=0)
-            new_dag.add_edge(new_label_flip_node, new_model_node, arg_index=1)
+            new_model_node = copy_node_with_new_id(singleton, new_dag, model_operators[0],
+                                                   [train_data_operators[0], new_label_flip_node])
         else:
             parent_nodes = [train_data_operators[0], new_label_flip_node]
             new_model_node = get_proxy_model_node(singleton, new_dag, parent_nodes)
-        new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
-        new_dag.add_edge(new_model_node, new_predict_node, arg_index=0)
-        new_dag.add_edge(test_data_operators[0], new_predict_node, arg_index=1)
+        new_predict_node = copy_node_with_new_id(singleton, new_dag, predict_operators[0],
+                                                 [new_model_node, test_data_operators[0]])
         add_new_score_and_score_extraction_nodes(singleton, new_dag, new_predict_node, score_operators,
                                                  "label-errors-flip-retrain")
 
@@ -205,10 +203,9 @@ class LabelErrors(ShadowPipeline):
             parent_nodes = [train_data_operators[0], train_labels_operators[0], likely_mislabeled_rows_condition_node]
             new_model_node = get_proxy_model_node(singleton, new_dag, parent_nodes)
 
-            new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
-            new_dag.add_edge(new_model_node, new_predict_node, arg_index=0)
-            new_dag.add_edge(test_data_operators[0], new_predict_node, arg_index=1)
-            new_dag.add_edge(likely_mislabeled_rows_condition_node, new_predict_node, arg_index=2)
+            new_predict_node = copy_node_with_new_id(singleton, new_dag, predict_operators[0],
+                                                     [new_model_node, test_data_operators[0],
+                                                      likely_mislabeled_rows_condition_node])
             add_new_score_and_score_extraction_nodes(singleton, new_dag, new_predict_node, score_operators,
                                                      "label-errors-proxy")
 
@@ -282,8 +279,7 @@ class LabelErrors(ShadowPipeline):
         new_dag.add_edge(likely_mislabeled_rows_condition_node, new_label_flip_indices_node, arg_index=5)
         parents = [new_label_flip_node, new_label_flip_indices_node]
         new_fix_diff_filter_node = get_diff_filter_node(singleton, new_dag, "Data Errors", parents)
-        new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
-        new_dag.add_edge(new_fix_diff_filter_node, new_predict_node, arg_index=0)
+        new_predict_node = copy_node_with_new_id(singleton, new_dag, predict_operators[0], [new_fix_diff_filter_node])
         parents = [predict_operators[0], new_predict_node, new_label_flip_indices_node]
         new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, new_dag,
                                                                                       "Label Errors", parents)
