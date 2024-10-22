@@ -2,7 +2,6 @@
 Monkey patching for sklearn
 """
 import copy
-import dataclasses
 import warnings
 from collections.abc import Callable
 from functools import partial

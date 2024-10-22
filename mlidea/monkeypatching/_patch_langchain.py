@@ -35,7 +35,7 @@ from mlidea.monkeypatching._mlinspect_ndarray import MlideaChromaVectorStoreRetr
 from mlidea.monkeypatching._monkey_patching_utils import get_optional_code_info_or_none, \
     FunctionCallResult, add_dag_node, get_input_info, \
     add_test_data_dag_node, add_train_data_node, add_train_label_node, execute_patched_func_indirect_allowed, \
-    execute_patched_func_no_op_id, wrap_in_mlinspect_array_if_necessary, get_simple_non_data_kwargs
+    execute_patched_func_no_op_id, wrap_in_mlinspect_array_if_necessary
 
 
 class LangchainCallInfo:
