@@ -8,7 +8,7 @@ import networkx
 from numpy import argmin
 
 from mlidea.instrumentation._dag_node import DagNode
-from mlidea.instrumentation._operator_types import OperatorType
+from mlidea.instrumentation._operator_types import OperatorType, OperatorContext
 from mlidea.analysis._analysis_utils import find_dag_location_for_new_filter_on_column, get_sorted_parent_nodes, \
     get_sorted_children_nodes, get_columns_used_as_feature
 from mlidea.execution._patches import PipelinePatch, OperatorRemoval
@@ -24,6 +24,8 @@ class OperatorDeletionFilterPushUp(QueryOptimizationRule):
 
     def optimize_dag(self, dag: networkx.DiGraph, patches: list[list[PipelinePatch]]) -> \
             tuple[networkx.DiGraph, list[list[PipelinePatch]]]:
+        # TODO: If we want to enable cache reuse for WhatIf Analyses, we would need to update this function
+        #  and all code that depends on DAG changes. This is not a priority for now.
         # pylint: disable=too-many-locals
         # TODO: Clean this up a bit
         selectivity_and_filters_to_push_up = []
@@ -272,9 +274,16 @@ class OperatorDeletionFilterPushUp(QueryOptimizationRule):
 
         def get_new_dag_node_id_new_node_label(node: DagNode) -> DagNode:
             # FIXME: This shouldn't use None
-            return DagNode(self._pipeline_executor.get_next_op_id(None),
+            new_node_id = self._pipeline_executor.get_next_op_id(None)
+            new_non_data_kwargs = node.operator_info.non_data_kwargs.copy()
+            new_non_data_kwargs['old_node_id'] = node.node_id
+            new_non_data_kwargs['new_node_id'] = new_node_id
+            operator_context = OperatorContext(node.operator_info.operator,
+                                               node.operator_info.function_info,
+                                               new_non_data_kwargs)
+            return DagNode(new_node_id,
                            node.code_location,
-                           node.operator_info,
+                           operator_context,
                            node.details,
                            node.optional_code_info,
                            node.processing_func,

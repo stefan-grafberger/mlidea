@@ -7,7 +7,7 @@ from functools import partial
 import networkx
 import pandas
 
-from mlidea import OperatorType, DagNode, DagNodeDetails
+from mlidea import OperatorType, DagNode, DagNodeDetails, FunctionInfo, OperatorContext
 from mlidea.analysis._analysis_utils import find_nodes_by_type
 from mlidea.analysis._patch_creation import get_intermediate_extraction_patch_after_score_nodes
 from mlidea.analysis._what_if_analysis import WhatIfAnalysis
@@ -66,10 +66,15 @@ class ModelVariants(WhatIfAnalysis):
         estimator_node = estimator_nodes[0]
         new_processing_func = partial(self.fit_model_variant, make_classifier_func=model_function)
         new_description = f"Model Variant: {model_description}"
+        operator_context = OperatorContext(OperatorType.ESTIMATOR,
+                                           FunctionInfo("mlidea.analysis._model_variants.ModelVariants",
+                                                        "fit_model_variant"),
+                                           non_data_kwargs={'model_description': model_description,
+                                                            'model_function': model_function})
         # FIXME: This shouldn't use None
         new_estimator_node = DagNode(singleton.get_next_op_id(None),
                                      estimator_node.code_location,
-                                     estimator_node.operator_info,
+                                     operator_context,
                                      DagNodeDetails(new_description, estimator_node.details.columns,
                                                     estimator_node.details.optimizer_info),
                                      estimator_node.optional_code_info,

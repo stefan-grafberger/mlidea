@@ -73,6 +73,8 @@ class PipelineExecutor:
     cached_intermediates = {}
     old_dag = None
     operator_context_parents_to_result = {}
+    enable_caching = True
+    enable_cache_reuse = True
 
     def run(self, *,
             notebook_path: str or None = None,
@@ -203,6 +205,11 @@ class PipelineExecutor:
         """
         Execute the specified what-if analyses
         """
+        caching_status = self.enable_caching
+        cache_reuse_status = self.enable_cache_reuse
+        self.enable_caching = False  # We do not want to cache the large what-if intermediates
+        # TODO: The QueryOptimizationRule.optimize_dag function cannot deal with reuse yet
+        self.enable_cache_reuse = False
         for analysis in self.analyses:
             logger.info(f'Start plan generation for analysis {type(analysis).__name__}...')
             plan_generation_start = time.time()
@@ -234,10 +241,16 @@ class PipelineExecutor:
             self.analysis_results.runtime_info.what_if_execution_combined_model_training = sum(
                 analysis_estimator_runtimes)
 
-            if self.skip_optimizer is False:
-                for node in self.analysis_results.combined_optimized_dag.nodes:
-                    if node in self.operators_to_runtime_during_analysis:
-                        node.details.optimizer_info = self.operators_to_runtime_during_analysis[node]
+            # TODO: self.analysis_results.combined_optimized_dag currently only contains estimates.
+            #  However, ideally, we have both estimates and the true numbers. This is how we can compute the real
+            #  numbers. However, we have some tests that use the estimated numbers in combined_optimized_dag
+            #  currently to check if optimizations work. So, we would need to duplicate the combined_optimized_dag
+            #  to have a version with estimates and one with the actual numbers. However, this is not a priority for now
+            # if self.skip_optimizer is False:
+            #     for node in self.analysis_results.combined_optimized_dag.nodes:
+            #         if node in self.operators_to_runtime_during_analysis:
+            #             node.details.optimizer_info = self.operators_to_runtime_during_analysis[node]
+
             # Some debugging code to look at actual executon time of different operators in optimized plan
             # ops_with_runtimes = [(operator, optimizer_info.runtime) for operator, optimizer_info
             #                      in self.operators_to_runtime_during_analysis]
@@ -247,6 +260,8 @@ class PipelineExecutor:
             for analysis in self.analyses:
                 report = analysis.generate_final_report(self.labels_to_extracted_plan_results)
                 self.analysis_results.analysis_to_result_reports[analysis] = report
+        self.enable_caching = caching_status
+        self.enable_cache_reuse = cache_reuse_status
 
     def run_instrumented_pipeline(self, notebook_path, python_code, python_path):
         """
@@ -319,6 +334,8 @@ class PipelineExecutor:
         self.cached_intermediates = {}
         self.old_dag = None
         self.operator_context_parents_to_result = {}
+        self.enable_caching = True
+        self.enable_cache_reuse = True
 
     @staticmethod
     def instrument_pipeline(parsed_ast, track_code_references):

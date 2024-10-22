@@ -245,7 +245,8 @@ class UdfSplitAndReuse(QueryOptimizationRule):
         corrupt_df_with_proper_bindings = monkeypatching._provenance_propagation.wrap_projection_func(
             partial(corrupt_df, column=previous_patch.maybe_udf_split_info.column_name_to_corrupt))
         operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, None, {
-                                          'column': previous_patch.maybe_udf_split_info.column_name_to_corrupt})
+                                          'column': previous_patch.maybe_udf_split_info.column_name_to_corrupt,
+                                          'func': corrupt_df})
         # FIXME: This shouldn't use None
         new_corruption_node = DagNode(self._pipeline_executor.get_next_op_id(None),
                                       previous_patch.node_to_insert.code_location,
