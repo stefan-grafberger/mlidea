@@ -240,27 +240,19 @@ def duplicate_descendants(original_dag, new_dag, original_node, modified_copy, s
 
     # Create a queue to process each node in topological order (to handle dependencies)
     queue = list(networkx.topological_sort(original_dag.subgraph(descendants)))
-    # Iterate through all descendants and create a duplicate for each using your method
+    # Iterate through all descendants and create a duplicate for each
     for node in queue:
         if node.operator_info.operator != OperatorType.EXTRACT_RESULT:
+            new_parents = []
+            if node.operator_info.operator not in {OperatorType.EXTRACT_RESULT, OperatorType.SCORE}:
+                for parent in get_sorted_parent_nodes(original_dag, node):
+                    if parent in mapping:
+                        new_parents.append(mapping[parent])
+                    else:
+                        new_parents.append(parent)
             new_node = copy_node_with_new_id(singleton, node)
-
-            # Store the mapping of original to duplicate
+            add_parent_node_edges(new_dag, new_node, new_parents)
             mapping[node] = new_node
-
-    # Copy the edges from the original subgraph to the duplicate subgraph, maintaining edge attributes
-    for node in queue:
-        if node.operator_info.operator not in {OperatorType.EXTRACT_RESULT, OperatorType.SCORE}:
-            new_node = mapping[node]
-
-            # Replicate edges from the original parents to the new duplicate nodes, preserving edge attributes
-            for parent in original_dag.predecessors(node):
-                if parent in mapping:
-                    edge_data = original_dag.get_edge_data(parent, node)
-                    new_dag.add_edge(mapping[parent], new_node, **edge_data)
-                else:
-                    edge_data = original_dag.get_edge_data(parent, node)
-                    new_dag.add_edge(parent, new_node, **edge_data)
 
     return set(mapping.keys()), set(mapping.values())
 
