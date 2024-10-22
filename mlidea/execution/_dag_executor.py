@@ -51,22 +51,26 @@ class DagExecutor:
                         #  highest arg_index, the last argument of some other node
                         assert input_index == len(inputs) - 1
                         inputs = inputs[:-1]
+            # This is necessary because these two node types extract results
             if stop_signal_received is False:
                 executable_processing_func = partial(current_node.processing_func, *inputs)
+                extract_or_conditional = current_node.operator_info.operator in {
+                    OperatorType.EXTRACT_RESULT, OperatorType.CONDITIONAL_STOP}
                 optimizer_info, result_df = capture_optimizer_info(self.pipeline_executor, operator_call_info,
-                                                                   executable_processing_func)
+                                                                   executable_processing_func,
+                                                                   force_disable_reuse=extract_or_conditional)
             elif current_node.operator_info.operator == OperatorType.EXTRACT_RESULT:
                 executable_processing_func = partial(current_node.processing_func, ConditionalResult.STOP_EXECUTION)
                 _, result_df = capture_optimizer_info(self.pipeline_executor, operator_call_info,
-                                                      executable_processing_func)
+                                                      executable_processing_func,
+                                                      force_disable_reuse=True)
                 optimizer_info = OptimizerInfo(None, None, None)  # We want to avoid the DAG from being confusing
             else:
                 optimizer_info = OptimizerInfo(None, None, None)
                 result_df = ConditionalResult.STOP_EXECUTION
             self.pipeline_executor.operators_to_runtime_during_analysis[copy(current_node)] = optimizer_info
 
-            if current_node.operator_info.operator not in {OperatorType.EXTRACT_RESULT, OperatorType.CONDITIONAL_STOP}\
-                    and self.pipeline_executor.enable_caching is True:
+            if self.pipeline_executor.enable_caching is True:
                 self.pipeline_executor.operator_context_parents_to_result[
                     OperatorCallInfo(current_node.operator_info, parent_nodes)] = current_node
                 self.pipeline_executor.cached_intermediates[current_node] = result_df

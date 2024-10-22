@@ -31,9 +31,11 @@ def get_intermediate_extraction_node(singleton, dag, dag_node, label: str):
         singleton.labels_to_extracted_plan_results[label] = intermediate_value
         return intermediate_value
 
-    new_extraction_node = DagNode(singleton.get_next_op_id(None),
+    operator_context = OperatorContext(OperatorType.EXTRACT_RESULT, None, {})
+    operator_call_info = OperatorCallInfo(operator_context, [dag_node])
+    new_extraction_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                   dag_node.code_location,
-                                  OperatorContext(OperatorType.EXTRACT_RESULT, None, {}),
+                                  operator_context,
                                   DagNodeDetails(None, dag_node.details.columns),
                                   None,
                                   extract_intermediate)
@@ -236,7 +238,6 @@ def duplicate_descendants_and_filter_concat_inputs(singleton, original_dag, new_
                                                    changed_indices_node, conditional_node, shadow_pipeline_name):
     # Create a mapping of old nodes to new nodes
     mapping = {original_node: modified_copy}
-    all_new_nodes = {modified_copy}
 
     # Get all descendants of the original node (children and their children recursively)
     descendants = networkx.descendants(original_dag, original_node)
@@ -249,13 +250,13 @@ def duplicate_descendants_and_filter_concat_inputs(singleton, original_dag, new_
             new_parents = []
             if node.operator_info.operator == OperatorType.CONCATENATION:
                 for concat_parent in get_sorted_parent_nodes(original_dag, node):
-                    if concat_parent not in all_new_nodes:  # Old nodes need to be filtered first
+                    if concat_parent in mapping:  # New node is already filtered
+                        new_parents.append(mapping[concat_parent])
+                    else:  # Old nodes need to be filtered first
                         parents = [concat_parent, changed_indices_node, conditional_node]
                         new_concat_parent_filter_node = get_diff_filter_node(singleton, new_dag, shadow_pipeline_name,
                                                                              parents)
                         new_parents.append(new_concat_parent_filter_node)
-                    else:  # New node is already filtered
-                        new_parents.append(concat_parent)
             elif node.operator_info.operator not in {OperatorType.EXTRACT_RESULT, OperatorType.SCORE}:
                 for parent in get_sorted_parent_nodes(original_dag, node):
                     if parent in mapping:
@@ -264,7 +265,6 @@ def duplicate_descendants_and_filter_concat_inputs(singleton, original_dag, new_
                         new_parents.append(parent)
             new_node = copy_node_with_new_id(singleton, new_dag, node, new_parents)
             mapping[node] = new_node
-            all_new_nodes.add(new_node)
 
     return set(mapping.keys()), set(mapping.values())
 
@@ -325,7 +325,8 @@ class DataType(Enum):
 TRANSFORMER_TO_DATA_TYPES = {
     "One-Hot": DataType.CAT,
     "Word2Vec": DataType.TEXT,
-    "Standard Scaler": DataType.NUM
+    "Standard Scaler": DataType.NUM,
+    "Robust Scaler": DataType.NUM
 }
 
 

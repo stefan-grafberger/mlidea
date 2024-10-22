@@ -21,13 +21,14 @@ from mlidea.monkeypatching._mlinspect_ndarray import MlideaChromaVectorStoreRetr
 def capture_optimizer_info(singleton, operator_call_info, instrumented_function_call: partial,
                            obj_for_inplace_ops: any or None = None,
                            estimator_transformer_state: any or None = None,
-                           keras_batch_size: int or None = None) \
+                           keras_batch_size: int or None = None,
+                           force_disable_reuse=False) \
         -> tuple[OptimizerInfo, any]:
     """Function to measure the runtime of instrumented user function calls and get output metadata"""
     execution_start = time.time()
     if ((obj_for_inplace_ops is None or estimator_transformer_state is not None) and
             operator_call_info in singleton.operator_context_parents_to_result
-            and singleton.enable_cache_reuse is True):
+            and singleton.enable_cache_reuse is True and force_disable_reuse is False):
         dag_node = singleton.operator_context_parents_to_result[operator_call_info]
         result = singleton.cached_intermediates[dag_node]
     else:
