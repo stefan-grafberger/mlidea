@@ -222,17 +222,12 @@ class FairnessSlices(ShadowPipeline):
                                             predict_operators,
                                             rag_join_operators, score_operators):
         parents = [data_parent, new_fix_diff_node]
-        new_unmodified_fix_filter_node = get_diff_filter_node(singleton, "Fairness Slices", parents)
-        new_dag.add_edge(data_parent, new_unmodified_fix_filter_node, arg_index=0)
-        new_dag.add_edge(new_fix_diff_node, new_unmodified_fix_filter_node, arg_index=1)
+        new_unmodified_fix_filter_node = get_diff_filter_node(singleton, new_dag, "Fairness Slices", parents)
         extraction_node = get_intermediate_extraction_node(singleton, new_unmodified_fix_filter_node,
                                                            f"fairness-slices-data-to-fix-{fix_strategy_index}")
         new_dag.add_edge(new_unmodified_fix_filter_node, extraction_node, arg_index=0)
         parents = [new_fix_node, new_fix_diff_node, conditional_fix_function_made_changes_node]
-        new_fix_diff_filter_node = get_diff_filter_node(singleton, "Data Errors", parents)
-        new_dag.add_edge(new_fix_node, new_fix_diff_filter_node, arg_index=0)
-        new_dag.add_edge(new_fix_diff_node, new_fix_diff_filter_node, arg_index=1)
-        new_dag.add_edge(conditional_fix_function_made_changes_node, new_fix_diff_filter_node, arg_index=2)
+        new_fix_diff_filter_node = get_diff_filter_node(singleton, new_dag, "Data Errors", parents)
         extraction_node = get_intermediate_extraction_node(singleton, new_fix_diff_filter_node,
                                                            f"fairness-slice-fixing-diff-{fix_strategy_index}")
         new_dag.add_edge(new_fix_diff_filter_node, extraction_node, arg_index=0)
@@ -302,17 +297,12 @@ class FairnessSlices(ShadowPipeline):
                                            fix_strategy_index, new_dag, new_fix_diff_node, new_fix_node,
                                            score_operators):
         parents = [data_parent, new_fix_diff_node]
-        new_unmodified_fix_filter_node = get_diff_filter_node(singleton, "Fairness Slices", parents)
-        new_dag.add_edge(data_parent, new_unmodified_fix_filter_node, arg_index=0)
-        new_dag.add_edge(new_fix_diff_node, new_unmodified_fix_filter_node, arg_index=1)
+        new_unmodified_fix_filter_node = get_diff_filter_node(singleton, new_dag, "Fairness Slices", parents)
         extraction_node = get_intermediate_extraction_node(singleton, new_unmodified_fix_filter_node,
                                                            f"fairness-slices-data-to-fix-{fix_strategy_index}")
         new_dag.add_edge(new_unmodified_fix_filter_node, extraction_node, arg_index=0)
         parents = [new_fix_node, new_fix_diff_node, conditional_fix_function_made_changes_node]
-        new_fix_diff_filter_node = get_diff_filter_node(singleton, "Data Errors", parents)
-        new_dag.add_edge(new_fix_node, new_fix_diff_filter_node, arg_index=0)
-        new_dag.add_edge(new_fix_diff_node, new_fix_diff_filter_node, arg_index=1)
-        new_dag.add_edge(conditional_fix_function_made_changes_node, new_fix_diff_filter_node, arg_index=2)
+        new_fix_diff_filter_node = get_diff_filter_node(singleton, new_dag, "Data Errors", parents)
         extraction_node = get_intermediate_extraction_node(singleton, new_fix_diff_filter_node,
                                                            f"fairness-slice-fixing-diff-{fix_strategy_index}")
         new_dag.add_edge(new_fix_diff_filter_node, extraction_node, arg_index=0)

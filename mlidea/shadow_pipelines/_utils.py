@@ -514,7 +514,7 @@ def prov_join_with_data_source(intermediate_df, data_source):
     return result
 
 
-def get_diff_filter_node(singleton, shadow_pipeline_name, parents):
+def get_diff_filter_node(singleton, dag, shadow_pipeline_name, parents):
     description = "Filter for diff only"
     operator_context = OperatorContext(OperatorType.SELECTION, None, {'description': description,
                                                                       'func': apply_diff_filter})
@@ -527,7 +527,13 @@ def get_diff_filter_node(singleton, shadow_pipeline_name, parents):
                                            None),
                                        None,
                                        apply_diff_filter)
+    add_parent_node_edges(dag, new_fix_diff_filter_node, parents)
     return new_fix_diff_filter_node
+
+
+def add_parent_node_edges(dag, node_with_parents, parents):
+    for arg_index, parent in enumerate(parents):
+        dag.add_edge(parent, node_with_parents, arg_index=arg_index)
 
 
 def get_changed_indices_node(singleton, shadow_pipeline_name, parent_nodes):
@@ -750,12 +756,8 @@ def indices_filter_computation_for_duplicated_concat_inputs(singleton, changed_i
                     edge_data = new_dag.get_edge_data(concat_parent, concat)
                     new_dag.remove_edge(concat_parent, concat)
                     parents = [concat_parent, changed_indices_node, conditional_node]
-                    new_concat_parent_filter_node = get_diff_filter_node(singleton, shadow_pipeline_name, parents)
-                    new_dag.add_edge(concat_parent, new_concat_parent_filter_node, arg_index=0)
-                    new_dag.add_edge(changed_indices_node, new_concat_parent_filter_node, arg_index=1)
-                    new_dag.add_edge(conditional_node,
-                                     new_concat_parent_filter_node,
-                                     arg_index=2)
+                    new_concat_parent_filter_node = get_diff_filter_node(singleton, new_dag, shadow_pipeline_name,
+                                                                         parents)
                     new_dag.add_edge(new_concat_parent_filter_node, concat, **edge_data)
 
 
