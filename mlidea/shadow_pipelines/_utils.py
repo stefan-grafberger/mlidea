@@ -551,7 +551,7 @@ def get_changed_indices_node(singleton, shadow_pipeline_name, parent_nodes):
     return new_changed_indices_node
 
 
-def merge_prediction_diff_with_old_predictions(singleton, shadow_pipeline_name, parent_nodes):
+def merge_prediction_diff_with_old_predictions(singleton, dag, shadow_pipeline_name, parent_nodes):
     description = "Merge prediction diff with old predictions"
     operator_context = OperatorContext(OperatorType.SELECTION, None,
                                        {'description': description,
@@ -563,6 +563,7 @@ def merge_prediction_diff_with_old_predictions(singleton, shadow_pipeline_name, 
                                                DagNodeDetails(description, None),
                                                None,
                                                update_prediction_diff)
+    add_parent_node_edges(dag, new_fix_predict_diff_update_node, parent_nodes)
     return new_fix_predict_diff_update_node
 
 

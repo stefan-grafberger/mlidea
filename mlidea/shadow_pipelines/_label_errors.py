@@ -288,10 +288,8 @@ class LabelErrors(ShadowPipeline):
         new_predict_node = copy_node_with_new_id(singleton, predict_operators[0])
         new_dag.add_edge(new_fix_diff_filter_node, new_predict_node, arg_index=0)
         parents = [predict_operators[0], new_predict_node, new_label_flip_indices_node]
-        new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, "Label Errors", parents)
-        new_dag.add_edge(predict_operators[0], new_fix_predict_diff_update_node, arg_index=0)
-        new_dag.add_edge(new_predict_node, new_fix_predict_diff_update_node, arg_index=1)
-        new_dag.add_edge(new_label_flip_indices_node, new_fix_predict_diff_update_node, arg_index=2)
+        new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, new_dag,
+                                                                                      "Label Errors", parents)
         add_new_score_and_score_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
                                                  score_operators, "label-errors-flip-retrain")
 

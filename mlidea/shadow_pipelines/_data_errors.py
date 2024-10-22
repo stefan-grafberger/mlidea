@@ -254,12 +254,8 @@ class DataErrorRobustness(ShadowPipeline):
         old_predict = [node for node in old_copied_nodes
                        if node.operator_info.operator == OperatorType.PREDICT][0]
         parents = [old_predict, test_predict, new_corruption_diff_node, conditional_corruption_made_changes_node]
-        new_corrupt_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, "Data Errors", parents)
-        new_dag.add_edge(old_predict, new_corrupt_predict_diff_update_node, arg_index=0)
-        new_dag.add_edge(test_predict, new_corrupt_predict_diff_update_node, arg_index=1)
-        new_dag.add_edge(new_corruption_diff_node, new_corrupt_predict_diff_update_node, arg_index=2)
-        new_dag.add_edge(conditional_corruption_made_changes_node, new_corrupt_predict_diff_update_node,
-                         arg_index=3)
+        new_corrupt_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, new_dag,
+                                                                                          "Data Errors", parents)
         new_score_nodes = add_new_score_and_score_extraction_nodes(singleton, new_dag,
                                                                    new_corrupt_predict_diff_update_node,
                                                                    score_operators,
@@ -289,12 +285,10 @@ class DataErrorRobustness(ShadowPipeline):
         test_predict = [node for node in new_nodes
                         if node.operator_info.operator == OperatorType.PREDICT][0]
         prediction_filter_index_node = new_fix_diff_indices_node
-        parents = [corrupted_predictions_node, test_predict, prediction_filter_index_node, conditional_fixes_changed_something_node]
-        new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, "Data Errors", parents)
-        new_dag.add_edge(corrupted_predictions_node, new_fix_predict_diff_update_node, arg_index=0)
-        new_dag.add_edge(test_predict, new_fix_predict_diff_update_node, arg_index=1)
-        new_dag.add_edge(prediction_filter_index_node, new_fix_predict_diff_update_node, arg_index=2)
-        new_dag.add_edge(conditional_fixes_changed_something_node, new_fix_predict_diff_update_node, arg_index=3)
+        parents = [corrupted_predictions_node, test_predict, prediction_filter_index_node,
+                   conditional_fixes_changed_something_node]
+        new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, new_dag,
+                                                                                      "Data Errors", parents)
         add_new_score_and_score_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
                                                  score_operators, f"data-errors-corrupt-fix-{data_type_index}")
 
@@ -431,12 +425,8 @@ class DataErrorRobustness(ShadowPipeline):
         new_dag.add_edge(new_rag_join_update_node, test_predict, arg_index=0)
         old_predict = predict_operators[0]
         parents = [old_predict, test_predict, new_corruption_diff_node, conditional_corruption_made_changes_node]
-        new_corrupt_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, "Data Errors", parents)
-        new_dag.add_edge(old_predict, new_corrupt_predict_diff_update_node, arg_index=0)
-        new_dag.add_edge(test_predict, new_corrupt_predict_diff_update_node, arg_index=1)
-        new_dag.add_edge(new_corruption_diff_node, new_corrupt_predict_diff_update_node, arg_index=2)
-        new_dag.add_edge(conditional_corruption_made_changes_node, new_corrupt_predict_diff_update_node,
-                         arg_index=3)
+        new_corrupt_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, new_dag,
+                                                                                          "Data Errors", parents)
         new_score_nodes = add_new_score_and_score_extraction_nodes(singleton, new_dag,
                                                                    new_corrupt_predict_diff_update_node,
                                                                    score_operators, "data-errors-corrupt-0")
@@ -465,12 +455,10 @@ class DataErrorRobustness(ShadowPipeline):
         test_predict = copy_node_with_new_id(singleton, predict_operators[0])
         new_dag.add_edge(new_rag_join_update_node, test_predict, arg_index=0)
         prediction_filter_index_node = new_fix_diff_indices_node
-        parents = [corrupted_predictions_node, test_predict, prediction_filter_index_node, conditional_fixes_changed_something_node]
-        new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, "Data Errors", parents)
-        new_dag.add_edge(corrupted_predictions_node, new_fix_predict_diff_update_node, arg_index=0)
-        new_dag.add_edge(test_predict, new_fix_predict_diff_update_node, arg_index=1)
-        new_dag.add_edge(prediction_filter_index_node, new_fix_predict_diff_update_node, arg_index=2)
-        new_dag.add_edge(conditional_fixes_changed_something_node, new_fix_predict_diff_update_node, arg_index=3)
+        parents = [corrupted_predictions_node, test_predict, prediction_filter_index_node,
+                   conditional_fixes_changed_something_node]
+        new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, new_dag,
+                                                                                      "Data Errors", parents)
         add_new_score_and_score_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
                                                  score_operators, "data-errors-corrupt-fix-0")
 

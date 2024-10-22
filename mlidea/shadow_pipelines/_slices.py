@@ -251,12 +251,8 @@ class FairnessSlices(ShadowPipeline):
         new_dag.add_edge(new_rag_join_update_node, test_predict, arg_index=0)
         old_predict = predict_operators[0]
         parents = [old_predict, test_predict, new_fix_diff_node, conditional_fix_function_made_changes_node]
-        new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, "Fairness Slices", parents)
-        new_dag.add_edge(old_predict, new_fix_predict_diff_update_node, arg_index=0)
-        new_dag.add_edge(test_predict, new_fix_predict_diff_update_node, arg_index=1)
-        new_dag.add_edge(new_fix_diff_node, new_fix_predict_diff_update_node, arg_index=2)
-        new_dag.add_edge(conditional_fix_function_made_changes_node, new_fix_predict_diff_update_node,
-                         arg_index=3)
+        new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, new_dag,
+                                                                                      "Fairness Slices", parents)
         add_new_score_and_score_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
                                                  score_operators, f"fairness-slice-fixing-{fix_strategy_index}")
 
@@ -317,13 +313,8 @@ class FairnessSlices(ShadowPipeline):
         old_predict = [node for node in old_copied_nodes
                        if node.operator_info.operator == OperatorType.PREDICT][0]
         parents = [old_predict, test_predict, new_fix_diff_node, conditional_fix_function_made_changes_node]
-        new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton,
+        new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, new_dag,
                                                                                       "Fairness Slices", parents)
-        new_dag.add_edge(old_predict, new_fix_predict_diff_update_node, arg_index=0)
-        new_dag.add_edge(test_predict, new_fix_predict_diff_update_node, arg_index=1)
-        new_dag.add_edge(new_fix_diff_node, new_fix_predict_diff_update_node, arg_index=2)
-        new_dag.add_edge(conditional_fix_function_made_changes_node, new_fix_predict_diff_update_node,
-                         arg_index=3)
         add_new_score_and_score_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
                                                  score_operators,
                                                  f"fairness-slice-fixing-{fix_strategy_index}")
