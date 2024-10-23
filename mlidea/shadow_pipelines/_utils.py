@@ -31,15 +31,16 @@ def get_intermediate_extraction_node(singleton, dag, dag_node, label: str):
         singleton.labels_to_extracted_plan_results[label] = intermediate_value
         return intermediate_value
 
+    parents = [dag_node]
     operator_context = OperatorContext(OperatorType.EXTRACT_RESULT, None, {})
-    operator_call_info = OperatorCallInfo(operator_context, [dag_node])
+    operator_call_info = OperatorCallInfo(operator_context, parents)
     new_extraction_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                   dag_node.code_location,
                                   operator_context,
                                   DagNodeDetails(None, dag_node.details.columns),
                                   None,
                                   extract_intermediate)
-    dag.add_edge(dag_node, new_extraction_node, arg_index=0)
+    add_parent_node_edges(dag, new_extraction_node, parents)
     return new_extraction_node
 
 
@@ -665,7 +666,7 @@ def prov_join_node_with_data_sources(singleton, data_sources_with_sensitive_colu
                                   DagNodeDetails(description, None),
                                   None,
                                   projection_processing_func)
-        new_dag.add_edge(data_source, projection_node, arg_index=0)
+        add_parent_node_edges(new_dag, projection_node, parents)
         nodes_to_concat.append(projection_node)
     for data_source, column_names in data_sources_prov_join.items():
         projection_processing_func = wrap_projection_func(
@@ -673,27 +674,28 @@ def prov_join_node_with_data_sources(singleton, data_sources_with_sensitive_colu
         description = f"Select sensitive attributes: {column_names}"
         operator_context = OperatorContext(OperatorType.PROJECTION, None, {'description': description,
                                                                            'func': projection_processing_func})
-        operator_call_info = OperatorCallInfo(operator_context, [data_source])
+        parents = [data_source]
+        operator_call_info = OperatorCallInfo(operator_context, parents)
         projection_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                   BasicCodeLocation("Fairness Slices", None),
                                   operator_context,
                                   DagNodeDetails(description, None),
                                   None,
                                   projection_processing_func)
-        new_dag.add_edge(data_source, projection_node, arg_index=0)
+        add_parent_node_edges(new_dag, projection_node, parents)
 
         description = "Join on provenance"
         operator_context = OperatorContext(OperatorType.JOIN, None, {'description': description,
                                                                      'func': prov_join_with_data_source})
-        operator_call_info = OperatorCallInfo(operator_context, [node_requiring_side_info, projection_node])
+        parents = [node_requiring_side_info, projection_node]
+        operator_call_info = OperatorCallInfo(operator_context, parents)
         join_node = DagNode(singleton.get_next_op_id(operator_call_info),
                             BasicCodeLocation("Fairness Slices", None),
                             operator_context,
                             DagNodeDetails(description, None),
                             None,
                             prov_join_with_data_source)
-        new_dag.add_edge(node_requiring_side_info, join_node, arg_index=0)
-        new_dag.add_edge(projection_node, join_node, arg_index=1)
+        add_parent_node_edges(new_dag, projection_node, parents)
 
         nodes_to_concat.append(join_node)
 
@@ -707,8 +709,7 @@ def prov_join_node_with_data_sources(singleton, data_sources_with_sensitive_colu
                           DagNodeDetails(description, None),
                           None,
                           concat_func)
-    for arg_index, node in enumerate(nodes_to_concat):
-        new_dag.add_edge(node, concat_node, arg_index=arg_index)
+    add_parent_node_edges(new_dag, concat_node, nodes_to_concat)
     return concat_node
 
 

@@ -22,7 +22,7 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     get_relative_score_change, add_orig_score_extraction_nodes, rag_join_update, \
     get_diff_filter_node, get_changed_indices_node, merge_prediction_diff_with_old_predictions, \
     add_new_score_and_score_extraction_nodes, assert_standard_llm_shape, assert_standard_ml_shape, get_top_n_df_rows, \
-    df_or_array_non_empty, df_or_array_non_empty_func_info
+    df_or_array_non_empty, df_or_array_non_empty_func_info, add_parent_node_edges
 
 
 class DataErrorRobustness(ShadowPipeline):
@@ -315,9 +315,7 @@ class DataErrorRobustness(ShadowPipeline):
                                    f"Fix {self._corruption_fraction} of {data_type.value} values", None),
                                None,
                                processing_func)
-        new_dag.add_edge(corruption_node, new_fix_node, arg_index=0)
-        new_dag.add_edge(corruption_diff_node, new_fix_node, arg_index=1)
-        new_dag.add_edge(conditional_corruption_significant_node, new_fix_node, arg_index=2)
+        add_parent_node_edges(new_dag, new_fix_node, parents)
         parents = [new_fix_node, corruption_diff_node, conditional_corruption_significant_node]
         new_fix_with_corruption_change_filter_node = get_diff_filter_node(singleton, new_dag, "Data Errors", parents)
         fix_node_to_extract = new_fix_with_corruption_change_filter_node
@@ -357,7 +355,7 @@ class DataErrorRobustness(ShadowPipeline):
                                           f"Corrupt {self._corruption_fraction} of {data_type.value} values", None),
                                       None,
                                       processing_func)
-        new_dag.add_edge(data_parent, new_corruption_node, arg_index=0)
+        add_parent_node_edges(new_dag, new_corruption_node, parents)
         parents = [data_parent, new_corruption_node]
         new_corruption_diff_node = get_changed_indices_node(singleton, new_dag, "Data Errors", parents)
         return new_corruption_diff_node, new_corruption_node
@@ -411,8 +409,7 @@ class DataErrorRobustness(ShadowPipeline):
                                            DagNodeDetails("RAG join for test set diff", None),
                                            None,
                                            rag_join_update)
-        new_dag.add_edge(rag_join_operators[0], new_rag_join_update_node, arg_index=0)
-        new_dag.add_edge(new_corruption_diff_filter_node, new_rag_join_update_node, arg_index=1)
+        add_parent_node_edges(new_dag, new_rag_join_update_node, parents)
         # Duplicate predict operator and connect with rag join result update and prediction update
         test_predict = copy_node_with_new_id(singleton, new_dag, predict_operators[0], [new_rag_join_update_node])
         old_predict = predict_operators[0]
@@ -441,8 +438,7 @@ class DataErrorRobustness(ShadowPipeline):
                                            DagNodeDetails("RAG join for test set diff", None),
                                            None,
                                            rag_join_update)
-        new_dag.add_edge(rag_join_operators[0], new_rag_join_update_node, arg_index=0)
-        new_dag.add_edge(new_fix_diff_filter_node, new_rag_join_update_node, arg_index=1)
+        add_parent_node_edges(new_dag, new_rag_join_update_node, parents)
         # Duplicate predict operator and connect with rag join result update and prediction update
         test_predict = copy_node_with_new_id(singleton, new_dag, predict_operators[0], [new_rag_join_update_node])
         prediction_filter_index_node = new_fix_diff_indices_node

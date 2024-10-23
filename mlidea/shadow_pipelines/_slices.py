@@ -19,12 +19,13 @@ from mlidea.execution._pipeline_executor import singleton
 from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
-    duplicate_descendants_and_filter_concat_inputs, get_typo_fixer, get_conditional_stop_node, filter_estimator_transformer_edges, \
+    duplicate_descendants_and_filter_concat_inputs, get_typo_fixer, get_conditional_stop_node, \
+    filter_estimator_transformer_edges, \
     get_transformer_parents_with_data_types, \
     DataType, get_translate_transformer, get_relative_score_change, add_orig_score_extraction_nodes, rag_join_update, \
     get_diff_filter_node, get_changed_indices_node, merge_prediction_diff_with_old_predictions, \
     add_new_score_and_score_extraction_nodes, assert_standard_llm_shape, assert_standard_ml_shape, \
-    prov_join_node_with_data_sources, df_or_array_non_empty, df_or_array_non_empty_func_info
+    prov_join_node_with_data_sources, df_or_array_non_empty, df_or_array_non_empty_func_info, add_parent_node_edges
 
 
 class FixType(Enum):
@@ -165,8 +166,7 @@ class FairnessSlices(ShadowPipeline):
                                             DagNodeDetails(description, None),
                                             None,
                                             FairnessSlices.extract_slice_finder_result)
-        new_dag.add_edge(new_slice_finder_node, slice_finder_indices_node, arg_index=0)
-        new_dag.add_edge(conditional_slices_found_node, slice_finder_indices_node, arg_index=1)
+        add_parent_node_edges(new_dag, slice_finder_indices_node, parents)
         data_parent_transformer_and_data_type = get_transformer_parents_with_data_types(dag)
         fix_strategy_index = 0
         for data_parent, data_type in data_parent_transformer_and_data_type:
@@ -201,8 +201,7 @@ class FairnessSlices(ShadowPipeline):
                                             DagNodeDetails(description, None),
                                             None,
                                             FairnessSlices.extract_slice_finder_result)
-        new_dag.add_edge(new_slice_finder_node, slice_finder_indices_node, arg_index=0)
-        new_dag.add_edge(conditional_slices_found_node, slice_finder_indices_node, arg_index=1)
+        add_parent_node_edges(new_dag, slice_finder_indices_node, parents)
         data_parent = test_data_operators[0]
         data_type = DataType.TEXT
         for fix_strategy_index, fix_strategy in enumerate(DATA_TYPE_TO_FIX_STRATEGY[data_type]):
@@ -243,8 +242,7 @@ class FairnessSlices(ShadowPipeline):
                                            DagNodeDetails(description, None),
                                            None,
                                            rag_join_update)
-        new_dag.add_edge(rag_join_operators[0], new_rag_join_update_node, arg_index=0)
-        new_dag.add_edge(new_fix_diff_filter_node, new_rag_join_update_node, arg_index=1)
+        add_parent_node_edges(new_dag, new_rag_join_update_node, parents)
         # Duplicate predict operator and connect with rag join result update and prediction update
         test_predict = copy_node_with_new_id(singleton, new_dag, predict_operators[0], [new_rag_join_update_node])
         old_predict = predict_operators[0]
@@ -333,8 +331,7 @@ class FairnessSlices(ShadowPipeline):
                                DagNodeDetails(description, None),
                                None,
                                processing_func)
-        new_dag.add_edge(data_parent, new_fix_node, arg_index=0)
-        new_dag.add_edge(slice_finder_indices_node, new_fix_node, arg_index=1)
+        add_parent_node_edges(new_dag, new_fix_node, parents)
         parents = [data_parent, new_fix_node]
         new_fix_diff_node = get_changed_indices_node(singleton, new_dag, "Fairness Slices", parents)
         return new_fix_diff_node, new_fix_node
@@ -358,9 +355,7 @@ class FairnessSlices(ShadowPipeline):
                                         DagNodeDetails(description, None),
                                         None,
                                         slice_finder_process_func)
-        new_dag.add_edge(concat_node, new_slice_finder_node, arg_index=0)
-        new_dag.add_edge(test_labels_operators[0], new_slice_finder_node, arg_index=1)
-        new_dag.add_edge(predict_operators[0], new_slice_finder_node, arg_index=2)
+        add_parent_node_edges(new_dag, new_slice_finder_node, parents)
         _ = get_intermediate_extraction_node(singleton, new_dag, new_slice_finder_node,
                                              "fairness-slices-slice-line-result")
         return new_slice_finder_node
