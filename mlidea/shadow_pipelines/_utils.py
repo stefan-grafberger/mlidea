@@ -695,7 +695,7 @@ def prov_join_node_with_data_sources(singleton, data_sources_with_sensitive_colu
                             DagNodeDetails(description, None),
                             None,
                             prov_join_with_data_source)
-        add_parent_node_edges(new_dag, projection_node, parents)
+        add_parent_node_edges(new_dag, join_node, parents)
 
         nodes_to_concat.append(join_node)
 

@@ -77,10 +77,8 @@ class DataErrorRobustness(ShadowPipeline):
             corrupted_predictions, corruption_diff, corruption, new_score_nodes = self._add_corruption_computation_ml(
                 dag, data_parent, data_type, data_type_index, new_dag, score_operators)
 
-            conditional_corruption_significant_node = self._get_corruption_significant_conditional_node(data_type_index,
-                                                                                                        new_dag,
-                                                                                                        new_score_nodes,
-                                                                                                        score_operators)
+            conditional_corruption_significant_node = self._get_corruption_significant_conditional_node(
+                data_type_index, new_dag, [*score_operators, *new_score_nodes])
             self._add_fix_computation_ml(conditional_corruption_significant_node, corrupted_predictions,
                                          corruption_diff, corruption, dag, data_parent, data_type,
                                          data_type_index, new_dag, score_operators)
@@ -104,10 +102,8 @@ class DataErrorRobustness(ShadowPipeline):
         corrupted_predictions, corruption_diff, corruption, new_score_nodes = self._add_corruption_computation_llm(
             new_dag, predict_operators, rag_join_operators, score_operators, test_data_operators)
 
-        conditional_corruption_significant_node = self._get_corruption_significant_conditional_node(0,
-                                                                                                    new_dag,
-                                                                                                    new_score_nodes,
-                                                                                                    score_operators)
+        conditional_corruption_significant_node = self._get_corruption_significant_conditional_node(
+            0, new_dag, [*score_operators, *new_score_nodes])
         self._add_fix_computation_llm(conditional_corruption_significant_node,
                                       corrupted_predictions, corruption_diff,
                                       corruption, new_dag, predict_operators, rag_join_operators,
@@ -302,11 +298,23 @@ class DataErrorRobustness(ShadowPipeline):
 
     def _add_fix_function_computation(self, conditional_corruption_significant_node, corruption_diff_node,
                                       corruption_node, data_type, data_type_index, new_dag):
+        new_fix_node = self._get_fix_node(data_type, new_dag,
+                                          [corruption_node, corruption_diff_node,
+                                           conditional_corruption_significant_node])
+        fix_node_to_extract = get_diff_filter_node(singleton, new_dag, "Data Errors",
+                                                   [new_fix_node, corruption_diff_node,
+                                                    conditional_corruption_significant_node])
+        _ = get_intermediate_extraction_node(singleton, new_dag, fix_node_to_extract,
+                                             f"data-errors-corruption-diff-fix-{data_type_index}")
+        new_fix_diff_indices_node = get_changed_indices_node(singleton, new_dag, "Data Errors",
+                                                             [corruption_node, new_fix_node])
+        return new_fix_diff_indices_node, new_fix_node
+
+    def _get_fix_node(self, data_type, new_dag, parents):
         processing_func = partial(DataErrorRobustness.fix_data, data_type=data_type)
         non_data_kwargs = {'corruption_fraction': self._corruption_fraction, 'data_type': data_type,
                            'func': DataErrorRobustness.fix_data}
         operator_context = OperatorContext(OperatorType.ESTIMATOR, None, non_data_kwargs)
-        parents = [corruption_node, corruption_diff_node, conditional_corruption_significant_node]
         operator_call_info = OperatorCallInfo(operator_context, parents)
         new_fix_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                BasicCodeLocation("Data Errors", None),
@@ -316,19 +324,11 @@ class DataErrorRobustness(ShadowPipeline):
                                None,
                                processing_func)
         add_parent_node_edges(new_dag, new_fix_node, parents)
-        parents = [new_fix_node, corruption_diff_node, conditional_corruption_significant_node]
-        new_fix_with_corruption_change_filter_node = get_diff_filter_node(singleton, new_dag, "Data Errors", parents)
-        fix_node_to_extract = new_fix_with_corruption_change_filter_node
-        _ = get_intermediate_extraction_node(singleton, new_dag, fix_node_to_extract,
-                                             f"data-errors-corruption-diff-fix-{data_type_index}")
-        parents = [corruption_node, new_fix_node]
-        new_fix_diff_indices_node = get_changed_indices_node(singleton, new_dag, "Data Errors", parents)
-        return new_fix_diff_indices_node, new_fix_node
+        return new_fix_node
 
-    def _get_corruption_significant_conditional_node(self, data_type_index, new_dag, new_score_nodes, score_operators):
+    def _get_corruption_significant_conditional_node(self, data_type_index, new_dag, parents):
         condition_processing_func = partial(DataErrorRobustness.condition_corruption_significant_function,
                                             self._corruption_significant_relative_threshold)
-        parents = [*score_operators, *new_score_nodes]
         function_info = FunctionInfo('mlidea.shadow_pipelines._data_errors.DataErrorRobustness',
                                      'condition_corruption_significant_function')
         conditional_corruption_significant_node = get_conditional_stop_node(
