@@ -1,7 +1,6 @@
 from collections import defaultdict
 from enum import Enum
 from functools import partial
-from pathlib import Path
 
 import networkx
 import numpy
@@ -25,7 +24,8 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     DataType, get_translate_transformer, get_relative_score_change, add_orig_score_extraction_nodes, rag_join_update, \
     get_diff_filter_node, get_changed_indices_node, merge_prediction_diff_with_old_predictions, \
     add_new_score_and_score_extraction_nodes, assert_standard_llm_shape, assert_standard_ml_shape, \
-    prov_join_node_with_data_sources, df_or_array_non_empty, df_or_array_non_empty_func_info, add_parent_node_edges
+    prov_join_node_with_data_sources, df_or_array_non_empty, df_or_array_non_empty_func_info, add_parent_node_edges, \
+    get_rag_join_update_node
 
 
 class FixType(Enum):
@@ -155,18 +155,8 @@ class FairnessSlices(ShadowPipeline):
 
     def _add_fix_computation_ml(self, conditional_slices_found_node, dag, new_dag, new_slice_finder_node,
                                 score_operators):
-        description = "Compute slice finder indexes"
-        non_data_kwargs = {'description': description, 'func': FairnessSlices.extract_slice_finder_result}
-        operator_context = OperatorContext(OperatorType.GROUP_BY_AGG, None, non_data_kwargs)
-        parents = [new_slice_finder_node, conditional_slices_found_node]
-        operator_call_info = OperatorCallInfo(operator_context, parents)
-        slice_finder_indices_node = DagNode(singleton.get_next_op_id(operator_call_info),
-                                            BasicCodeLocation("Fairness Slices", None),
-                                            operator_context,
-                                            DagNodeDetails(description, None),
-                                            None,
-                                            FairnessSlices.extract_slice_finder_result)
-        add_parent_node_edges(new_dag, slice_finder_indices_node, parents)
+        slice_finder_indices_node = FairnessSlices._get_slice_finder_indices_node(
+            new_dag, [new_slice_finder_node, conditional_slices_found_node])
         data_parent_transformer_and_data_type = get_transformer_parents_with_data_types(dag)
         fix_strategy_index = 0
         for data_parent, data_type in data_parent_transformer_and_data_type:
@@ -185,15 +175,10 @@ class FairnessSlices(ShadowPipeline):
                 fix_strategy_index += 1
 
     @staticmethod
-    def extract_slice_finder_result(slice_finder_result):
-        return slice_finder_result[1]
-
-    def _add_fix_computation_llm(self, conditional_slices_found_node, new_dag, new_slice_finder_node, predict_operators,
-                                 rag_join_operators, score_operators, test_data_operators):
+    def _get_slice_finder_indices_node(new_dag, parents):
         description = "Compute slice finder indexes"
         non_data_kwargs = {'description': description, 'func': FairnessSlices.extract_slice_finder_result}
         operator_context = OperatorContext(OperatorType.GROUP_BY_AGG, None, non_data_kwargs)
-        parents = [new_slice_finder_node, conditional_slices_found_node]
         operator_call_info = OperatorCallInfo(operator_context, parents)
         slice_finder_indices_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                             BasicCodeLocation("Fairness Slices", None),
@@ -202,6 +187,16 @@ class FairnessSlices(ShadowPipeline):
                                             None,
                                             FairnessSlices.extract_slice_finder_result)
         add_parent_node_edges(new_dag, slice_finder_indices_node, parents)
+        return slice_finder_indices_node
+
+    @staticmethod
+    def extract_slice_finder_result(slice_finder_result):
+        return slice_finder_result[1]
+
+    def _add_fix_computation_llm(self, conditional_slices_found_node, new_dag, new_slice_finder_node, predict_operators,
+                                 rag_join_operators, score_operators, test_data_operators):
+        slice_finder_indices_node = FairnessSlices._get_slice_finder_indices_node(
+            new_dag, [new_slice_finder_node, conditional_slices_found_node])
         data_parent = test_data_operators[0]
         data_type = DataType.TEXT
         for fix_strategy_index, fix_strategy in enumerate(DATA_TYPE_TO_FIX_STRATEGY[data_type]):
@@ -221,34 +216,23 @@ class FairnessSlices(ShadowPipeline):
                                             fix_strategy_index, new_dag, new_fix_diff_node, new_fix_node,
                                             predict_operators,
                                             rag_join_operators, score_operators):
-        parents = [data_parent, new_fix_diff_node]
-        new_unmodified_fix_filter_node = get_diff_filter_node(singleton, new_dag, "Fairness Slices", parents)
-        _ = get_intermediate_extraction_node(singleton, new_dag, new_unmodified_fix_filter_node,
+        new_unmodified_fix_filter_node = get_diff_filter_node(singleton, new_dag, [data_parent, new_fix_diff_node])
+        _ = get_intermediate_extraction_node(singleton, new_dag, [new_unmodified_fix_filter_node],
                                              f"fairness-slices-data-to-fix-{fix_strategy_index}")
-        parents = [new_fix_node, new_fix_diff_node, conditional_fix_function_made_changes_node]
-        new_fix_diff_filter_node = get_diff_filter_node(singleton, new_dag, "Data Errors", parents)
-        _ = get_intermediate_extraction_node(singleton, new_dag, new_fix_diff_filter_node,
+        new_fix_diff_filter_node = get_diff_filter_node(singleton, new_dag, [new_fix_node, new_fix_diff_node,
+                                                                             conditional_fix_function_made_changes_node])
+        _ = get_intermediate_extraction_node(singleton, new_dag, [new_fix_diff_filter_node],
                                              f"fairness-slice-fixing-diff-{fix_strategy_index}")
         # Evaluate with updated data
         # Operator to get the rag join results
-        description = "RAG join for test set diff"
-        non_data_kwargs = {'description': description, 'func': rag_join_update}
-        operator_context = OperatorContext(OperatorType.RAG_JOIN, None, non_data_kwargs)
-        parents = [rag_join_operators[0], new_fix_diff_filter_node]
-        operator_call_info = OperatorCallInfo(operator_context, parents)
-        new_rag_join_update_node = DagNode(singleton.get_next_op_id(operator_call_info),
-                                           BasicCodeLocation("Fairness Slices", None),
-                                           operator_context,
-                                           DagNodeDetails(description, None),
-                                           None,
-                                           rag_join_update)
-        add_parent_node_edges(new_dag, new_rag_join_update_node, parents)
+        new_rag_join_update_node = get_rag_join_update_node(
+            singleton, new_dag, [rag_join_operators[0], new_fix_diff_filter_node])
         # Duplicate predict operator and connect with rag join result update and prediction update
         test_predict = copy_node_with_new_id(singleton, new_dag, predict_operators[0], [new_rag_join_update_node])
-        old_predict = predict_operators[0]
-        parents = [old_predict, test_predict, new_fix_diff_node, conditional_fix_function_made_changes_node]
         new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, new_dag,
-                                                                                      "Fairness Slices", parents)
+                                                                                      [predict_operators[0],
+                                                                                       test_predict, new_fix_diff_node,
+                                                                                       conditional_fix_function_made_changes_node])
         add_new_score_and_score_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
                                                  score_operators, f"fairness-slice-fixing-{fix_strategy_index}")
 
@@ -292,13 +276,12 @@ class FairnessSlices(ShadowPipeline):
     def _add_fix_evaluation_computation_ml(conditional_fix_function_made_changes_node, dag, data_parent,
                                            fix_strategy_index, new_dag, new_fix_diff_node, new_fix_node,
                                            score_operators):
-        parents = [data_parent, new_fix_diff_node]
-        new_unmodified_fix_filter_node = get_diff_filter_node(singleton, new_dag, "Fairness Slices", parents)
-        _ = get_intermediate_extraction_node(singleton, new_dag, new_unmodified_fix_filter_node,
+        new_unmodified_fix_filter_node = get_diff_filter_node(singleton, new_dag, [data_parent, new_fix_diff_node])
+        _ = get_intermediate_extraction_node(singleton, new_dag, [new_unmodified_fix_filter_node],
                                              f"fairness-slices-data-to-fix-{fix_strategy_index}")
-        parents = [new_fix_node, new_fix_diff_node, conditional_fix_function_made_changes_node]
-        new_fix_diff_filter_node = get_diff_filter_node(singleton, new_dag, "Data Errors", parents)
-        _ = get_intermediate_extraction_node(singleton, new_dag, new_fix_diff_filter_node,
+        new_fix_diff_filter_node = get_diff_filter_node(singleton, new_dag, [new_fix_node, new_fix_diff_node,
+                                                                             conditional_fix_function_made_changes_node])
+        _ = get_intermediate_extraction_node(singleton, new_dag, [new_fix_diff_filter_node],
                                              f"fairness-slice-fixing-diff-{fix_strategy_index}")
         # Evaluate with updated data
         old_copied_nodes, new_nodes = duplicate_descendants_and_filter_concat_inputs(
@@ -310,20 +293,23 @@ class FairnessSlices(ShadowPipeline):
         old_predict = [node for node in old_copied_nodes
                        if node.operator_info.operator == OperatorType.PREDICT][0]
         parents = [old_predict, test_predict, new_fix_diff_node, conditional_fix_function_made_changes_node]
-        new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, new_dag,
-                                                                                      "Fairness Slices", parents)
+        new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, new_dag, parents)
         add_new_score_and_score_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
                                                  score_operators,
                                                  f"fairness-slice-fixing-{fix_strategy_index}")
 
     def fix_function_computation_node(self, data_parent, fix_strategy, new_dag, slice_finder_indices_node):
         self.fix_strategy_names.append(fix_strategy.value)
+        new_fix_node = self._get_fix_node(fix_strategy, new_dag, [data_parent, slice_finder_indices_node])
+        new_fix_diff_node = get_changed_indices_node(singleton, new_dag, [data_parent, new_fix_node])
+        return new_fix_diff_node, new_fix_node
+
+    def _get_fix_node(self, fix_strategy, new_dag, parents):
         processing_func = partial(FairnessSlices.fix_data, fix_strategy=fix_strategy,
                                   database_path=self.database_path)
         description = f"Trying to fix slice: {fix_strategy.value}"
         non_data_kwargs = {'description': description, 'func': FairnessSlices.fix_data, 'fix_strategy': fix_strategy}
         operator_context = OperatorContext(OperatorType.ESTIMATOR, None, non_data_kwargs)
-        parents = [data_parent, slice_finder_indices_node]
         operator_call_info = OperatorCallInfo(operator_context, parents)
         new_fix_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                BasicCodeLocation("Data Errors", None),
@@ -332,22 +318,25 @@ class FairnessSlices(ShadowPipeline):
                                None,
                                processing_func)
         add_parent_node_edges(new_dag, new_fix_node, parents)
-        parents = [data_parent, new_fix_node]
-        new_fix_diff_node = get_changed_indices_node(singleton, new_dag, "Fairness Slices", parents)
-        return new_fix_diff_node, new_fix_node
+        return new_fix_node
 
     def _add_slice_finder_computation(self, data_sources_with_sensitive_columns, new_dag, predict_operators,
                                       test_data_operators, test_labels_operators):
         concat_node = prov_join_node_with_data_sources(singleton, data_sources_with_sensitive_columns, new_dag,
                                                        test_data_operators[0])
+        new_slice_finder_node = self._get_slice_finder_node(
+            new_dag, [concat_node, test_labels_operators[0], predict_operators[0]])
+        _ = get_intermediate_extraction_node(singleton, new_dag, [new_slice_finder_node],
+                                             "fairness-slices-slice-line-result")
+        return new_slice_finder_node
+
+    def _get_slice_finder_node(self, new_dag, parents):
         slice_finder_process_func = partial(FairnessSlices.get_slice_finder_slice_and_indices,
                                             alpha=self.slice_finder_alpha)
-
         description = "Run Slice Finder"
         non_data_kwargs = {'description': description, 'func': FairnessSlices.get_slice_finder_slice_and_indices,
                            'alpha': self.slice_finder_alpha}
         operator_context = OperatorContext(OperatorType.GROUP_BY_AGG, None, non_data_kwargs)
-        parents = [concat_node, test_labels_operators[0], predict_operators[0]]
         operator_call_info = OperatorCallInfo(operator_context, parents)
         new_slice_finder_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                         BasicCodeLocation("Fairness Slices", None),
@@ -356,8 +345,6 @@ class FairnessSlices(ShadowPipeline):
                                         None,
                                         slice_finder_process_func)
         add_parent_node_edges(new_dag, new_slice_finder_node, parents)
-        _ = get_intermediate_extraction_node(singleton, new_dag, new_slice_finder_node,
-                                             "fairness-slices-slice-line-result")
         return new_slice_finder_node
 
     def generate_final_report(self, extracted_plan_results: dict[str, any]) -> any:

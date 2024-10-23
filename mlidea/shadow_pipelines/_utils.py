@@ -24,20 +24,20 @@ from mlidea.monkeypatching._provenance_propagation import wrap_projection_func
 from mlidea.shadow_pipelines.cached_text_transformer import CachedTextTransformer
 
 
-def get_intermediate_extraction_node(singleton, dag, dag_node, label: str):
+def get_intermediate_extraction_node(singleton, dag, parents, label: str):
     """Add a new node behind some given node to extract the intermediate result of that given node"""
 
     def extract_intermediate(intermediate_value):
         singleton.labels_to_extracted_plan_results[label] = intermediate_value
         return intermediate_value
 
-    parents = [dag_node]
-    operator_context = OperatorContext(OperatorType.EXTRACT_RESULT, None, {})
+    operator_context = OperatorContext(OperatorType.EXTRACT_RESULT,
+                                       FunctionInfo('mlidea.shadow_pipelines._utils', 'extract_intermediate'), {})
     operator_call_info = OperatorCallInfo(operator_context, parents)
     new_extraction_node = DagNode(singleton.get_next_op_id(operator_call_info),
-                                  dag_node.code_location,
+                                  get_basic_code_location_for_current_line(),
                                   operator_context,
-                                  DagNodeDetails(None, dag_node.details.columns),
+                                  DagNodeDetails(None, parents[0].details.columns),
                                   None,
                                   extract_intermediate)
     add_parent_node_edges(dag, new_extraction_node, parents)
@@ -254,9 +254,9 @@ def duplicate_descendants_and_filter_concat_inputs(singleton, original_dag, new_
                     if concat_parent in mapping:  # New node is already filtered
                         new_parents.append(mapping[concat_parent])
                     else:  # Old nodes need to be filtered first
-                        parents = [concat_parent, changed_indices_node, conditional_node]
-                        new_concat_parent_filter_node = get_diff_filter_node(singleton, new_dag, shadow_pipeline_name,
-                                                                             parents)
+                        new_concat_parent_filter_node = get_diff_filter_node(singleton, new_dag,
+                                                                             [concat_parent, changed_indices_node,
+                                                                              conditional_node])
                         new_parents.append(new_concat_parent_filter_node)
             elif node.operator_info.operator not in {OperatorType.EXTRACT_RESULT, OperatorType.SCORE}:
                 for parent in get_sorted_parent_nodes(original_dag, node):
@@ -414,7 +414,7 @@ def get_relative_score_change(*old_scores_and_new_scores, max_not_min=True):
 
 def add_orig_score_extraction_nodes(singleton, new_dag, score_operators):
     for score_index, score_operator in enumerate(score_operators):
-        _ = get_intermediate_extraction_node(singleton, new_dag, score_operator, f"orig-{score_index}")
+        _ = get_intermediate_extraction_node(singleton, new_dag, [score_operator], f"orig-{score_index}")
 
 
 def apply_diff_filter(input_df, corrupted_index):
@@ -528,17 +528,17 @@ def prov_join_with_data_source(intermediate_df, data_source):
     return result
 
 
-def get_diff_filter_node(singleton, dag, shadow_pipeline_name, parents):
-    description = "Filter for diff only"
-    operator_context = OperatorContext(OperatorType.SELECTION, None, {'description': description,
-                                                                      'func': apply_diff_filter})
+def get_diff_filter_node(singleton, dag, parents):
+    operator_context = OperatorContext(OperatorType.SELECTION,
+                                       FunctionInfo('mlidea.shadow_pipelines._utils', 'apply_diff_filter'),
+                                       {})
     operator_call_info = OperatorCallInfo(operator_context, parents)
     new_fix_diff_filter_node = DagNode(singleton.get_next_op_id(operator_call_info),
-                                       BasicCodeLocation(shadow_pipeline_name, None),
+                                       get_basic_code_location_for_current_line(),
                                        operator_context,
                                        DagNodeDetails(
-                                           description,
-                                           None),
+                                           "Filter for diff only",
+                                           parents[0].details.columns),
                                        None,
                                        apply_diff_filter)
     add_parent_node_edges(dag, new_fix_diff_filter_node, parents)
@@ -550,32 +550,31 @@ def add_parent_node_edges(dag, node_with_parents, parents):
         dag.add_edge(parent, node_with_parents, arg_index=arg_index)
 
 
-def get_changed_indices_node(singleton, dag, shadow_pipeline_name, parent_nodes):
-    description = "Detect changed indices"
-    non_data_kwargs = {'description': description,
-                       'func': changed_data_diff_detection}
-    operator_context = OperatorContext(OperatorType.GROUP_BY_AGG, None, non_data_kwargs)
+def get_changed_indices_node(singleton, dag, parent_nodes):
+    operator_context = OperatorContext(OperatorType.GROUP_BY_AGG,
+                                       FunctionInfo('mlidea.shadow_pipelines._utils', 'changed_data_diff_detection'),
+                                       {})
     operator_call_info = OperatorCallInfo(operator_context, parent_nodes)
     new_changed_indices_node = DagNode(singleton.get_next_op_id(operator_call_info),
-                                       BasicCodeLocation(shadow_pipeline_name, None),
+                                       get_basic_code_location_for_current_line(),
                                        operator_context,
-                                       DagNodeDetails(description, None),
+                                       DagNodeDetails("Detect changed indices", ["array"]),
                                        None,
                                        changed_data_diff_detection)
     add_parent_node_edges(dag, new_changed_indices_node, parent_nodes)
     return new_changed_indices_node
 
 
-def merge_prediction_diff_with_old_predictions(singleton, dag, shadow_pipeline_name, parent_nodes):
-    description = "Merge prediction diff with old predictions"
-    operator_context = OperatorContext(OperatorType.SELECTION, None,
-                                       {'description': description,
-                                        'func': update_prediction_diff})
+def merge_prediction_diff_with_old_predictions(singleton, dag, parent_nodes):
+    operator_context = OperatorContext(OperatorType.SELECTION,
+                                       FunctionInfo('mlidea.shadow_pipelines._utils', 'update_prediction_diff'),
+                                       {})
     operator_call_info = OperatorCallInfo(operator_context, parent_nodes)
     new_fix_predict_diff_update_node = DagNode(singleton.get_next_op_id(operator_call_info),
-                                               BasicCodeLocation(shadow_pipeline_name, None),
+                                               get_basic_code_location_for_current_line(),
                                                operator_context,
-                                               DagNodeDetails(description, None),
+                                               DagNodeDetails("Merge prediction diff with old predictions",
+                                                              parent_nodes[0].details.columns),
                                                None,
                                                update_prediction_diff)
     add_parent_node_edges(dag, new_fix_predict_diff_update_node, parent_nodes)
@@ -589,7 +588,8 @@ def add_new_score_and_score_extraction_nodes(singleton, new_dag, new_predict_nod
                                                [new_predict_node,
                                                 *get_sorted_parent_nodes(new_dag, score_operator)[1:]])
         new_score_nodes.append(new_score_node)
-        _ = get_intermediate_extraction_node(singleton, new_dag, new_score_node, f"{label_prefix}-{score_index}")
+        _ = get_intermediate_extraction_node(singleton, new_dag, [new_score_node],
+                                             f"{label_prefix}-{score_index}")
     return new_score_nodes
 
 
@@ -651,66 +651,69 @@ def prov_join_node_with_data_sources(singleton, data_sources_with_sensitive_colu
 
     nodes_to_concat = []
     for data_source, column_names in data_sources_concat.items():
-        projection_processing_func = wrap_projection_func(
-            partial(projection, column_names))
-
-        description = f"Select sensitive attributes: {column_names}"
-        operator_context = OperatorContext(OperatorType.PROJECTION, None, {'description': description,
-                                                                           'func': projection,
-                                                                           'column_names': column_names})
-        parents = [data_source]
-        operator_call_info = OperatorCallInfo(operator_context, parents)
-        projection_node = DagNode(singleton.get_next_op_id(operator_call_info),
-                                  BasicCodeLocation("Fairness Slices", None),
-                                  operator_context,
-                                  DagNodeDetails(description, None),
-                                  None,
-                                  projection_processing_func)
-        add_parent_node_edges(new_dag, projection_node, parents)
+        projection_node = get_projection_nodes(singleton, new_dag, [data_source], column_names)
         nodes_to_concat.append(projection_node)
     for data_source, column_names in data_sources_prov_join.items():
-        projection_processing_func = wrap_projection_func(
-            partial(projection, column_names))
-        description = f"Select sensitive attributes: {column_names}"
-        operator_context = OperatorContext(OperatorType.PROJECTION, None, {'description': description,
-                                                                           'func': projection_processing_func})
-        parents = [data_source]
-        operator_call_info = OperatorCallInfo(operator_context, parents)
-        projection_node = DagNode(singleton.get_next_op_id(operator_call_info),
-                                  BasicCodeLocation("Fairness Slices", None),
-                                  operator_context,
-                                  DagNodeDetails(description, None),
-                                  None,
-                                  projection_processing_func)
-        add_parent_node_edges(new_dag, projection_node, parents)
-
-        description = "Join on provenance"
-        operator_context = OperatorContext(OperatorType.JOIN, None, {'description': description,
-                                                                     'func': prov_join_with_data_source})
-        parents = [node_requiring_side_info, projection_node]
-        operator_call_info = OperatorCallInfo(operator_context, parents)
-        join_node = DagNode(singleton.get_next_op_id(operator_call_info),
-                            BasicCodeLocation("Fairness Slices", None),
-                            operator_context,
-                            DagNodeDetails(description, None),
-                            None,
-                            prov_join_with_data_source)
-        add_parent_node_edges(new_dag, join_node, parents)
+        projection_node = get_projection_nodes(singleton, new_dag, [data_source], column_names)
+        join_node = get_prov_join_node(singleton, new_dag, [node_requiring_side_info, projection_node])
 
         nodes_to_concat.append(join_node)
 
-    description = "Concat sensitive attributes"
-    operator_context = OperatorContext(OperatorType.CONCATENATION, None, {'description': description,
-                                                                          'func': concat_func})
-    operator_call_info = OperatorCallInfo(operator_context, nodes_to_concat)
+    concat_node = get_concat_node(singleton, new_dag, nodes_to_concat)
+    return concat_node
+
+
+def get_concat_node(singleton, new_dag, parents):
+    operator_context = OperatorContext(OperatorType.CONCATENATION,
+                                       FunctionInfo('mlidea.shadow_pipelines._utils', 'prov_join_with_data_source'),
+                                       {})
+    operator_call_info = OperatorCallInfo(operator_context, parents)
+    columns = []
+    for parent in parents:
+        columns.extend(parent.details.columns)
     concat_node = DagNode(singleton.get_next_op_id(operator_call_info),
-                          BasicCodeLocation("Data Errors", None),
+                          get_basic_code_location_for_current_line(),
                           operator_context,
-                          DagNodeDetails(description, None),
+                          DagNodeDetails("Concat sensitive attributes", columns),
                           None,
                           concat_func)
-    add_parent_node_edges(new_dag, concat_node, nodes_to_concat)
+    add_parent_node_edges(new_dag, concat_node, parents)
     return concat_node
+
+
+def get_prov_join_node(singleton, new_dag, parents):
+    operator_context = OperatorContext(OperatorType.JOIN,
+                                       FunctionInfo('mlidea.shadow_pipelines._utils', 'prov_join_with_data_source'),
+                                       {})
+    columns = []
+    for parent in parents:
+        columns.extend(parent.details.columns)
+    operator_call_info = OperatorCallInfo(operator_context, parents)
+    join_node = DagNode(singleton.get_next_op_id(operator_call_info),
+                        get_basic_code_location_for_current_line(),
+                        operator_context,
+                        DagNodeDetails("Join on provenance", columns),
+                        None,
+                        prov_join_with_data_source)
+    add_parent_node_edges(new_dag, join_node, parents)
+    return join_node
+
+
+def get_projection_nodes(singleton, new_dag, parents, column_names):
+    projection_processing_func = wrap_projection_func(
+        partial(projection, column_names))
+    operator_context = OperatorContext(OperatorType.PROJECTION,
+                                       FunctionInfo('mlidea.shadow_pipelines._utils', 'projection'),
+                                       {'column_names': column_names})
+    operator_call_info = OperatorCallInfo(operator_context, parents)
+    projection_node = DagNode(singleton.get_next_op_id(operator_call_info),
+                              get_basic_code_location_for_current_line(),
+                              operator_context,
+                              DagNodeDetails(f"to {column_names}", column_names),
+                              None,
+                              projection_processing_func)
+    add_parent_node_edges(new_dag, projection_node, parents)
+    return projection_node
 
 
 def get_proxy_model_node(executor_singleton, dag, parent_nodes):
@@ -759,3 +762,17 @@ def df_or_array_non_empty(df):
 
 def df_or_array_non_empty_func_info():
     return FunctionInfo('mlidea.shadow_pipelines._utils', 'df_or_array_non_empty')
+
+
+def get_rag_join_update_node(singleton, new_dag, parents):
+    operator_context = OperatorContext(OperatorType.RAG_JOIN,
+                                       FunctionInfo('mlidea.shadow_pipelines._utils', 'rag_join_update'), {})
+    operator_call_info = OperatorCallInfo(operator_context, parents)
+    new_rag_join_update_node = DagNode(singleton.get_next_op_id(operator_call_info),
+                                       get_basic_code_location_for_current_line(),
+                                       operator_context,
+                                       DagNodeDetails("RAG join for test set diff", None),
+                                       None,
+                                       rag_join_update)
+    add_parent_node_edges(new_dag, new_rag_join_update_node, parents)
+    return new_rag_join_update_node

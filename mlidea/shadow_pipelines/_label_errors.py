@@ -235,7 +235,7 @@ class LabelErrors(ShadowPipeline):
                                    None,
                                    processing_func)
         add_parent_node_edges(new_dag, new_shapley_node, parent_nodes)
-        _ = get_intermediate_extraction_node(singleton, new_dag, new_shapley_node, "label-errors-shapley-values")
+        _ = get_intermediate_extraction_node(singleton, new_dag, [new_shapley_node], "label-errors-shapley-values")
         return new_shapley_node
 
     def _add_label_flip_computation_llm(self, likely_mislabeled_rows_condition_node, new_dag, new_shapley_node,
@@ -246,12 +246,13 @@ class LabelErrors(ShadowPipeline):
         new_label_flip_node = self._get_label_flip_node_llm(
             new_dag, [rag_join_operators[0], train_labels_operators[0], new_shapley_node,
                       new_label_flip_indices_node, test_data_operators[0], likely_mislabeled_rows_condition_node])
-        new_fix_diff_filter_node = get_diff_filter_node(singleton, new_dag, "Data Errors",
+        new_fix_diff_filter_node = get_diff_filter_node(singleton, new_dag,
                                                         [new_label_flip_node, new_label_flip_indices_node])
         new_predict_node = copy_node_with_new_id(singleton, new_dag, predict_operators[0], [new_fix_diff_filter_node])
-        new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(
-            singleton, new_dag, "Label Errors",
-            [predict_operators[0], new_predict_node, new_label_flip_indices_node])
+        new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, new_dag,
+                                                                                      [predict_operators[0],
+                                                                                       new_predict_node,
+                                                                                       new_label_flip_indices_node])
         add_new_score_and_score_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
                                                  score_operators, "label-errors-flip-retrain")
 
@@ -294,7 +295,7 @@ class LabelErrors(ShadowPipeline):
         new_shapley_node = self._get_new_shapley_llm_node(
             label_encoder_operators, new_dag,
             [rag_join_operators[0], train_labels_before_dict, test_data_operators[0], test_labels_operators[0]])
-        _ = get_intermediate_extraction_node(singleton, new_dag, new_shapley_node, "label-errors-shapley-values")
+        _ = get_intermediate_extraction_node(singleton, new_dag, [new_shapley_node], "label-errors-shapley-values")
         return new_shapley_node
 
     def _get_new_shapley_llm_node(self, label_encoder_operators, new_dag, parents):
