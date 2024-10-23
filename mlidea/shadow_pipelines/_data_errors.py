@@ -234,8 +234,9 @@ class DataErrorRobustness(ShadowPipeline):
     @staticmethod
     def _add_corruption_evaluation_ml(conditional_corruption_made_changes_node, dag, data_parent, data_type_index,
                                       new_corruption_diff_node, new_corruption_node, new_dag, score_operators):
-        parents = [new_corruption_node, new_corruption_diff_node, conditional_corruption_made_changes_node]
-        new_corruption_diff_filter_node = get_diff_filter_node(singleton, new_dag, "Data Errors", parents)
+        new_corruption_diff_filter_node = get_diff_filter_node(
+            singleton, new_dag, "Data Errors",
+            [new_corruption_node, new_corruption_diff_node, conditional_corruption_made_changes_node])
         _ = get_intermediate_extraction_node(singleton, new_dag, new_corruption_diff_filter_node,
                                              f"data-errors-corruption-diff-{data_type_index}")
 
@@ -270,8 +271,9 @@ class DataErrorRobustness(ShadowPipeline):
                                            data_parent, data_type_index, new_dag, new_fix_diff_indices_node,
                                            new_fix_node,
                                            score_operators):
-        parents = [new_fix_node, new_fix_diff_indices_node, conditional_fixes_changed_something_node]
-        new_fix_diff_filter_node = get_diff_filter_node(singleton, new_dag, "Data Errors", parents)
+        new_fix_diff_filter_node = get_diff_filter_node(
+            singleton, new_dag, "Data Errors",
+            [new_fix_node, new_fix_diff_indices_node, conditional_fixes_changed_something_node])
 
         _, new_nodes = duplicate_descendants_and_filter_concat_inputs(
             singleton, dag, new_dag, data_parent, new_fix_diff_filter_node, new_fix_diff_indices_node,
@@ -340,13 +342,18 @@ class DataErrorRobustness(ShadowPipeline):
 
     def _add_corruption_func_computation(self, data_parent, data_type, new_dag):
         self._transformer_inputs_to_check.append(data_type.value)
+        new_corruption_node = self._add_corruption_node(data_type, new_dag, [data_parent])
+        new_corruption_diff_node = get_changed_indices_node(singleton, new_dag, "Data Errors",
+                                                            [data_parent, new_corruption_node])
+        return new_corruption_diff_node, new_corruption_node
+
+    def _add_corruption_node(self, data_type, new_dag, parents):
         processing_func = partial(DataErrorRobustness.corrupt_data,
                                   data_type=data_type,
                                   corruption_fraction=self._corruption_fraction)
         non_data_kwargs = {'data_type': data_type, 'corruption_fraction': self._corruption_fraction,
                            'func': DataErrorRobustness.corrupt_data}
         operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, None, non_data_kwargs)
-        parents = [data_parent]
         operator_call_info = OperatorCallInfo(operator_context, parents)
         new_corruption_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                       BasicCodeLocation("Data Errors", None),
@@ -356,9 +363,7 @@ class DataErrorRobustness(ShadowPipeline):
                                       None,
                                       processing_func)
         add_parent_node_edges(new_dag, new_corruption_node, parents)
-        parents = [data_parent, new_corruption_node]
-        new_corruption_diff_node = get_changed_indices_node(singleton, new_dag, "Data Errors", parents)
-        return new_corruption_diff_node, new_corruption_node
+        return new_corruption_node
 
     def _add_fix_computation_llm(self,
                                  conditional_corruption_significant_node,
@@ -394,14 +399,29 @@ class DataErrorRobustness(ShadowPipeline):
     def _add_corruption_evaluation_llm(conditional_corruption_made_changes_node, new_corruption_diff_node,
                                        new_corruption_node, new_dag, predict_operators, rag_join_operators,
                                        score_operators):
-        parents = [new_corruption_node, new_corruption_diff_node, conditional_corruption_made_changes_node]
-        new_corruption_diff_filter_node = get_diff_filter_node(singleton, new_dag, "Data Errors", parents)
+        new_corruption_diff_filter_node = get_diff_filter_node(
+            singleton, new_dag, "Data Errors",
+            [new_corruption_node, new_corruption_diff_node, conditional_corruption_made_changes_node])
         _ = get_intermediate_extraction_node(singleton, new_dag, new_corruption_diff_filter_node,
                                              "data-errors-corruption-diff-0")
         # Evaluate with corrupted data
         # Operator to get the rag join results
+        new_rag_join_update_node = DataErrorRobustness._get_rag_join_update_node(
+            new_dag, [rag_join_operators[0], new_corruption_diff_filter_node])
+        # Duplicate predict operator and connect with rag join result update and prediction update
+        test_predict = copy_node_with_new_id(singleton, new_dag, predict_operators[0], [new_rag_join_update_node])
+        old_predict = predict_operators[0]
+        new_corrupt_predict_diff_update_node = merge_prediction_diff_with_old_predictions(
+            singleton, new_dag, "Data Errors",
+            [old_predict, test_predict, new_corruption_diff_node, conditional_corruption_made_changes_node])
+        new_score_nodes = add_new_score_and_score_extraction_nodes(singleton, new_dag,
+                                                                   new_corrupt_predict_diff_update_node,
+                                                                   score_operators, "data-errors-corrupt-0")
+        return new_corrupt_predict_diff_update_node, new_score_nodes
+
+    @staticmethod
+    def _get_rag_join_update_node(new_dag, parents):
         operator_context = OperatorContext(OperatorType.RAG_JOIN, None, {'func': rag_join_update})
-        parents = [rag_join_operators[0], new_corruption_diff_filter_node]
         operator_call_info = OperatorCallInfo(operator_context, parents)
         new_rag_join_update_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                            BasicCodeLocation("Data Errors", None),
@@ -410,42 +430,24 @@ class DataErrorRobustness(ShadowPipeline):
                                            None,
                                            rag_join_update)
         add_parent_node_edges(new_dag, new_rag_join_update_node, parents)
-        # Duplicate predict operator and connect with rag join result update and prediction update
-        test_predict = copy_node_with_new_id(singleton, new_dag, predict_operators[0], [new_rag_join_update_node])
-        old_predict = predict_operators[0]
-        parents = [old_predict, test_predict, new_corruption_diff_node, conditional_corruption_made_changes_node]
-        new_corrupt_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, new_dag,
-                                                                                          "Data Errors", parents)
-        new_score_nodes = add_new_score_and_score_extraction_nodes(singleton, new_dag,
-                                                                   new_corrupt_predict_diff_update_node,
-                                                                   score_operators, "data-errors-corrupt-0")
-        return new_corrupt_predict_diff_update_node, new_score_nodes
+        return new_rag_join_update_node
 
     @staticmethod
     def _add_fix_evaluation_computation_llm(conditional_fixes_changed_something_node, corrupted_predictions_node,
                                             new_dag, new_fix_diff_indices_node, new_fix_node, predict_operators,
                                             rag_join_operators, score_operators):
-        parents = [new_fix_node, new_fix_diff_indices_node, conditional_fixes_changed_something_node]
-        new_fix_diff_filter_node = get_diff_filter_node(singleton, new_dag, "Data Errors", parents)
+        new_fix_diff_filter_node = get_diff_filter_node(
+            singleton, new_dag, "Data Errors",
+            [new_fix_node, new_fix_diff_indices_node, conditional_fixes_changed_something_node])
         # Evaluate with fixed data
         # Operator to get the rag join results
-        operator_context = OperatorContext(OperatorType.RAG_JOIN, None, {'func': rag_join_update})
-        parents = [rag_join_operators[0], new_fix_diff_filter_node]
-        operator_caller_info = OperatorCallInfo(operator_context, parents)
-        new_rag_join_update_node = DagNode(singleton.get_next_op_id(operator_caller_info),
-                                           BasicCodeLocation("Data Errors", None),
-                                           operator_context,
-                                           DagNodeDetails("RAG join for test set diff", None),
-                                           None,
-                                           rag_join_update)
-        add_parent_node_edges(new_dag, new_rag_join_update_node, parents)
+        new_rag_join_update_node = DataErrorRobustness._get_rag_join_update_node(
+            new_dag, [rag_join_operators[0], new_fix_diff_filter_node])
         # Duplicate predict operator and connect with rag join result update and prediction update
         test_predict = copy_node_with_new_id(singleton, new_dag, predict_operators[0], [new_rag_join_update_node])
-        prediction_filter_index_node = new_fix_diff_indices_node
-        parents = [corrupted_predictions_node, test_predict, prediction_filter_index_node,
-                   conditional_fixes_changed_something_node]
-        new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, new_dag,
-                                                                                      "Data Errors", parents)
+        new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(
+            singleton, new_dag, "Data Errors", [corrupted_predictions_node, test_predict, new_fix_diff_indices_node,
+                   conditional_fixes_changed_something_node])
         add_new_score_and_score_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
                                                  score_operators, "data-errors-corrupt-fix-0")
 
