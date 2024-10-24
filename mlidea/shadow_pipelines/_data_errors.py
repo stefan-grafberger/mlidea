@@ -244,12 +244,11 @@ class DataErrorRobustness(ShadowPipeline):
             singleton, dag, new_dag, data_parent, new_corruption_diff_filter_node, new_corruption_diff_node,
             conditional_corruption_made_changes_node, "Data Errors")
 
-        test_predict = [node for node in new_nodes
-                        if node.operator_info.operator == OperatorType.PREDICT][0]
-        old_predict = [node for node in old_copied_nodes
-                       if node.operator_info.operator == OperatorType.PREDICT][0]
+        test_predict = [node for node in new_nodes if node.operator_info.operator == OperatorType.PREDICT][0]
+        old_predict = [node for node in old_copied_nodes if node.operator_info.operator == OperatorType.PREDICT][0]
         parents = [old_predict, test_predict, new_corruption_diff_node, conditional_corruption_made_changes_node]
         new_corrupt_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, new_dag, parents)
+
         new_score_nodes = add_new_score_and_score_extraction_nodes(singleton, new_dag,
                                                                    new_corrupt_predict_diff_update_node,
                                                                    score_operators,
@@ -277,12 +276,11 @@ class DataErrorRobustness(ShadowPipeline):
             singleton, dag, new_dag, data_parent, new_fix_diff_filter_node, new_fix_diff_indices_node,
             conditional_fixes_changed_something_node, "Data Errors")
 
-        test_predict = [node for node in new_nodes
-                        if node.operator_info.operator == OperatorType.PREDICT][0]
-        prediction_filter_index_node = new_fix_diff_indices_node
-        parents = [corrupted_predictions_node, test_predict, prediction_filter_index_node,
+        test_predict = [node for node in new_nodes if node.operator_info.operator == OperatorType.PREDICT][0]
+        parents = [corrupted_predictions_node, test_predict, new_fix_diff_indices_node,
                    conditional_fixes_changed_something_node]
         new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, new_dag, parents)
+
         add_new_score_and_score_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
                                                  score_operators, f"data-errors-corrupt-fix-{data_type_index}")
 

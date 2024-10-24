@@ -247,7 +247,7 @@ def duplicate_descendants_and_filter_concat_inputs(singleton, original_dag, new_
     queue = list(networkx.topological_sort(original_dag.subgraph(descendants)))
     # Iterate through all descendants and create a duplicate for each
     for node in queue:
-        if node.operator_info.operator != OperatorType.EXTRACT_RESULT:
+        if node.operator_info.operator not in {OperatorType.EXTRACT_RESULT, OperatorType.SCORE}:
             new_parents = []
             if node.operator_info.operator == OperatorType.CONCATENATION:
                 for concat_parent in get_sorted_parent_nodes(original_dag, node):
@@ -258,7 +258,7 @@ def duplicate_descendants_and_filter_concat_inputs(singleton, original_dag, new_
                                                                              [concat_parent, changed_indices_node,
                                                                               conditional_node])
                         new_parents.append(new_concat_parent_filter_node)
-            elif node.operator_info.operator not in {OperatorType.EXTRACT_RESULT, OperatorType.SCORE}:
+            else:
                 for parent in get_sorted_parent_nodes(original_dag, node):
                     if parent in mapping:
                         new_parents.append(mapping[parent])

@@ -289,10 +289,8 @@ class FairnessSlices(ShadowPipeline):
             singleton, dag, new_dag, data_parent, new_fix_diff_filter_node, new_fix_diff_node,
             conditional_fix_function_made_changes_node, "Fairness Slices")
 
-        test_predict = [node for node in new_nodes
-                        if node.operator_info.operator == OperatorType.PREDICT][0]
-        old_predict = [node for node in old_copied_nodes
-                       if node.operator_info.operator == OperatorType.PREDICT][0]
+        test_predict = [node for node in new_nodes if node.operator_info.operator == OperatorType.PREDICT][0]
+        old_predict = [node for node in old_copied_nodes if node.operator_info.operator == OperatorType.PREDICT][0]
         parents = [old_predict, test_predict, new_fix_diff_node, conditional_fix_function_made_changes_node]
         new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, new_dag, parents)
         add_new_score_and_score_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
