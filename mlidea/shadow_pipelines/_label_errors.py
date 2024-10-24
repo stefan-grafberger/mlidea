@@ -7,17 +7,17 @@ import pandas
 from numba import prange, njit
 from scipy.sparse import csr_matrix
 
-from mlidea.instrumentation._operator_call_info import OperatorCallInfo
-from mlidea import OperatorType, DagNode, BasicCodeLocation, OperatorContext, DagNodeDetails, FunctionInfo
+from mlidea import OperatorType, DagNode, OperatorContext, DagNodeDetails, FunctionInfo
 from mlidea.analysis._analysis_utils import find_nodes_by_type
 from mlidea.execution._pipeline_executor import singleton
+from mlidea.instrumentation._operator_call_info import OperatorCallInfo
 from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
     get_conditional_stop_node, get_relative_score_change, add_orig_score_extraction_nodes, \
     get_diff_filter_node, merge_prediction_diff_with_old_predictions, add_new_score_and_score_extraction_nodes, \
     assert_standard_llm_shape, assert_standard_ml_shape, get_proxy_model_node, df_or_array_non_empty, \
-    df_or_array_non_empty_func_info, add_parent_node_edges
+    df_or_array_non_empty_func_info, add_parent_node_edges, get_basic_code_location_for_current_line
 
 
 class LabelErrors(ShadowPipeline):
@@ -183,16 +183,18 @@ class LabelErrors(ShadowPipeline):
                                                  "label-errors-flip-retrain")
 
     def _get_label_flip_node_ml(self, new_dag, parents):
-        non_data_kwargs = {'cleaning_batch_size': self._cleaning_batch_size,
-                           'func': LabelErrors._label_flip_processing_func_ml}
-        operator_context = OperatorContext(OperatorType.PROJECTION, None, non_data_kwargs)
+        non_data_kwargs = {'cleaning_batch_size': self._cleaning_batch_size}
+        operator_context = OperatorContext(OperatorType.PROJECTION,
+                                           FunctionInfo('mlidea.shadow_pipelines._label_errors.LabelErrors',
+                                                        '_label_flip_processing_func_ml'),
+                                           non_data_kwargs)
         operator_call_info = OperatorCallInfo(operator_context, parents)
         new_label_flip_node = DagNode(singleton.get_next_op_id(operator_call_info),
-                                      BasicCodeLocation("Label Errors", None),
+                                      get_basic_code_location_for_current_line(),
                                       operator_context,
                                       DagNodeDetails(
                                           f"Flip {self._cleaning_batch_size} most likely incorrect labels", None),
-                                      None,
+                                      parents[0].details.columns,
                                       LabelErrors._label_flip_processing_func_ml)
         add_parent_node_edges(new_dag, new_label_flip_node, parents)
         return new_label_flip_node
@@ -219,20 +221,20 @@ class LabelErrors(ShadowPipeline):
                                   cleaning_batch_size=self._cleaning_batch_size,
                                   only_consider_negative_shapley_values=self._only_consider_negative_shapley_values)
         non_data_kwargs = {'cleaning_batch_size': self._cleaning_batch_size,
-                           'func': LabelErrors._shapley_top_k_func_ml,
                            'train_fraction_to_consider': self._train_fraction_to_consider,
                            'test_fraction_to_consider': self._test_fraction_to_consider,
                            'only_consider_negative_shapley_values': self._only_consider_negative_shapley_values}
         operator_context = OperatorContext(OperatorType.GROUP_BY_AGG,
                                            FunctionInfo('mlidea.shadow_pipelines._label_errors.LabelErrors',
-                                                        '_add_shapley_value_computation_ml'), non_data_kwargs)
+                                                        '_add_shapley_value_computation_ml'),
+                                           non_data_kwargs)
         operator_call_info = OperatorCallInfo(operator_context, parent_nodes)
         new_shapley_node = DagNode(singleton.get_next_op_id(operator_call_info),
-                                   BasicCodeLocation("Label Errors", None),
+                                   get_basic_code_location_for_current_line(),
                                    operator_context,
                                    DagNodeDetails(
                                        f"Top {self._cleaning_batch_size} Shapley values", None),
-                                   None,
+                                   parent_nodes[0].details.columns,
                                    processing_func)
         add_parent_node_edges(new_dag, new_shapley_node, parent_nodes)
         _ = get_intermediate_extraction_node(singleton, new_dag, [new_shapley_node], "label-errors-shapley-values")
@@ -257,12 +259,14 @@ class LabelErrors(ShadowPipeline):
                                                  score_operators, "label-errors-flip-retrain")
 
     def _get_label_flip_node_llm(self, new_dag, parents):
-        non_data_kwargs = {'cleaning_batch_size': self._cleaning_batch_size,
-                           'func': LabelErrors._label_flip_processing_func_llm}
-        operator_context = OperatorContext(OperatorType.PROJECTION, None, non_data_kwargs)
+        non_data_kwargs = {'cleaning_batch_size': self._cleaning_batch_size}
+        operator_context = OperatorContext(OperatorType.PROJECTION,
+                                           FunctionInfo('mlidea.shadow_pipelines._label_errors.LabelErrors',
+                                                        '_label_flip_processing_func_llm'),
+                                           non_data_kwargs)
         operator_call_info = OperatorCallInfo(operator_context, parents)
         new_label_flip_node = DagNode(singleton.get_next_op_id(operator_call_info),
-                                      BasicCodeLocation("Label Errors", None),
+                                      get_basic_code_location_for_current_line(),
                                       operator_context,
                                       DagNodeDetails(
                                           f"Flip {self._cleaning_batch_size} most likely incorrect labels", None),
@@ -272,12 +276,14 @@ class LabelErrors(ShadowPipeline):
         return new_label_flip_node
 
     def _get_label_flip_indices_node(self, new_dag, parents):
-        non_data_kwargs = {'cleaning_batch_size': self._cleaning_batch_size,
-                           'func': LabelErrors._get_rows_to_flip_llm}
-        operator_context = OperatorContext(OperatorType.PROJECTION, None, non_data_kwargs)
+        non_data_kwargs = {'cleaning_batch_size': self._cleaning_batch_size}
+        operator_context = OperatorContext(OperatorType.PROJECTION,
+                                           FunctionInfo('mlidea.shadow_pipelines._label_errors.LabelErrors',
+                                                        '_get_rows_to_flip_llm'),
+                                           non_data_kwargs)
         operator_call_info = OperatorCallInfo(operator_context, parents)
         new_label_flip_indices_node = DagNode(singleton.get_next_op_id(operator_call_info),
-                                              BasicCodeLocation("Label Errors", None),
+                                              get_basic_code_location_for_current_line(),
                                               operator_context,
                                               DagNodeDetails(
                                                   f"Flip {self._cleaning_batch_size} most likely incorrect labels",
@@ -306,15 +312,17 @@ class LabelErrors(ShadowPipeline):
                                   label_encoding_op=label_encoder_operators[0],
                                   only_consider_negative_shapley_values=self._only_consider_negative_shapley_values)
         non_data_kwargs = {'cleaning_batch_size': self._cleaning_batch_size,
-                           'func': LabelErrors._shapley_top_k_func_llm,
                            'train_fraction_to_consider': self._train_fraction_to_consider,
                            'test_fraction_to_consider': self._test_fraction_to_consider,
                            'only_consider_negative_shapley_values': self._only_consider_negative_shapley_values,
                            'label_encoding_op': label_encoder_operators[0]}
-        operator_context = OperatorContext(OperatorType.GROUP_BY_AGG, None, non_data_kwargs)
+        operator_context = OperatorContext(OperatorType.GROUP_BY_AGG,
+                                           FunctionInfo('mlidea.shadow_pipelines._label_errors.LabelErrors',
+                                                        '_shapley_top_k_func_llm'),
+                                           non_data_kwargs)
         operator_call_info = OperatorCallInfo(operator_context, parents)
         new_shapley_node = DagNode(singleton.get_next_op_id(operator_call_info),
-                                   BasicCodeLocation("Label Errors", None),
+                                   get_basic_code_location_for_current_line(),
                                    operator_context,
                                    DagNodeDetails(
                                        f"Top {self._cleaning_batch_size} Shapley values", None),
@@ -370,6 +378,7 @@ class LabelErrors(ShadowPipeline):
         test_indices_to_consider, train_indices_to_consider = LabelErrors._get_train_and_test_indices_to_consider(
             encoded_test_labels, test_fraction_to_consider, train_fraction_to_consider, train_labels_before_dict)
 
+        # FIXME: This should not use label_encoding_op but do the same thing via a DAG node
         x_train, y_train, x_test, y_test = LabelErrors._prepare_shapley_arguments(
             encoded_test_data, encoded_test_labels, label_encoding_op, test_indices_to_consider,
             train_indices_to_consider, train_labels_before_dict, rag_join_result[5])

@@ -10,22 +10,22 @@ from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OneHotEncoder
 from sliceline import Slicefinder
 
-from mlidea.instrumentation._operator_call_info import OperatorCallInfo
-from mlidea import OperatorType, DagNode, BasicCodeLocation, OperatorContext, DagNodeDetails, FunctionInfo
+from mlidea import OperatorType, DagNode, OperatorContext, DagNodeDetails, FunctionInfo
 from mlidea.analysis._analysis_utils import find_nodes_by_type
 from mlidea.analysis._cleaning_methods import detect_outlier_interquartile_range
 from mlidea.execution._pipeline_executor import singleton
+from mlidea.instrumentation._operator_call_info import OperatorCallInfo
 from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
     duplicate_descendants_and_filter_concat_inputs, get_typo_fixer, get_conditional_stop_node, \
     filter_estimator_transformer_edges, \
     get_transformer_parents_with_data_types, \
-    DataType, get_translate_transformer, get_relative_score_change, add_orig_score_extraction_nodes, rag_join_update, \
+    DataType, get_translate_transformer, get_relative_score_change, add_orig_score_extraction_nodes, \
     get_diff_filter_node, get_changed_indices_node, merge_prediction_diff_with_old_predictions, \
     add_new_score_and_score_extraction_nodes, assert_standard_llm_shape, assert_standard_ml_shape, \
     prov_join_node_with_data_sources, df_or_array_non_empty, df_or_array_non_empty_func_info, add_parent_node_edges, \
-    get_rag_join_update_node
+    get_rag_join_update_node, get_basic_code_location_for_current_line
 
 
 class FixType(Enum):
@@ -177,11 +177,14 @@ class FairnessSlices(ShadowPipeline):
     @staticmethod
     def _get_slice_finder_indices_node(new_dag, parents):
         description = "Compute slice finder indexes"
-        non_data_kwargs = {'description': description, 'func': FairnessSlices.extract_slice_finder_result}
-        operator_context = OperatorContext(OperatorType.GROUP_BY_AGG, None, non_data_kwargs)
+        non_data_kwargs = {'description': description}
+        operator_context = OperatorContext(OperatorType.GROUP_BY_AGG,
+                                           FunctionInfo('mlidea.shadow_pipelines._slices.FairnessSlices',
+                                                        'extract_slice_finder_result'),
+                                           non_data_kwargs)
         operator_call_info = OperatorCallInfo(operator_context, parents)
         slice_finder_indices_node = DagNode(singleton.get_next_op_id(operator_call_info),
-                                            BasicCodeLocation("Fairness Slices", None),
+                                            get_basic_code_location_for_current_line(),
                                             operator_context,
                                             DagNodeDetails(description, None),
                                             None,
@@ -308,11 +311,14 @@ class FairnessSlices(ShadowPipeline):
         processing_func = partial(FairnessSlices.fix_data, fix_strategy=fix_strategy,
                                   database_path=self.database_path)
         description = f"Trying to fix slice: {fix_strategy.value}"
-        non_data_kwargs = {'description': description, 'func': FairnessSlices.fix_data, 'fix_strategy': fix_strategy}
-        operator_context = OperatorContext(OperatorType.ESTIMATOR, None, non_data_kwargs)
+        non_data_kwargs = {'description': description, 'fix_strategy': fix_strategy}
+        operator_context = OperatorContext(OperatorType.ESTIMATOR,
+                                           FunctionInfo('mlidea.shadow_pipelines._slices.FairnessSlices',
+                                                        'fix_data'),
+                                           non_data_kwargs)
         operator_call_info = OperatorCallInfo(operator_context, parents)
         new_fix_node = DagNode(singleton.get_next_op_id(operator_call_info),
-                               BasicCodeLocation("Data Errors", None),
+                               get_basic_code_location_for_current_line(),
                                operator_context,
                                DagNodeDetails(description, None),
                                None,
@@ -334,12 +340,15 @@ class FairnessSlices(ShadowPipeline):
         slice_finder_process_func = partial(FairnessSlices.get_slice_finder_slice_and_indices,
                                             alpha=self.slice_finder_alpha)
         description = "Run Slice Finder"
-        non_data_kwargs = {'description': description, 'func': FairnessSlices.get_slice_finder_slice_and_indices,
+        non_data_kwargs = {'description': description,
                            'alpha': self.slice_finder_alpha}
-        operator_context = OperatorContext(OperatorType.GROUP_BY_AGG, None, non_data_kwargs)
+        operator_context = OperatorContext(OperatorType.GROUP_BY_AGG,
+                                           FunctionInfo('mlidea.shadow_pipelines._slices.FairnessSlices',
+                                                        'get_slice_finder_slice_and_indices'),
+                                           non_data_kwargs)
         operator_call_info = OperatorCallInfo(operator_context, parents)
         new_slice_finder_node = DagNode(singleton.get_next_op_id(operator_call_info),
-                                        BasicCodeLocation("Fairness Slices", None),
+                                        get_basic_code_location_for_current_line(),
                                         operator_context,
                                         DagNodeDetails(description, None),
                                         None,

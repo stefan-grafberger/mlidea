@@ -1,5 +1,4 @@
 from functools import partial
-from pathlib import Path
 
 import networkx
 import numpy
@@ -9,11 +8,11 @@ from jenga.corruptions.generic import MissingValues
 from jenga.corruptions.numerical import Scaling
 from sklearn.impute import SimpleImputer
 
-from mlidea.instrumentation._operator_call_info import OperatorCallInfo
-from mlidea import OperatorType, DagNode, BasicCodeLocation, OperatorContext, DagNodeDetails, FunctionInfo
+from mlidea import OperatorType, DagNode, OperatorContext, DagNodeDetails, FunctionInfo
 from mlidea.analysis._analysis_utils import find_nodes_by_type
 from mlidea.analysis._cleaning_methods import detect_outlier_interquartile_range
 from mlidea.execution._pipeline_executor import singleton
+from mlidea.instrumentation._operator_call_info import OperatorCallInfo
 from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
 from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, copy_node_with_new_id, \
@@ -22,7 +21,8 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     get_relative_score_change, add_orig_score_extraction_nodes, \
     get_diff_filter_node, get_changed_indices_node, merge_prediction_diff_with_old_predictions, \
     add_new_score_and_score_extraction_nodes, assert_standard_llm_shape, assert_standard_ml_shape, get_top_n_df_rows, \
-    df_or_array_non_empty, df_or_array_non_empty_func_info, add_parent_node_edges, get_rag_join_update_node
+    df_or_array_non_empty, df_or_array_non_empty_func_info, add_parent_node_edges, get_rag_join_update_node, \
+    get_basic_code_location_for_current_line
 
 
 class DataErrorRobustness(ShadowPipeline):
@@ -309,15 +309,18 @@ class DataErrorRobustness(ShadowPipeline):
 
     def _get_fix_node(self, data_type, new_dag, parents):
         processing_func = partial(DataErrorRobustness.fix_data, data_type=data_type)
-        non_data_kwargs = {'corruption_fraction': self._corruption_fraction, 'data_type': data_type,
-                           'func': DataErrorRobustness.fix_data}
-        operator_context = OperatorContext(OperatorType.ESTIMATOR, None, non_data_kwargs)
+        non_data_kwargs = {'corruption_fraction': self._corruption_fraction, 'data_type': data_type}
+        operator_context = OperatorContext(OperatorType.ESTIMATOR,
+                                           FunctionInfo('mlidea.shadow_pipelines._data_errors.DataErrorRobustness',
+                                                        'fix_data'),
+                                           non_data_kwargs)
         operator_call_info = OperatorCallInfo(operator_context, parents)
         new_fix_node = DagNode(singleton.get_next_op_id(operator_call_info),
-                               BasicCodeLocation("Data Errors", None),
+                               get_basic_code_location_for_current_line(),
                                operator_context,
                                DagNodeDetails(
-                                   f"Fix {self._corruption_fraction} of {data_type.value} values", None),
+                                   f"Fix {self._corruption_fraction} of {data_type.value} values",
+                                   parents[0].details.columns),
                                None,
                                processing_func)
         add_parent_node_edges(new_dag, new_fix_node, parents)
@@ -345,16 +348,18 @@ class DataErrorRobustness(ShadowPipeline):
         processing_func = partial(DataErrorRobustness.corrupt_data,
                                   data_type=data_type,
                                   corruption_fraction=self._corruption_fraction)
-        non_data_kwargs = {'data_type': data_type, 'corruption_fraction': self._corruption_fraction,
-                           'func': DataErrorRobustness.corrupt_data}
-        operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, None, non_data_kwargs)
+        non_data_kwargs = {'data_type': data_type, 'corruption_fraction': self._corruption_fraction}
+        operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY,
+                                           FunctionInfo('mlidea.shadow_pipelines._data_errors.DataErrorRobustness',
+                                                        'corrupt_data'),
+                                           non_data_kwargs)
         operator_call_info = OperatorCallInfo(operator_context, parents)
         new_corruption_node = DagNode(singleton.get_next_op_id(operator_call_info),
-                                      BasicCodeLocation("Data Errors", None),
+                                      get_basic_code_location_for_current_line(),
                                       operator_context,
                                       DagNodeDetails(
                                           f"Corrupt {self._corruption_fraction} of {data_type.value} values", None),
-                                      None,
+                                      parents[0].details.columns,
                                       processing_func)
         add_parent_node_edges(new_dag, new_corruption_node, parents)
         return new_corruption_node
