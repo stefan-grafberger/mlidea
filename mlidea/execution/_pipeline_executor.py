@@ -72,7 +72,7 @@ class PipelineExecutor:
     prov_enabled = True
     cached_intermediates = {}
     old_dag = None
-    operator_context_parents_to_result = {}
+    operator_call_info_to_dag_node = {}
     enable_caching = True
     enable_cache_reuse = True
 
@@ -128,7 +128,7 @@ class PipelineExecutor:
             self.next_patch_id = 0
             self.next_missing_op_id = extraction_info.next_missing_op_id
             self.cached_intermediates = extraction_info.cached_intermediates
-            self.operator_context_parents_to_result = extraction_info.operator_context_parents_to_result
+            self.operator_call_info_to_dag_node = extraction_info.operator_context_parents_to_result
             self.old_dag = extraction_info.original_dag.copy()
 
         if notebook_path is None and python_code is None and python_path is None:
@@ -158,7 +158,7 @@ class PipelineExecutor:
         self.analysis_results.dag_extraction_info = DagExtractionInfo(
             self.analysis_results.original_dag.copy(), self.original_pipeline_labels_to_extracted_plan_results.copy(),
             self.next_op_id, self.next_missing_op_id, self.cached_intermediates,
-            self.operator_context_parents_to_result)
+            self.operator_call_info_to_dag_node)
 
         logger.info('Done!')
         return self.analysis_results
@@ -279,8 +279,8 @@ class PipelineExecutor:
         """
         Each operator in the DAG gets a consecutive unique id
         """
-        if operator_call_info in self.operator_context_parents_to_result:
-            result = self.operator_context_parents_to_result[operator_call_info].node_id
+        if operator_call_info in self.operator_call_info_to_dag_node:
+            result = self.operator_call_info_to_dag_node[operator_call_info].node_id
         else:
             result = self.next_op_id
             self.next_op_id += 1
@@ -336,7 +336,7 @@ class PipelineExecutor:
         self.prov_enabled = True
         self.cached_intermediates = {}
         self.old_dag = None
-        self.operator_context_parents_to_result = {}
+        self.operator_call_info_to_dag_node = {}
         self.enable_caching = True
         self.enable_cache_reuse = True
 

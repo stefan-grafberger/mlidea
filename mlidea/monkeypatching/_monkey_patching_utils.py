@@ -249,7 +249,7 @@ def add_dag_node(dag_node: DagNode, dag_node_parents: list[DagNode], function_ca
     singleton.op_id_to_dag_node[dag_node.node_id] = dag_node
 
     if singleton.enable_caching is True:
-        singleton.operator_context_parents_to_result[OperatorCallInfo(dag_node.operator_info, dag_node_parents)] = dag_node
+        singleton.operator_call_info_to_dag_node[OperatorCallInfo(dag_node.operator_info, dag_node_parents)] = dag_node
         singleton.cached_intermediates[dag_node] = function_call_result.function_result
     # if function_call_result.other is not None:
     # singleton.inspection_results.dag_node_to_inspection_results[dag_node] = backend_result.dag_node_annotation

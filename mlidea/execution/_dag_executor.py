@@ -71,7 +71,7 @@ class DagExecutor:
             self.pipeline_executor.operators_to_runtime_during_analysis[copy(current_node)] = optimizer_info
 
             if self.pipeline_executor.enable_caching is True:
-                self.pipeline_executor.operator_context_parents_to_result[
+                self.pipeline_executor.operator_call_info_to_dag_node[
                     OperatorCallInfo(current_node.operator_info, parent_nodes)] = current_node
                 self.pipeline_executor.cached_intermediates[current_node] = result_df
 
