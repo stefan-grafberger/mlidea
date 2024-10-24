@@ -308,8 +308,8 @@ class DataErrorRobustness(ShadowPipeline):
         return new_fix_diff_indices_node, new_fix_node
 
     def _get_fix_node(self, data_type, new_dag, parents):
-        processing_func = partial(DataErrorRobustness.fix_data, data_type=data_type)
-        non_data_kwargs = {'corruption_fraction': self._corruption_fraction, 'data_type': data_type}
+        non_data_kwargs = {'data_type': data_type}
+        processing_func = partial(DataErrorRobustness.fix_data, **non_data_kwargs)
         operator_context = OperatorContext(OperatorType.ESTIMATOR,
                                            FunctionInfo('mlidea.shadow_pipelines._data_errors.DataErrorRobustness',
                                                         'fix_data'),
@@ -319,7 +319,7 @@ class DataErrorRobustness(ShadowPipeline):
                                get_basic_code_location_for_current_line(),
                                operator_context,
                                DagNodeDetails(
-                                   f"Fix {self._corruption_fraction} of {data_type.value} values",
+                                   f"Fix corrupted {data_type.value} values",
                                    parents[0].details.columns),
                                None,
                                processing_func)
@@ -345,10 +345,8 @@ class DataErrorRobustness(ShadowPipeline):
         return new_corruption_diff_node, new_corruption_node
 
     def _add_corruption_node(self, data_type, new_dag, parents):
-        processing_func = partial(DataErrorRobustness.corrupt_data,
-                                  data_type=data_type,
-                                  corruption_fraction=self._corruption_fraction)
         non_data_kwargs = {'data_type': data_type, 'corruption_fraction': self._corruption_fraction}
+        processing_func = partial(DataErrorRobustness.corrupt_data, **non_data_kwargs)
         operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY,
                                            FunctionInfo('mlidea.shadow_pipelines._data_errors.DataErrorRobustness',
                                                         'corrupt_data'),

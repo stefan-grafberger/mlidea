@@ -301,7 +301,7 @@ def get_conditional_stop_node(singleton, dag, condition_func, function_info,
         return result
 
     processing_func = partial(check_condition, condition_func, label)
-    non_data_kwargs = {'label': label, 'description': description, **udf_kwargs}
+    non_data_kwargs = {'label': label, **udf_kwargs}
     operator_context = OperatorContext(OperatorType.CONDITIONAL_STOP, function_info, non_data_kwargs)
     operator_call_info = OperatorCallInfo(operator_context, parent_nodes)
     new_conditional_node = DagNode(singleton.get_next_op_id(operator_call_info),

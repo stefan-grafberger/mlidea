@@ -215,15 +215,11 @@ class LabelErrors(ShadowPipeline):
                                                      "label-errors-proxy")
 
     def _add_shapley_value_computation_ml(self, new_dag, parent_nodes):
-        processing_func = partial(LabelErrors._shapley_top_k_func_ml,
-                                  train_fraction_to_consider=self._train_fraction_to_consider,
-                                  test_fraction_to_consider=self._test_fraction_to_consider,
-                                  cleaning_batch_size=self._cleaning_batch_size,
-                                  only_consider_negative_shapley_values=self._only_consider_negative_shapley_values)
         non_data_kwargs = {'cleaning_batch_size': self._cleaning_batch_size,
                            'train_fraction_to_consider': self._train_fraction_to_consider,
                            'test_fraction_to_consider': self._test_fraction_to_consider,
                            'only_consider_negative_shapley_values': self._only_consider_negative_shapley_values}
+        processing_func = partial(LabelErrors._shapley_top_k_func_ml, **non_data_kwargs)
         operator_context = OperatorContext(OperatorType.GROUP_BY_AGG,
                                            FunctionInfo('mlidea.shadow_pipelines._label_errors.LabelErrors',
                                                         '_add_shapley_value_computation_ml'),
@@ -298,24 +294,19 @@ class LabelErrors(ShadowPipeline):
         add_orig_score_extraction_nodes(singleton, new_dag, score_operators)
         train_labels_dict_conversion = list(new_dag.predecessors(train_labels_operators[0]))[0]
         train_labels_before_dict = list(new_dag.predecessors(train_labels_dict_conversion))[0]
+        encoded_train_labels_node = copy_node_with_new_id(singleton, new_dag, label_encoder_operators[0],
+                                                          [train_labels_before_dict])
         new_shapley_node = self._get_new_shapley_llm_node(
-            label_encoder_operators, new_dag,
-            [rag_join_operators[0], train_labels_before_dict, test_data_operators[0], test_labels_operators[0]])
+            new_dag, [rag_join_operators[0], encoded_train_labels_node, test_data_operators[0], test_labels_operators[0]])
         _ = get_intermediate_extraction_node(singleton, new_dag, [new_shapley_node], "label-errors-shapley-values")
         return new_shapley_node
 
-    def _get_new_shapley_llm_node(self, label_encoder_operators, new_dag, parents):
-        processing_func = partial(LabelErrors._shapley_top_k_func_llm,
-                                  train_fraction_to_consider=self._train_fraction_to_consider,
-                                  test_fraction_to_consider=self._test_fraction_to_consider,
-                                  cleaning_batch_size=self._cleaning_batch_size,
-                                  label_encoding_op=label_encoder_operators[0],
-                                  only_consider_negative_shapley_values=self._only_consider_negative_shapley_values)
+    def _get_new_shapley_llm_node(self, new_dag, parents):
         non_data_kwargs = {'cleaning_batch_size': self._cleaning_batch_size,
                            'train_fraction_to_consider': self._train_fraction_to_consider,
                            'test_fraction_to_consider': self._test_fraction_to_consider,
-                           'only_consider_negative_shapley_values': self._only_consider_negative_shapley_values,
-                           'label_encoding_op': label_encoder_operators[0]}
+                           'only_consider_negative_shapley_values': self._only_consider_negative_shapley_values}
+        processing_func = partial(LabelErrors._shapley_top_k_func_llm, **non_data_kwargs)
         operator_context = OperatorContext(OperatorType.GROUP_BY_AGG,
                                            FunctionInfo('mlidea.shadow_pipelines._label_errors.LabelErrors',
                                                         '_shapley_top_k_func_llm'),
@@ -371,17 +362,17 @@ class LabelErrors(ShadowPipeline):
         return result
 
     @staticmethod
-    def _shapley_top_k_func_llm(rag_join_result, train_labels_before_dict, encoded_test_data, encoded_test_labels,
+    def _shapley_top_k_func_llm(rag_join_result, encoded_train_labels, encoded_test_data, encoded_test_labels,
                                 train_fraction_to_consider, test_fraction_to_consider, cleaning_batch_size,
-                                label_encoding_op, only_consider_negative_shapley_values):
+                                only_consider_negative_shapley_values):
         # TODO: Should we propagate provenance here? Might be important for explanations later
-        test_indices_to_consider, train_indices_to_consider = LabelErrors._get_train_and_test_indices_to_consider(
-            encoded_test_labels, test_fraction_to_consider, train_fraction_to_consider, train_labels_before_dict)
+        test_indices_to_consider, train_indices_to_consider = LabelErrors._get_train_and_test_indices_to_consider_llm(
+            encoded_test_labels, test_fraction_to_consider, encoded_train_labels, train_fraction_to_consider)
 
         # FIXME: This should not use label_encoding_op but do the same thing via a DAG node
         x_train, y_train, x_test, y_test = LabelErrors._prepare_shapley_arguments(
-            encoded_test_data, encoded_test_labels, label_encoding_op, test_indices_to_consider,
-            train_indices_to_consider, train_labels_before_dict, rag_join_result[5])
+            encoded_test_data, encoded_test_labels, test_indices_to_consider,
+            train_indices_to_consider, encoded_train_labels, rag_join_result[5])
 
         shapley_values = LabelErrors._compute_shapley_values(x_train, numpy.squeeze(y_train),
                                                              x_test, numpy.squeeze(y_test))
@@ -394,24 +385,22 @@ class LabelErrors(ShadowPipeline):
         return rows_to_fix
 
     @staticmethod
-    def _prepare_shapley_arguments(encoded_test_data, encoded_test_labels, label_encoding_op, test_indices_to_consider,
-                                   train_indices_to_consider, train_labels_before_dict, vectorstore):
+    def _prepare_shapley_arguments(encoded_test_data, encoded_test_labels, test_indices_to_consider,
+                                   train_indices_to_consider, encoded_train_labels, vectorstore):
         train_data_sample = numpy.array(vectorstore.get(
             ids=[str(index) for index in train_indices_to_consider], include=["embeddings"])['embeddings'])
-        to_label_encode = train_labels_before_dict.iloc[train_indices_to_consider, 0]
-        to_label_encode._mlinspect_provenance = None
-        train_label_sample = label_encoding_op.processing_func(to_label_encode)
+        train_label_sample = encoded_train_labels[train_indices_to_consider]
         test_data_sample = numpy.array(vectorstore.embeddings.embed_documents(
             numpy.array(encoded_test_data)[test_indices_to_consider]))
         test_label_sample = encoded_test_labels[test_indices_to_consider]
         return train_data_sample, train_label_sample, test_data_sample, test_label_sample
 
     @staticmethod
-    def _get_train_and_test_indices_to_consider(encoded_test_labels, test_fraction_to_consider,
-                                                train_fraction_to_consider, train_labels_before_dict):
-        indices = numpy.arange(len(train_labels_before_dict))
+    def _get_train_and_test_indices_to_consider_llm(encoded_test_labels, test_fraction_to_consider, encoded_train_labels,
+                                                    train_fraction_to_consider):
+        indices = numpy.arange(len(encoded_train_labels))
         numpy.random.shuffle(indices)
-        num_values_to_typo = int(len(train_labels_before_dict) * train_fraction_to_consider)
+        num_values_to_typo = int(len(encoded_train_labels) * train_fraction_to_consider)
         train_indices_to_consider = indices[:num_values_to_typo]
         indices = numpy.arange(len(encoded_test_labels))
         num_values_to_typo = int(len(encoded_test_labels) * test_fraction_to_consider)

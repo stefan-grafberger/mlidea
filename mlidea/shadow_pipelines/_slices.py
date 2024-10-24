@@ -176,17 +176,15 @@ class FairnessSlices(ShadowPipeline):
 
     @staticmethod
     def _get_slice_finder_indices_node(new_dag, parents):
-        description = "Compute slice finder indexes"
-        non_data_kwargs = {'description': description}
         operator_context = OperatorContext(OperatorType.GROUP_BY_AGG,
                                            FunctionInfo('mlidea.shadow_pipelines._slices.FairnessSlices',
                                                         'extract_slice_finder_result'),
-                                           non_data_kwargs)
+                                           {})
         operator_call_info = OperatorCallInfo(operator_context, parents)
         slice_finder_indices_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                             get_basic_code_location_for_current_line(),
                                             operator_context,
-                                            DagNodeDetails(description, None),
+                                            DagNodeDetails("Compute slice finder indexes", None),
                                             None,
                                             FairnessSlices.extract_slice_finder_result)
         add_parent_node_edges(new_dag, slice_finder_indices_node, parents)
@@ -308,10 +306,8 @@ class FairnessSlices(ShadowPipeline):
         return new_fix_diff_node, new_fix_node
 
     def _get_fix_node(self, fix_strategy, new_dag, parents):
-        processing_func = partial(FairnessSlices.fix_data, fix_strategy=fix_strategy,
-                                  database_path=self.database_path)
-        description = f"Trying to fix slice: {fix_strategy.value}"
-        non_data_kwargs = {'description': description, 'fix_strategy': fix_strategy}
+        non_data_kwargs = {'database_path': self.database_path, 'fix_strategy': fix_strategy}
+        processing_func = partial(FairnessSlices.fix_data, **non_data_kwargs)
         operator_context = OperatorContext(OperatorType.ESTIMATOR,
                                            FunctionInfo('mlidea.shadow_pipelines._slices.FairnessSlices',
                                                         'fix_data'),
@@ -320,7 +316,8 @@ class FairnessSlices(ShadowPipeline):
         new_fix_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                get_basic_code_location_for_current_line(),
                                operator_context,
-                               DagNodeDetails(description, None),
+                               DagNodeDetails(f"Trying to fix slice: {fix_strategy.value}",
+                                              parents[0].details.columns),
                                None,
                                processing_func)
         add_parent_node_edges(new_dag, new_fix_node, parents)
@@ -337,11 +334,8 @@ class FairnessSlices(ShadowPipeline):
         return new_slice_finder_node
 
     def _get_slice_finder_node(self, new_dag, parents):
-        slice_finder_process_func = partial(FairnessSlices.get_slice_finder_slice_and_indices,
-                                            alpha=self.slice_finder_alpha)
-        description = "Run Slice Finder"
-        non_data_kwargs = {'description': description,
-                           'alpha': self.slice_finder_alpha}
+        non_data_kwargs = {'alpha': self.slice_finder_alpha}
+        slice_finder_process_func = partial(FairnessSlices.get_slice_finder_slice_and_indices, **non_data_kwargs)
         operator_context = OperatorContext(OperatorType.GROUP_BY_AGG,
                                            FunctionInfo('mlidea.shadow_pipelines._slices.FairnessSlices',
                                                         'get_slice_finder_slice_and_indices'),
@@ -350,7 +344,7 @@ class FairnessSlices(ShadowPipeline):
         new_slice_finder_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                         get_basic_code_location_for_current_line(),
                                         operator_context,
-                                        DagNodeDetails(description, None),
+                                        DagNodeDetails("Run Slice Finder", None),
                                         None,
                                         slice_finder_process_func)
         add_parent_node_edges(new_dag, new_slice_finder_node, parents)
