@@ -14,6 +14,7 @@ from fairlearn.metrics import MetricFrame
 from scikeras import wrappers
 from scipy.sparse import csr_matrix
 
+from instrumentation._operator_call_info import OperatorCallInfo
 from mlidea.instrumentation._dag_node import OptimizerInfo
 from mlidea.monkeypatching._mlinspect_ndarray import MlideaChromaVectorStoreRetrieverPlaceHolder
 
@@ -26,11 +27,32 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
         -> tuple[OptimizerInfo, any]:
     """Function to measure the runtime of instrumented user function calls and get output metadata"""
     execution_start = time.time()
-    if ((obj_for_inplace_ops is None or estimator_transformer_state is not None) and
+    not_a_constructor = (obj_for_inplace_ops is None or estimator_transformer_state is not None)
+    if (not_a_constructor and
             operator_call_info in singleton.operator_call_info_to_dag_node
             and singleton.enable_cache_reuse is True and force_disable_reuse is False):
         dag_node = singleton.operator_call_info_to_dag_node[operator_call_info]
         result = singleton.cached_intermediates[dag_node]
+    # Reuse
+    elif (not_a_constructor and singleton.enable_cache_reuse is True and force_disable_reuse is False and
+          singleton.old_dag is not None):
+        parent_replacement_map = {}  # TODO: Should be in singleton
+        parent_replacement_changes = {}  # TODO: Should be in singleton, create a data class for changes
+        updated_parent_node_ids = [parent_replacement_map[op_id] if op_id in parent_replacement_map else op_id
+                                   for op_id in operator_call_info.parent_node_ids]
+        updated_operator_call_info = OperatorCallInfo(operator_call_info.operator,
+                                                      operator_call_info.input_info,
+                                                      operator_call_info.non_data_kwargs,
+                                                      updated_parent_node_ids)
+        if updated_operator_call_info in singleton.operator_call_info_to_dag_node:
+            update_node_result(...)
+        elif # check replacement
+        elif # check addition
+        elif check deletion
+        else
+        raise NotImplementedError("TODO: Check other reuse scenarios. The question is also if we want to fail for "
+                                  "now if the amount of change exceeds a threshold and we encounter situation we "
+                                  "cannot handle with IVM. Longterm, we shouldn't do this, however.")
     else:
         result = instrumented_function_call()
         if estimator_transformer_state is not None:
