@@ -80,9 +80,6 @@ class FairnessSlices(ShadowPipeline):
         return column_name in {"race", "gender", "age", "lang", "country", "sex"}.union(additional_column_names)
 
     def generate_shadow_pipeline_dag(self, dag: networkx.DiGraph) -> networkx.DiGraph:
-        # TODO: Maybe it would be better to delete all unrelated DAG nodes here that are not specifically mentioned
-        #  below. But this only works once intermediate resutl caching is implemented
-
         data_sources_with_sensitive_columns = FairnessSlices.get_data_sources_to_sensitive_columns(
             dag, self._additional_column_names)
         self.sensitive_column_count = len(data_sources_with_sensitive_columns)

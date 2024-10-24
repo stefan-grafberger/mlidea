@@ -49,8 +49,6 @@ class DataErrorRobustness(ShadowPipeline):
         return "data_errors"
 
     def generate_shadow_pipeline_dag(self, dag: networkx.DiGraph) -> networkx.DiGraph:
-        # TODO: Maybe it would be better to delete all unrelated DAG nodes here that are not specifically mentioned
-        #  below. But this only works once intermediate resutl caching is implemented
         self.score_operator_count = 0
         self._transformer_inputs_to_check = []
         rag_join_operators = find_nodes_by_type(dag, OperatorType.RAG_JOIN)

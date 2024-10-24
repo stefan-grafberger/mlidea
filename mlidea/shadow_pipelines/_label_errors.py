@@ -30,7 +30,6 @@ class LabelErrors(ShadowPipeline):
 
     def __init__(self, train_fraction_to_consider=1., test_fraction_to_consider=1., proxy_model=False,
                  cleaning_batch_size=20, only_consider_negative_shapley_values=False):
-        # TODO: We should probably also implement the second proxy version from the workshop paper
         self._train_fraction_to_consider = train_fraction_to_consider
         self._test_fraction_to_consider = test_fraction_to_consider
         self._proxy_model = proxy_model
@@ -49,9 +48,6 @@ class LabelErrors(ShadowPipeline):
         return "label_errors"
 
     def generate_shadow_pipeline_dag(self, dag: networkx.DiGraph) -> networkx.DiGraph:
-        # TODO: Maybe it would be better to delete all unrelated DAG nodes here that are not specifically mentioned
-        #  below. But this only works once intermediate resutl caching is implemented
-
         rag_join_operators = find_nodes_by_type(dag, OperatorType.RAG_JOIN)
 
         if len(rag_join_operators) == 0:
@@ -369,7 +365,6 @@ class LabelErrors(ShadowPipeline):
         test_indices_to_consider, train_indices_to_consider = LabelErrors._get_train_and_test_indices_to_consider_llm(
             encoded_test_labels, test_fraction_to_consider, encoded_train_labels, train_fraction_to_consider)
 
-        # FIXME: This should not use label_encoding_op but do the same thing via a DAG node
         x_train, y_train, x_test, y_test = LabelErrors._prepare_shapley_arguments(
             encoded_test_data, encoded_test_labels, test_indices_to_consider,
             train_indices_to_consider, encoded_train_labels, rag_join_result[5])
