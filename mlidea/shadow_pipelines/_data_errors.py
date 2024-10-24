@@ -243,9 +243,10 @@ class DataErrorRobustness(ShadowPipeline):
         _ = get_intermediate_extraction_node(singleton, new_dag, [new_corruption_diff_filter_node],
                                              f"data-errors-corruption-diff-{data_type_index}")
 
-        new_predict = duplicate_descendants_and_filter_concat_inputs(
-            singleton, dag, new_dag, data_parent, new_corruption_diff_filter_node, new_corruption_diff_node,
-            conditional_corruption_made_changes_node, "Data Errors")
+        new_predict = duplicate_descendants_and_filter_concat_inputs(singleton, dag, new_dag, data_parent,
+                                                                     new_corruption_diff_filter_node,
+                                                                     new_corruption_diff_node,
+                                                                     conditional_corruption_made_changes_node)
 
         parents = [predict_operators[0], new_predict, new_corruption_diff_node, conditional_corruption_made_changes_node]
         new_corrupt_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, new_dag, parents)
@@ -273,9 +274,10 @@ class DataErrorRobustness(ShadowPipeline):
         new_fix_diff_filter_node = get_diff_filter_node(singleton, new_dag, [new_fix_node, new_fix_diff_indices_node,
                                                                              conditional_fixes_changed_something_node])
 
-        new_predict = duplicate_descendants_and_filter_concat_inputs(
-            singleton, dag, new_dag, data_parent, new_fix_diff_filter_node, new_fix_diff_indices_node,
-            conditional_fixes_changed_something_node, "Data Errors")
+        new_predict = duplicate_descendants_and_filter_concat_inputs(singleton, dag, new_dag, data_parent,
+                                                                     new_fix_diff_filter_node,
+                                                                     new_fix_diff_indices_node,
+                                                                     conditional_fixes_changed_something_node)
 
         parents = [corrupted_predictions_node, new_predict, new_fix_diff_indices_node,
                    conditional_fixes_changed_something_node]

@@ -49,10 +49,9 @@ class FuzzyPandasPatching:
             initial_func = partial(processing_func, input_info_a.annotated_dfobject.result_data,
                                    input_info_b.annotated_dfobject.result_data)
             optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, initial_func)
-            op_id = singleton.get_next_op_id(operator_call_info)
             description = FuzzyPandasPatching.get_fuzzy_merge_description(**kwargs)
 
-            dag_node = DagNode(op_id,
+            dag_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                BasicCodeLocation(caller_filename, lineno),
                                operator_context,
                                DagNodeDetails(description, list(result.columns), optimizer_info),

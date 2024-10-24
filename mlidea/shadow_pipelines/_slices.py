@@ -247,7 +247,7 @@ class FairnessSlices(ShadowPipeline):
 
     @staticmethod
     def _get_slice_found_conditional_node(new_dag, new_slice_finder_node):
-        function_info = FunctionInfo(f"mlidea.shadow_pipelines._slices.FairnessSlices", 'problematic_slice_found_func')
+        function_info = FunctionInfo("mlidea.shadow_pipelines._slices.FairnessSlices", 'problematic_slice_found_func')
         conditional_fix_made_changes_node = get_conditional_stop_node(
             singleton, new_dag, FairnessSlices.problematic_slice_found_func, function_info,
             "fairness-slices-slice-line-problematic-slice-found",
@@ -284,9 +284,9 @@ class FairnessSlices(ShadowPipeline):
         _ = get_intermediate_extraction_node(singleton, new_dag, [new_fix_diff_filter_node],
                                              f"fairness-slice-fixing-diff-{fix_strategy_index}")
         # Evaluate with updated data
-        new_predict = duplicate_descendants_and_filter_concat_inputs(
-            singleton, dag, new_dag, data_parent, new_fix_diff_filter_node, new_fix_diff_node,
-            conditional_fix_function_made_changes_node, "Fairness Slices")
+        new_predict = duplicate_descendants_and_filter_concat_inputs(singleton, dag, new_dag, data_parent,
+                                                                     new_fix_diff_filter_node, new_fix_diff_node,
+                                                                     conditional_fix_function_made_changes_node)
 
         parents = [predict_operators[0], new_predict, new_fix_diff_node, conditional_fix_function_made_changes_node]
         new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, new_dag, parents)

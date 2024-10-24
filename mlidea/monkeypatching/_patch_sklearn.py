@@ -341,21 +341,16 @@ class SklearnComposePatching:
         if not call_info_singleton.column_transformer_active:
             return original(self, *args, **kwargs)
 
-        input_tuple = args[0]
         function_info = FunctionInfo('sklearn.compose._column_transformer', 'ColumnTransformer')
-        input_infos = []
-        for input_df_obj in input_tuple:
-            input_info = get_input_info(input_df_obj, self.mlinspect_filename, self.mlinspect_lineno, function_info,
+        input_infos = [get_input_info(input_df_obj, self.mlinspect_filename, self.mlinspect_lineno, function_info,
                                         self.mlinspect_optional_code_reference, self.mlinspect_optional_source_code)
-            input_infos.append(input_info)
-
+                       for input_df_obj in args[0]]
         non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs, except_indices=[0])
         operator_context = OperatorContext(OperatorType.CONCATENATION, function_info, non_data_kwargs)
         operator_call_info = OperatorCallInfo(operator_context, input_infos)
         # input_annotated_dfs = [input_info.annotated_dfobject for input_info in input_infos]
         # No input_infos copy needed because it's only a selection and the rows not being removed don't change
-        orig_func_prov = wrap_projection_func(lambda df: original(self, df, *args[1:], **kwargs))
-        initial_func = partial(orig_func_prov, args[0])
+        initial_func = partial(wrap_projection_func(lambda df: original(self, df, *args[1:], **kwargs)), args[0])
         optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, initial_func)
 
         def processing_func(*input_dfs):
@@ -1227,12 +1222,10 @@ class SklearnFeatureUnionPatching:
                 # return numpy.zeros((X.shape[0], 0))
 
             function_info = FunctionInfo('sklearn.pipeline', 'FeatureUnion')
-            input_infos = []
-            for input_df_obj in Xs:
-                input_info = get_input_info(input_df_obj, self.mlinspect_caller_filename, self.mlinspect_lineno,
+            input_infos = [get_input_info(input_df_obj, self.mlinspect_caller_filename, self.mlinspect_lineno,
                                             function_info, self.mlinspect_optional_code_reference,
                                             self.mlinspect_optional_source_code)
-                input_infos.append(input_info)
+                           for input_df_obj in Xs]
 
             def processing_func(*input_dfs):
                 if any(sparse.issparse(f) for f in input_dfs):

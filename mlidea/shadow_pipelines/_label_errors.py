@@ -199,7 +199,7 @@ class LabelErrors(ShadowPipeline):
         add_parent_node_edges(new_dag, new_label_flip_node, parents)
         return new_label_flip_node
 
-    def _add_orig_proxy_score_computation_ml(self, likely_mislabeled_rows_condition_node, model_operators, new_dag,
+    def _add_orig_proxy_score_computation_ml(self, likely_mislabeled_rows_condition_node, _, new_dag,
                                              predict_operators, score_operators, test_data_operators,
                                              train_data_operators,
                                              train_labels_operators):

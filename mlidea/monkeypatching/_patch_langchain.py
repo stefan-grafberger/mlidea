@@ -128,7 +128,7 @@ class RunnableSequencePatching:
         if call_info_singleton.runnable_sequence_active is False:
             def execute_inspections(_, caller_filename, lineno, optional_code_reference, optional_source_code):
                 """ Execute inspections, add DAG node """
-                # pylint: disable=too-many-locals
+                # pylint: disable=too-many-locals,no-member
                 call_info_singleton.runnable_sequence_active = True
                 # TODO: It is a bit unclear if it is better to use the vectorstore code location info here or the LLM
                 #  info for the first part. For now, going wiht the vectorstore
@@ -350,7 +350,6 @@ class ChromaPatching:
 
         def execute_inspections(_, caller_filename, lineno, optional_code_reference, optional_source_code):
             function_info = FunctionInfo('langchain_community.vectorstores.Chroma', 'from_texts')
-            input_dag_nodes = []
             if metadatas is None:
                 raise NotImplementedError("Vectorstore only supported in LLM+RAG scenarios with labels currently!")
 
@@ -359,9 +358,7 @@ class ChromaPatching:
             _, train_labels_node, train_labels_result = add_train_label_node(caller_info, metadatas,
                                                                              function_info)
 
-            input_dag_nodes.append(train_data_node)
-            input_dag_nodes.append(train_labels_node)
-            columns = train_data_node.details.columns + train_labels_node.details.columns
+            input_dag_nodes = [train_data_node, train_labels_node]
 
             operator_context = OperatorContext(OperatorType.CONCATENATION, function_info, {'embedding': embedding})
             operator_call_info = OperatorCallInfo(operator_context, input_dag_nodes)
@@ -380,7 +377,9 @@ class ChromaPatching:
             dag_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                BasicCodeLocation(caller_filename, lineno),
                                operator_context,
-                               DagNodeDetails(None, columns, optimizer_info),
+                               DagNodeDetails(None,
+                                              train_data_node.details.columns + train_labels_node.details.columns,
+                                              optimizer_info),
                                get_optional_code_info_or_none(optional_code_reference, optional_source_code),
                                processing_func)
             function_call_result = FunctionCallResult(result)

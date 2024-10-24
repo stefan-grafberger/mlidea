@@ -236,7 +236,7 @@ def get_typo_fixer(column):
 
 
 def duplicate_descendants_and_filter_concat_inputs(singleton, original_dag, new_dag, original_node, modified_copy,
-                                                   changed_indices_node, conditional_node, shadow_pipeline_name):
+                                                   changed_indices_node, conditional_node):
     # Create a mapping of old nodes to new nodes
     mapping = {original_node: modified_copy}
 
