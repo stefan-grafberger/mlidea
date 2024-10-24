@@ -66,6 +66,7 @@ class DataErrorRobustness(ShadowPipeline):
         new_dag = dag.copy()
         assert_standard_ml_shape(dag, "Data Errors")
 
+        predict_operators = find_nodes_by_type(dag, OperatorType.PREDICT)
         score_operators = find_nodes_by_type(dag, OperatorType.SCORE)
         add_orig_score_extraction_nodes(singleton, new_dag, score_operators)
         self.score_operator_count = len(score_operators)
@@ -75,7 +76,7 @@ class DataErrorRobustness(ShadowPipeline):
 
         for data_type_index, (data_parent, data_type) in enumerate(data_parent_transformer_and_data_type):
             corrupted_predictions, corruption_diff, corruption, new_score_nodes = self._add_corruption_computation_ml(
-                dag, data_parent, data_type, data_type_index, new_dag, score_operators)
+                dag, data_parent, data_type, data_type_index, new_dag, predict_operators, score_operators)
 
             conditional_corruption_significant_node = self._get_corruption_significant_conditional_node(
                 data_type_index, new_dag, [*score_operators, *new_score_nodes])
@@ -218,7 +219,8 @@ class DataErrorRobustness(ShadowPipeline):
                                                                data_type_index, new_dag, new_fix_diff_indices_node,
                                                                new_fix_node, score_operators)
 
-    def _add_corruption_computation_ml(self, dag, data_parent, data_type, data_type_index, new_dag, score_operators):
+    def _add_corruption_computation_ml(self, dag, data_parent, data_type, data_type_index, new_dag, predict_operators,
+                                       score_operators):
         new_corruption_diff_node, new_corruption_node = self._add_corruption_func_computation(data_parent, data_type,
                                                                                               new_dag)
 
@@ -228,25 +230,24 @@ class DataErrorRobustness(ShadowPipeline):
 
         new_corrupt_predict_diff_update_node, new_score_nodes = DataErrorRobustness._add_corruption_evaluation_ml(
             conditional_corruption_made_changes_node, dag, data_parent, data_type_index, new_corruption_diff_node,
-            new_corruption_node, new_dag, score_operators)
+            new_corruption_node, new_dag, predict_operators, score_operators)
         return new_corrupt_predict_diff_update_node, new_corruption_diff_node, new_corruption_node, new_score_nodes
 
     @staticmethod
     def _add_corruption_evaluation_ml(conditional_corruption_made_changes_node, dag, data_parent, data_type_index,
-                                      new_corruption_diff_node, new_corruption_node, new_dag, score_operators):
+                                      new_corruption_diff_node, new_corruption_node, new_dag, predict_operators,
+                                      score_operators):
         new_corruption_diff_filter_node = get_diff_filter_node(singleton, new_dag,
                                                                [new_corruption_node, new_corruption_diff_node,
                                                                 conditional_corruption_made_changes_node])
         _ = get_intermediate_extraction_node(singleton, new_dag, [new_corruption_diff_filter_node],
                                              f"data-errors-corruption-diff-{data_type_index}")
 
-        old_copied_nodes, new_nodes = duplicate_descendants_and_filter_concat_inputs(
+        new_predict = duplicate_descendants_and_filter_concat_inputs(
             singleton, dag, new_dag, data_parent, new_corruption_diff_filter_node, new_corruption_diff_node,
             conditional_corruption_made_changes_node, "Data Errors")
 
-        test_predict = [node for node in new_nodes if node.operator_info.operator == OperatorType.PREDICT][0]
-        old_predict = [node for node in old_copied_nodes if node.operator_info.operator == OperatorType.PREDICT][0]
-        parents = [old_predict, test_predict, new_corruption_diff_node, conditional_corruption_made_changes_node]
+        parents = [predict_operators[0], new_predict, new_corruption_diff_node, conditional_corruption_made_changes_node]
         new_corrupt_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, new_dag, parents)
 
         new_score_nodes = add_new_score_and_score_extraction_nodes(singleton, new_dag,
@@ -272,12 +273,11 @@ class DataErrorRobustness(ShadowPipeline):
         new_fix_diff_filter_node = get_diff_filter_node(singleton, new_dag, [new_fix_node, new_fix_diff_indices_node,
                                                                              conditional_fixes_changed_something_node])
 
-        _, new_nodes = duplicate_descendants_and_filter_concat_inputs(
+        new_predict = duplicate_descendants_and_filter_concat_inputs(
             singleton, dag, new_dag, data_parent, new_fix_diff_filter_node, new_fix_diff_indices_node,
             conditional_fixes_changed_something_node, "Data Errors")
 
-        test_predict = [node for node in new_nodes if node.operator_info.operator == OperatorType.PREDICT][0]
-        parents = [corrupted_predictions_node, test_predict, new_fix_diff_indices_node,
+        parents = [corrupted_predictions_node, new_predict, new_fix_diff_indices_node,
                    conditional_fixes_changed_something_node]
         new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, new_dag, parents)
 

@@ -267,7 +267,9 @@ def duplicate_descendants_and_filter_concat_inputs(singleton, original_dag, new_
             new_node = copy_node_with_new_id(singleton, new_dag, node, new_parents)
             mapping[node] = new_node
 
-    return set(mapping.keys()), set(mapping.values())
+    all_new_nodes = set(mapping.values())
+    new_predict = [node for node in all_new_nodes if node.operator_info.operator == OperatorType.PREDICT][0]
+    return new_predict
 
 
 def filter_estimator_transformer_edges(parent, child):
@@ -301,8 +303,10 @@ def get_conditional_stop_node(singleton, dag, condition_func, function_info,
         return result
 
     processing_func = partial(check_condition, condition_func, label)
-    non_data_kwargs = {'label': label, **udf_kwargs}
-    operator_context = OperatorContext(OperatorType.CONDITIONAL_STOP, function_info, non_data_kwargs)
+    # We do not need to include the label in the kwargs since conditional nodes will have to store their
+    #  results again anyway with how they are implemented currently. However, this is no problem currently,
+    #  as all conditional functions are very cheap.
+    operator_context = OperatorContext(OperatorType.CONDITIONAL_STOP, function_info, udf_kwargs)
     operator_call_info = OperatorCallInfo(operator_context, parent_nodes)
     new_conditional_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                    get_basic_code_location_for_current_line(),
