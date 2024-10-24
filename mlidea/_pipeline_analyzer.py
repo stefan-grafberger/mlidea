@@ -38,6 +38,7 @@ class PipelineInspectorBuilder:
         self._force_optimization_rules = None
         self._use_dfs_exec_strategy = False
         self._prov_tracking = True
+        self._caching_enabled = True
 
     def add_what_if_analysis(self, analysis: WhatIfAnalysis):
         """
@@ -119,6 +120,13 @@ class PipelineInspectorBuilder:
         self._prov_tracking = prov_tracking
         return self
 
+    def set_caching(self, caching_enabled: True):
+        """
+        A convenience function for benchmarking
+        """
+        self._caching_enabled = caching_enabled
+        return self
+
     def execute(self) -> AnalysisResults:
         """
         Instrument and execute the pipeline
@@ -135,7 +143,8 @@ class PipelineInspectorBuilder:
                              force_optimization_rules=self._force_optimization_rules,
                              use_dfs_exec_strategy=self._use_dfs_exec_strategy,
                              estimate_only=False,
-                             prov_enabled=self._prov_tracking)
+                             prov_enabled=self._prov_tracking,
+                             caching_enabled=self._caching_enabled)
 
     def estimate(self) -> EstimationResults:
         """

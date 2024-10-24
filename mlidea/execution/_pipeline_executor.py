@@ -90,7 +90,8 @@ class PipelineExecutor:
             force_optimization_rules: list[QueryOptimizationRule] or None = None,
             use_dfs_exec_strategy: bool = False,
             estimate_only=False,
-            prov_enabled=True
+            prov_enabled=True,
+            caching_enabled=True
             ) -> AnalysisResults:
         """
         Instrument and execute the pipeline and evaluate all checks
@@ -117,6 +118,8 @@ class PipelineExecutor:
         self.estimate_only = estimate_only
         self.use_dfs_exec_strategy = use_dfs_exec_strategy
         self.prov_enabled = prov_enabled
+        self.enable_caching = caching_enabled
+        self.enable_cache_reuse = caching_enabled
 
         if extraction_info is not None:
             logger.info('Reusing DAG extraction results results from previously instrumented pipeline...')
