@@ -206,9 +206,14 @@ class DataCorruption(WhatIfAnalysis):
                     corruption_index_selection_func=index_selection_with_proper_bindings,
                     corruption_function=corruption_function,
                     column=column))
-        new_corruption_node = DagNode(singleton.get_next_op_id(),
+        non_data_kwargs = {'corruption_index_selection_func': index_selection_with_proper_bindings,
+                           'corruption_function': corruption_function,
+                           'column': column}
+        operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, None, non_data_kwargs)
+        # FIXME: This shouldn't use None
+        new_corruption_node = DagNode(singleton.get_next_op_id(None),
                                       BasicCodeLocation("DataCorruption", None),
-                                      OperatorContext(OperatorType.PROJECTION_MODIFY, None),
+                                      operator_context,
                                       DagNodeDetails(description, None),
                                       None,
                                       corrupt_df_with_proper_bindings)

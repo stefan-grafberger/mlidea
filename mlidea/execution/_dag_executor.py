@@ -7,9 +7,11 @@ from functools import partial
 
 import networkx
 
+from mlidea.instrumentation._operator_call_info import OperatorCallInfo
 from mlidea.execution._stat_tracking import capture_optimizer_info
 from mlidea.instrumentation._operator_types import OperatorType, ConditionalResult
 from mlidea.instrumentation._dag_node import DagNode, OptimizerInfo
+from mlidea.utils._utils import get_sorted_parent_nodes
 
 
 @dataclasses.dataclass(frozen=True)
@@ -35,7 +37,9 @@ class DagExecutor:
         def execute_node(current_node: DagNode):
             if current_node.operator_info.operator == OperatorType.MISSING_OP:
                 raise NotImplementedError(f"Missing Ops not supported currently! The operator: {current_node}")
-            inputs = self.get_required_values(dag, current_node)
+            parent_nodes = get_sorted_parent_nodes(dag, current_node)
+            inputs = self.get_required_values(dag, current_node, parent_nodes)
+            operator_call_info = OperatorCallInfo(current_node.operator_info, parent_nodes)
             stop_signal_received = False
             for input_index, input_val in enumerate(inputs):
                 if isinstance(input_val, ConditionalResult):
@@ -47,16 +51,30 @@ class DagExecutor:
                         #  highest arg_index, the last argument of some other node
                         assert input_index == len(inputs) - 1
                         inputs = inputs[:-1]
+            # This is necessary because these two node types extract results
             if stop_signal_received is False:
                 executable_processing_func = partial(current_node.processing_func, *inputs)
-                optimizer_info, result_df = capture_optimizer_info(executable_processing_func)
+                extract_or_conditional = current_node.operator_info.operator in {
+                    OperatorType.EXTRACT_RESULT, OperatorType.CONDITIONAL_STOP}
+                optimizer_info, result_df = capture_optimizer_info(self.pipeline_executor, operator_call_info,
+                                                                   executable_processing_func,
+                                                                   force_disable_reuse=extract_or_conditional)
             elif current_node.operator_info.operator == OperatorType.EXTRACT_RESULT:
                 executable_processing_func = partial(current_node.processing_func, ConditionalResult.STOP_EXECUTION)
-                optimizer_info, result_df = capture_optimizer_info(executable_processing_func)
+                _, result_df = capture_optimizer_info(self.pipeline_executor, operator_call_info,
+                                                      executable_processing_func,
+                                                      force_disable_reuse=True)
+                optimizer_info = OptimizerInfo(None, None, None)  # We want to avoid the DAG from being confusing
             else:
                 optimizer_info = OptimizerInfo(None, None, None)
                 result_df = ConditionalResult.STOP_EXECUTION
-            self.pipeline_executor.operators_to_runtime_during_analysis.append((copy(current_node), optimizer_info))
+            self.pipeline_executor.operators_to_runtime_during_analysis[copy(current_node)] = optimizer_info
+
+            if self.pipeline_executor.enable_caching is True:
+                self.pipeline_executor.operator_context_parents_to_result[
+                    OperatorCallInfo(current_node.operator_info, parent_nodes)] = current_node
+                self.pipeline_executor.cached_intermediates[current_node] = result_df
+
             result = self.replace_node_with_result(dag, current_node, result_df)
             return result
 
@@ -124,19 +142,12 @@ class DagExecutor:
         return new_value_node
 
     @staticmethod
-    def get_required_values(sub_dag: networkx.DiGraph, current_node: DagNode):
+    def get_required_values(sub_dag: networkx.DiGraph, current_node: DagNode, parent_nodes: list[DagNode]):
         """
         This gets all required input values for the processing_func of a dag_node from its DagNode parents.
         Deletes results from parents that are no longer required.
         """
         required_df_values = []
-        parent_nodes = list(sub_dag.predecessors(current_node))
-        if len(parent_nodes) > 1:
-            parent_nodes_with_arg_index = [(parent_node, sub_dag.get_edge_data(parent_node, current_node))
-                                           for parent_node in parent_nodes]
-            sorted_parent_nodes_with_arg_index = sorted(parent_nodes_with_arg_index, key=lambda x: x[1]['arg_index'])
-            parent_nodes = [node_parent[0] for node_parent in sorted_parent_nodes_with_arg_index]
-
         for parent_node in parent_nodes:
             assert isinstance(parent_node, DagNodeResult)
             df_value = parent_node.result_df

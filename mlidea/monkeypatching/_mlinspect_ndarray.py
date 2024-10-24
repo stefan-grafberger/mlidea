@@ -1,6 +1,7 @@
 """
 Monkey patching for numpy
 """
+import dataclasses
 from typing import Any
 
 import numpy
@@ -31,6 +32,15 @@ class MlinspectTuple(tuple):
     _mlinspect_dag_node = None
     _mlinspect_annotation = None
     _mlinspect_provenance = None
+
+
+@dataclasses.dataclass
+class TrainTestSplitResult:
+    """
+    Additional info about the DAG node
+    """
+    train: any or None = None
+    test: any or None = None
 
 
 class MlinspectNdarray(numpy.ndarray):
@@ -72,6 +82,7 @@ class MlideaChromaVectorStoreRetrieverPlaceHolder(BaseRetriever):
     embedding: Any
     _mlinspect_dag_node: Any = PrivateAttr(None)  # Why this is necessary: https://stackoverflow.com/a/75712642
     precomputed_result: Any
+    _mlinspect_non_data_kwargs: Any = PrivateAttr(None)  # Why this is necessary: https://stackoverflow.com/a/75712642
 
     def __init__(self, retrieval_corpus_X: list[str], retrieval_corpus_y: list[dict[str, any]], embedding: Embeddings,
                  **kwargs: any):

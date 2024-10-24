@@ -82,10 +82,12 @@ class DataFilterVariants(WhatIfAnalysis):
     def _get_filter_patches(self, filter_description, column, filter_function, est_selectivity):
         filter_patches = []
         filter_function = wrap_filter_func(filter_function)
-
-        new_train_cleaning_node = DagNode(singleton.get_next_op_id(),
+        non_data_kwargs = {'filter_description': filter_description, 'column': column,
+                           'filter_function': filter_function}
+        # FIXME: This shouldn't use None
+        new_train_cleaning_node = DagNode(singleton.get_next_op_id(None),
                                           BasicCodeLocation("Data Filtering Variants", None),
-                                          OperatorContext(OperatorType.SELECTION, None),
+                                          OperatorContext(OperatorType.SELECTION, None, non_data_kwargs),
                                           DagNodeDetails(
                                               f"Filter {column}: {filter_description}", None),
                                           None,
@@ -95,9 +97,10 @@ class DataFilterVariants(WhatIfAnalysis):
                                            est_selectivity)
         filter_patches.append(filter_patch_train)
 
-        new_test_cleaning_node = DagNode(singleton.get_next_op_id(),
+        # FIXME: This shouldn't use None
+        new_test_cleaning_node = DagNode(singleton.get_next_op_id(None),
                                          BasicCodeLocation("Data Filtering Variants", None),
-                                         OperatorContext(OperatorType.SELECTION, None),
+                                         OperatorContext(OperatorType.SELECTION, None, non_data_kwargs),
                                          DagNodeDetails(
                                              f"Filter {column}: {filter_description}", None),
                                          None,
@@ -160,7 +163,8 @@ class DataFilterVariants(WhatIfAnalysis):
         estimator_node = estimator_nodes[0]
         new_processing_func = partial(self.fit_model_variant, make_classifier_func=model_function)
         new_description = f"Model Variant: {model_description}"
-        new_estimator_node = DagNode(singleton.get_next_op_id(),
+        # FIXME: This shouldn't use None
+        new_estimator_node = DagNode(singleton.get_next_op_id(None),
                                      estimator_node.code_location,
                                      estimator_node.operator_info,
                                      DagNodeDetails(new_description, estimator_node.details.columns,

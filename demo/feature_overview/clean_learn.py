@@ -120,13 +120,15 @@ class CleanLearn(WhatIfAnalysis):
                     required_cols = [self.column]
                 filter_func = partial(drop_outliers, column=self.column, outlier_func=self.outlier_func)
 
-                new_test_cleaning_node = DagNode(singleton.get_next_op_id(),
-                                                  BasicCodeLocation("Data Cleaning", None),
-                                                  OperatorContext(OperatorType.SELECTION, None),
-                                                  DagNodeDetails(
-                                                      f"Clean {self.column}: filter", None),
-                                                  None,
-                                                  filter_func)
+                non_data_kwargs = {'func': drop_outliers, 'column': self.column, 'outlier_func': self.outlier_func}
+                # FIXME: This shouldn't use None
+                new_test_cleaning_node = DagNode(singleton.get_next_op_id(None),
+                                                 BasicCodeLocation("Data Cleaning", None),
+                                                 OperatorContext(OperatorType.SELECTION, None, non_data_kwargs),
+                                                 DagNodeDetails(
+                                                     f"Clean {self.column}: filter", None),
+                                                 None,
+                                                 filter_func)
                 filter_patch_train = DataFiltering(singleton.get_next_patch_id(), self, True,
                                                    new_test_cleaning_node, False, required_cols)
                 patches_for_variant.append(filter_patch_train)
@@ -141,13 +143,17 @@ class CleanLearn(WhatIfAnalysis):
                 only_reads_column = [self.column]
                 projection = partial(impute_outliers, column=self.column, constant=self.impute_constant,
                                      outlier_func=self.outlier_func)
-                new_projection_node = DagNode(singleton.get_next_op_id(),
+                non_data_kwargs = {'func': impute_outliers, 'column': self.column, 'outlier_func': self.outlier_func,
+                                   'constant': self.impute_constant}
+                # FIXME: This shouldn't use None
+                new_projection_node = DagNode(singleton.get_next_op_id(None),
                                               BasicCodeLocation("DataCorruption", None),
-                                              OperatorContext(OperatorType.PROJECTION_MODIFY, None),
+                                              OperatorContext(OperatorType.PROJECTION_MODIFY, None, non_data_kwargs),
                                               DagNodeDetails(f"Clean {self.column}: impute", None),
                                               None,
                                               projection)
-                patch = DataProjection(singleton.get_next_patch_id(), self, True, new_projection_node, False, self.column,
+                patch = DataProjection(singleton.get_next_patch_id(), self, True, new_projection_node, False,
+                                       self.column,
                                        only_reads_column, None)
                 patches_for_variant.append(patch)
             else:

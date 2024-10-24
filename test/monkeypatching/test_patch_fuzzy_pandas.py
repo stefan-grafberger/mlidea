@@ -38,7 +38,8 @@ def test_frame_fuzzy_merge_on():
     expected_dag = networkx.DiGraph()
     expected_a = DagNode(0,
                          BasicCodeLocation("<string-source>", 4),
-                         OperatorContext(OperatorType.DATA_SOURCE, FunctionInfo('pandas.core.frame', 'DataFrame')),
+                         OperatorContext(OperatorType.DATA_SOURCE, FunctionInfo('pandas.core.frame', 'DataFrame'),
+                                         Comparison(dict)),
                          DagNodeDetails(None, ['A', 'name'], OptimizerInfo(RangeComparison(0, 100), (5, 2),
                                                                            RangeComparison(0, 500))),
                          OptionalCodeInfo(CodeReference(4, 7, 5, 38),
@@ -47,7 +48,8 @@ def test_frame_fuzzy_merge_on():
                          Comparison(partial))
     expected_b = DagNode(1,
                          BasicCodeLocation("<string-source>", 6),
-                         OperatorContext(OperatorType.DATA_SOURCE, FunctionInfo('pandas.core.frame', 'DataFrame')),
+                         OperatorContext(OperatorType.DATA_SOURCE, FunctionInfo('pandas.core.frame', 'DataFrame'),
+                                         Comparison(dict)),
                          DagNodeDetails(None, ['B', 'person_name'], OptimizerInfo(RangeComparison(0, 100), (5, 2),
                                                                                   RangeComparison(0, 500))),
                          OptionalCodeInfo(CodeReference(6, 7, 7, 40),
@@ -57,7 +59,8 @@ def test_frame_fuzzy_merge_on():
                          Comparison(partial))
     expected_join = DagNode(2,
                             BasicCodeLocation("<string-source>", 8),
-                            OperatorContext(OperatorType.JOIN, FunctionInfo('fuzzy_pandas.fuzzy_merge', 'fuzzy_merge')),
+                            OperatorContext(OperatorType.JOIN, FunctionInfo('fuzzy_pandas.fuzzy_merge', 'fuzzy_merge'),
+                                            Comparison(dict)),
                             DagNodeDetails("on 'name' ~~ 'person_name'", ['A', 'name', 'B', 'person_name'],
                                            OptimizerInfo(RangeComparison(0, 200), (3, 4), RangeComparison(0, 800))),
                             OptionalCodeInfo(CodeReference(8, 12, 8, 101),

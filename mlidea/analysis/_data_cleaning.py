@@ -168,6 +168,8 @@ class DataCleaning(WhatIfAnalysis):
                                                                                        cleaning_result_label,
                                                                                        self._score_nodes_and_linenos)
                 patches_for_variant.extend(extraction_nodes)
+                non_data_kwargs = {'cleaning_method': cleaning_method,
+                                   'column': column}
                 if cleaning_method.patch_type == PatchType.DATA_FILTER_PATCH:
                     feature_cols = set(get_columns_used_as_feature(dag))
                     if column in feature_cols:
@@ -176,9 +178,10 @@ class DataCleaning(WhatIfAnalysis):
                         required_cols = [column]
                     filter_func = wrap_filter_func(partial(cleaning_method.filter_func, column=column))
 
-                    new_train_cleaning_node = DagNode(singleton.get_next_op_id(),
+                    operator_context = OperatorContext(OperatorType.SELECTION, None, non_data_kwargs)
+                    new_train_cleaning_node = DagNode(singleton.get_next_op_id(None),
                                                       BasicCodeLocation("Data Cleaning", None),
-                                                      OperatorContext(OperatorType.SELECTION, None),
+                                                      operator_context,
                                                       DagNodeDetails(
                                                           f"Clean {column}: {cleaning_method.method_name}", None),
                                                       None,
@@ -187,9 +190,9 @@ class DataCleaning(WhatIfAnalysis):
                                                        new_train_cleaning_node, True, required_cols)
                     patches_for_variant.append(filter_patch_train)
 
-                    new_test_cleaning_node = DagNode(singleton.get_next_op_id(),
+                    new_test_cleaning_node = DagNode(singleton.get_next_op_id(None),
                                                      BasicCodeLocation("Data Cleaning", None),
-                                                     OperatorContext(OperatorType.SELECTION, None),
+                                                     OperatorContext(OperatorType.SELECTION, None, non_data_kwargs),
                                                      DagNodeDetails(
                                                          f"Clean {column}: {cleaning_method.method_name}", None),
                                                      None,
@@ -200,17 +203,17 @@ class DataCleaning(WhatIfAnalysis):
                 elif cleaning_method.patch_type == PatchType.DATA_TRANSFORMER_PATCH:
                     fit_transform = wrap_projection_func(partial(cleaning_method.fit_or_fit_transform_func, column=column))
                     transform = wrap_predict_func(partial(cleaning_method.predict_or_fit_func, column=column))
-                    new_train_cleaning_node = DagNode(singleton.get_next_op_id(),
+                    new_train_cleaning_node = DagNode(singleton.get_next_op_id(None),
                                                       BasicCodeLocation("Data Cleaning", None),
-                                                      OperatorContext(OperatorType.TRANSFORMER, None),
+                                                      OperatorContext(OperatorType.TRANSFORMER, None, non_data_kwargs),
                                                       DagNodeDetails(
                                                           f"Clean {column}: {cleaning_method.method_name} "
                                                           f"fit_transform", None),
                                                       None,
                                                       fit_transform)
-                    new_test_cleaning_node = DagNode(singleton.get_next_op_id(),
+                    new_test_cleaning_node = DagNode(singleton.get_next_op_id(None),
                                                      BasicCodeLocation("Data Cleaning", None),
-                                                     OperatorContext(OperatorType.TRANSFORMER, None),
+                                                     OperatorContext(OperatorType.TRANSFORMER, None, non_data_kwargs),
                                                      DagNodeDetails(
                                                          f"Clean {column}: {cleaning_method.method_name} "
                                                          f"transform", None),
@@ -237,7 +240,7 @@ class DataCleaning(WhatIfAnalysis):
                         optimizer_mult_factor = 1
                     new_optimizer_info = OptimizerInfo(old_optimizer_info.runtime * optimizer_mult_factor,
                                                        old_optimizer_info.shape, old_optimizer_info.memory)
-                    new_estimator_node = DagNode(singleton.get_next_op_id(),
+                    new_estimator_node = DagNode(singleton.get_next_op_id(None),
                                                  estimator_node.code_location,
                                                  estimator_node.operator_info,
                                                  DagNodeDetails(new_description, estimator_node.details.columns,

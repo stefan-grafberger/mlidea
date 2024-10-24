@@ -31,14 +31,15 @@ extracted_dag = PipelineAnalyzer.on_pipeline_from_string(test_code).execute().da
 expected_dag = networkx.DiGraph()
 expected_missing_op = DagNode(-1,
                               BasicCodeLocation("<string-source>", 5),
-                              OperatorContext(OperatorType.MISSING_OP, None),
+                              OperatorContext(OperatorType.MISSING_OP, None, Comparison(dict)),
                               DagNodeDetails('Warning! Operator <string-source>:5 (df.dropna()) encountered a '
                                              'DataFrame resulting from an operation without mlidea support!',
                                              ['A']),
                               OptionalCodeInfo(CodeReference(5, 5, 5, 16), 'df.dropna()'))
 expected_select = DagNode(0,
                           BasicCodeLocation("<string-source>", 5),
-                          OperatorContext(OperatorType.SELECTION, FunctionInfo('pandas.core.frame', 'dropna')),
+                          OperatorContext(OperatorType.SELECTION, FunctionInfo('pandas.core.frame', 'dropna'),
+                                          Comparison(dict)),
                           DagNodeDetails('dropna', ['A']),
                           OptionalCodeInfo(CodeReference(5, 5, 5, 16), 'df.dropna()'),
                           Comparison(FunctionType))

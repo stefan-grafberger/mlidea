@@ -7,6 +7,7 @@ import gorilla
 
 from example_pipelines.healthcare import healthcare_utils
 from example_pipelines.healthcare import _gensim_wrapper
+from mlidea.instrumentation._operator_call_info import OperatorCallInfo
 from mlidea.execution._stat_tracking import capture_optimizer_info
 from mlidea.instrumentation._operator_types import OperatorContext, FunctionInfo, OperatorType
 from mlidea.instrumentation._dag_node import DagNode, BasicCodeLocation, DagNodeDetails
@@ -74,11 +75,13 @@ class SklearnMyW2VTransformerPatching:
 
         processing_func = wrap_projection_func(processing_func)
 
-        operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
+        operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info, self.mlinspect_non_data_func_args)
+        operator_call_info = OperatorCallInfo(operator_context, [input_info.dag_node])
         orig_func_prov = wrap_projection_func(lambda df: original(self, df, *args[1:], **kwargs))
         initial_func = partial(orig_func_prov, input_info.annotated_dfobject.result_data)
-        optimizer_info, result = capture_optimizer_info(initial_func, estimator_transformer_state=self)
-        dag_node_id = singleton.get_next_op_id()
+        optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, initial_func,
+                                                        estimator_transformer_state=self)
+        dag_node_id = singleton.get_next_op_id(operator_call_info)
         self.mlinspect_transformer_node_id = dag_node_id
         dag_node = DagNode(dag_node_id,
                            BasicCodeLocation(self.mlinspect_caller_filename, self.mlinspect_lineno),
@@ -110,12 +113,14 @@ class SklearnMyW2VTransformerPatching:
 
             processing_func = wrap_predict_func(processing_func)
 
-            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info)
+            operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info, {})
+            transformer_dag_node = get_dag_node_for_id(self.mlinspect_transformer_node_id)
+            operator_call_info = OperatorCallInfo(operator_context, [transformer_dag_node, input_info.dag_node])
 
             orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
             initial_func = partial(orig_func_prov, self, input_info.annotated_dfobject.result_data)
-            optimizer_info, result = capture_optimizer_info(initial_func)
-            dag_node = DagNode(singleton.get_next_op_id(),
+            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, initial_func)
+            dag_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                BasicCodeLocation(self.mlinspect_caller_filename, self.mlinspect_lineno),
                                operator_context,
                                DagNodeDetails("Word2Vec: transform", ['array'], optimizer_info),
@@ -123,7 +128,6 @@ class SklearnMyW2VTransformerPatching:
                                                               self.mlinspect_optional_source_code),
                                processing_func)
             function_call_result = FunctionCallResult(result)
-            transformer_dag_node = get_dag_node_for_id(self.mlinspect_transformer_node_id)
             add_dag_node(dag_node, [transformer_dag_node, input_info.dag_node], function_call_result)
             new_result = function_call_result.function_result
             assert isinstance(new_result, MlinspectNdarray)

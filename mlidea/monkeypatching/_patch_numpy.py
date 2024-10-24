@@ -6,11 +6,13 @@ from functools import partial
 import gorilla
 from numpy import random
 
+from mlidea.instrumentation._operator_call_info import OperatorCallInfo
+from mlidea.execution._pipeline_executor import singleton
 from mlidea import DagNode, BasicCodeLocation, DagNodeDetails
 from mlidea.execution._stat_tracking import capture_optimizer_info
 from mlidea.instrumentation._operator_types import OperatorContext, FunctionInfo, OperatorType
-from mlidea.monkeypatching._monkey_patching_utils import execute_patched_func, add_dag_node, \
-    get_optional_code_info_or_none, FunctionCallResult
+from mlidea.monkeypatching._monkey_patching_utils import add_dag_node, \
+    get_optional_code_info_or_none, FunctionCallResult, get_simple_non_data_kwargs, execute_patched_func_no_op_id
 from mlidea.monkeypatching._provenance_propagation import wrap_data_source_func
 
 
@@ -27,12 +29,15 @@ class NumpyRandomPatching:
         # pylint: disable=no-self-argument
         original = gorilla.get_original_attribute(random, 'random')
 
-        def execute_inspections(op_id, caller_filename, lineno, optional_code_reference, optional_source_code):
+        def execute_inspections(_, caller_filename, lineno, optional_code_reference, optional_source_code):
             """ Execute inspections, add DAG node """
             function_info = FunctionInfo('numpy.random', 'random')
-            operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info)
+            non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs)
+            operator_context = OperatorContext(OperatorType.DATA_SOURCE, function_info, non_data_kwargs)
+            operator_call_info = OperatorCallInfo(operator_context, [])
+            op_id = singleton.get_next_op_id(operator_call_info)
             processing_func = wrap_data_source_func(partial(original, *args, **kwargs), op_id)
-            optimizer_info, result = capture_optimizer_info(processing_func)
+            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, processing_func)
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
                                operator_context,
@@ -44,4 +49,4 @@ class NumpyRandomPatching:
             new_return_value = function_call_result.function_result
             return new_return_value
 
-        return execute_patched_func(original, execute_inspections, *args, **kwargs)
+        return execute_patched_func_no_op_id(original, execute_inspections, *args, **kwargs)

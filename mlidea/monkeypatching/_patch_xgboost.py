@@ -7,6 +7,7 @@ import gorilla
 import xgboost
 from sklearn.metrics import accuracy_score
 
+from mlidea.instrumentation._operator_call_info import OperatorCallInfo
 from mlidea.execution._pipeline_executor import singleton
 from mlidea.execution._stat_tracking import capture_optimizer_info
 from mlidea.instrumentation._dag_node import DagNode, BasicCodeLocation, DagNodeDetails, OptimizerInfo
@@ -14,7 +15,7 @@ from mlidea.instrumentation._operator_types import OperatorContext, FunctionInfo
 from mlidea.monkeypatching._monkey_patching_utils import add_dag_node, \
     execute_patched_func_indirect_allowed, execute_patched_func_no_op_id, \
     get_optional_code_info_or_none, get_dag_node_for_id, add_train_data_node, \
-    add_train_label_node, add_test_label_node, add_test_data_dag_node, FunctionCallResult
+    add_train_label_node, add_test_label_node, add_test_data_dag_node, FunctionCallResult, get_simple_non_data_kwargs
 from mlidea.monkeypatching._patch_sklearn import call_info_singleton
 from mlidea.monkeypatching._provenance_propagation import wrap_predict_func
 
@@ -86,13 +87,14 @@ class XGBoostXGBClassifierPatching:
                 call_info_singleton.param_search_duration = 0
 
             # Estimator
-            operator_context = OperatorContext(OperatorType.ESTIMATOR, function_info)
+            operator_context = OperatorContext(OperatorType.ESTIMATOR, function_info, self.mlinspect_non_data_func_args)
+            operator_call_info = OperatorCallInfo(operator_context, [train_data_node, train_labels_node])
             # input_dfs = [data_backend_result.annotated_dfobject, label_backend_result.annotated_dfobject]
             initial_func = partial(original, self, train_data_result, train_labels_result, *args[2:], **kwargs)
-            optimizer_info, _ = capture_optimizer_info(initial_func, self, estimator_transformer_state=self)
+            optimizer_info, _ = capture_optimizer_info(singleton, operator_call_info, initial_func, self, estimator_transformer_state=self)
             optimizer_info_with_search = OptimizerInfo(optimizer_info.runtime + param_search_runtime,
                                                        optimizer_info.shape, optimizer_info.memory)
-            self.mlinspect_estimator_node_id = singleton.get_next_op_id()
+            self.mlinspect_estimator_node_id = singleton.get_next_op_id(operator_call_info)
             dag_node = DagNode(self.mlinspect_estimator_node_id,
                                BasicCodeLocation(self.mlinspect_caller_filename, self.mlinspect_lineno),
                                operator_context,
@@ -149,22 +151,28 @@ class XGBoostXGBClassifierPatching:
 
             original_predict = wrap_predict_func(gorilla.get_original_attribute(xgboost.XGBClassifier, 'predict'))
             initial_func_predict = partial(original_predict, self, test_data_result)
-            optimizer_info_predict, result_predict = capture_optimizer_info(initial_func_predict)
-            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info)
-            dag_node_predict = DagNode(singleton.get_next_op_id(),
+            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, {})
+            estimator_dag_node = get_dag_node_for_id(self.mlinspect_estimator_node_id)
+            operator_call_info_predict = OperatorCallInfo(operator_context_predict, [estimator_dag_node, test_data_node])
+            optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict,
+                                                                            initial_func_predict)
+            dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info_predict),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
                                        DagNodeDetails("XGB Classifier", [], optimizer_info_predict),
                                        get_optional_code_info_or_none(optional_code_reference, optional_source_code),
                                        processing_func_predict)
-            estimator_dag_node = get_dag_node_for_id(self.mlinspect_estimator_node_id)
             function_call_result = FunctionCallResult(result_predict)
             add_dag_node(dag_node_predict, [estimator_dag_node, test_data_node], function_call_result)
 
             initial_func_score = partial(processing_func_score, result_predict, test_labels_result)
-            optimizer_info_score, result_score = capture_optimizer_info(initial_func_score)
-            operator_context_score = OperatorContext(OperatorType.SCORE, function_info)
-            dag_node_score = DagNode(singleton.get_next_op_id(),
+            non_data_kwargs = get_simple_non_data_kwargs(**kwargs)
+            operator_context_score = OperatorContext(OperatorType.SCORE, function_info, non_data_kwargs)
+            operator_call_info_score = OperatorCallInfo(operator_context_score,
+                                                          [dag_node_predict, test_labels_node])
+            optimizer_info_score, result_score = capture_optimizer_info(singleton, operator_call_info_score,
+                                                                        initial_func_score)
+            dag_node_score = DagNode(singleton.get_next_op_id(operator_call_info_score),
                                      BasicCodeLocation(caller_filename, lineno),
                                      operator_context_score,
                                      DagNodeDetails("Accuracy", [], optimizer_info_score),
@@ -206,15 +214,18 @@ class XGBoostXGBClassifierPatching:
 
             original_predict = wrap_predict_func(gorilla.get_original_attribute(xgboost.XGBClassifier, 'predict'))
             initial_func_predict = partial(original_predict, self, test_data_result)
-            optimizer_info_predict, result_predict = capture_optimizer_info(initial_func_predict)
-            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info)
-            dag_node_predict = DagNode(singleton.get_next_op_id(),
+            operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, {})
+            estimator_dag_node = get_dag_node_for_id(self.mlinspect_estimator_node_id)
+            operator_call_info_predict = OperatorCallInfo(operator_context_predict,
+                                                        [estimator_dag_node, test_data_node])
+            optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict,
+                                                                            initial_func_predict)
+            dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info_predict),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
                                        DagNodeDetails("XGB Classifier", [], optimizer_info_predict),
                                        get_optional_code_info_or_none(optional_code_reference, optional_source_code),
                                        processing_func_predict)
-            estimator_dag_node = get_dag_node_for_id(self.mlinspect_estimator_node_id)
             function_call_result = FunctionCallResult(result_predict)
             add_dag_node(dag_node_predict, [estimator_dag_node, test_data_node], function_call_result)
             new_result = function_call_result.function_result

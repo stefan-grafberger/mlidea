@@ -11,15 +11,23 @@ ADULT_SIMPLE_PNG = os.path.join(str(get_project_root()), "example_pipelines", "a
 
 ADULT_COMPLEX_PY = os.path.join(str(get_project_root()), "example_pipelines", "adult_complex", "adult_complex.py")
 ADULT_COMPLEX_PNG = os.path.join(str(get_project_root()), "example_pipelines", "adult_complex", "adult_complex.png")
+ADULT_COMPLEX_MODIFIED_PY = os.path.join(str(get_project_root()), "example_pipelines", "adult_complex",
+                                         "adult_complex_modified.py")
 
 COMPAS_PY = os.path.join(str(get_project_root()), "example_pipelines", "compas", "compas.py")
 COMPAS_PNG = os.path.join(str(get_project_root()), "example_pipelines", "compas", "compas.png")
 
 HEALTHCARE_PY = os.path.join(str(get_project_root()), "example_pipelines", "healthcare", "healthcare.py")
 HEALTHCARE_PNG = os.path.join(str(get_project_root()), "example_pipelines", "healthcare", "healthcare.png")
+HEALTHCARE_MODIFIED_PY = os.path.join(str(get_project_root()), "example_pipelines", "healthcare",
+                                      "healthcare_modified.py")
 
 ANHEDONIA_ML_PY = os.path.join(str(get_project_root()), "example_pipelines", "anhedonia_ml", "anhedonia_ml.py")
 ANHEDONIA_ML_PNG = os.path.join(str(get_project_root()), "example_pipelines", "anhedonia_ml", "anhedonia_ml.png")
+ANHEDONIA_ML_MODIFIED_PY = os.path.join(str(get_project_root()), "example_pipelines", "anhedonia_ml",
+                                        "anhedonia_ml_modified.py")
 
 ANHEDONIA_LLM_PY = os.path.join(str(get_project_root()), "example_pipelines", "anhedonia_llm", "anhedonia_llm.py")
 ANHEDONIA_LLM_PNG = os.path.join(str(get_project_root()), "example_pipelines", "anhedonia_llm", "anhedonia_llm.png")
+ANHEDONIA_LLM_MODIFIED_PY = os.path.join(str(get_project_root()), "example_pipelines", "anhedonia_llm",
+                                         "anhedonia_llm_modified.py")

@@ -29,7 +29,7 @@ def test_my_word_to_vec_transformer():
                 word_to_vec = MyW2VTransformer(min_count=2, size=2, workers=1)
                 encoded_data = word_to_vec.fit_transform(df)
                 assert encoded_data.shape == (4, 2) and np.allclose(encoded_data._mlinspect_provenance["0_0"], np.array([0, 1, 2, 3]))
-                test_df = pd.DataFrame({'A': ['cat_a', 'cat_b', 'cat_a', 'cat_c']})
+                test_df = pd.DataFrame({'A': ['cat_a', 'cat_b', 'cat_a', 'cat_d']})
                 encoded_data = word_to_vec.transform(test_df)
                 assert np.allclose(encoded_data._mlinspect_provenance["2_0"], np.array([0, 1, 2, 3]))
                 """)
@@ -40,7 +40,8 @@ def test_my_word_to_vec_transformer():
     expected_data_source = DagNode(0,
                                    BasicCodeLocation("<string-source>", 5),
                                    OperatorContext(OperatorType.DATA_SOURCE,
-                                                   FunctionInfo('pandas.core.frame', 'DataFrame')),
+                                                   FunctionInfo('pandas.core.frame', 'DataFrame'),
+                                                   Comparison(dict)),
                                    DagNodeDetails(None, ['A'], OptimizerInfo(RangeComparison(0, 2000), (4, 1),
                                                                              RangeComparison(0, 800))),
                                    OptionalCodeInfo(CodeReference(5, 5, 5, 62),
@@ -50,7 +51,8 @@ def test_my_word_to_vec_transformer():
                                    BasicCodeLocation("<string-source>", 6),
                                    OperatorContext(OperatorType.TRANSFORMER,
                                                    FunctionInfo('example_pipelines.healthcare.healthcare_utils',
-                                                                'MyW2VTransformer')),
+                                                                'MyW2VTransformer'),
+                                                   Comparison(dict)),
                                    DagNodeDetails('Word2Vec: fit_transform', ['array'],
                                                   OptimizerInfo(RangeComparison(0, 4000), (4, 2),
                                                                 RangeComparison(0, 10000))),
@@ -61,17 +63,19 @@ def test_my_word_to_vec_transformer():
     expected_data_source_two = DagNode(2,
                                        BasicCodeLocation("<string-source>", 9),
                                        OperatorContext(OperatorType.DATA_SOURCE,
-                                                       FunctionInfo('pandas.core.frame', 'DataFrame')),
+                                                       FunctionInfo('pandas.core.frame', 'DataFrame'),
+                                                       Comparison(dict)),
                                        DagNodeDetails(None, ['A'], OptimizerInfo(RangeComparison(0, 2000), (4, 1),
                                                                                  RangeComparison(0, 800))),
                                        OptionalCodeInfo(CodeReference(9, 10, 9, 67),
-                                                        "pd.DataFrame({'A': ['cat_a', 'cat_b', 'cat_a', 'cat_c']})"),
+                                                        "pd.DataFrame({'A': ['cat_a', 'cat_b', 'cat_a', 'cat_d']})"),
                                        Comparison(partial))
     expected_transformer_two = DagNode(3,
                                        BasicCodeLocation("<string-source>", 6),
                                        OperatorContext(OperatorType.TRANSFORMER,
                                                        FunctionInfo('example_pipelines.healthcare.healthcare_utils',
-                                                                    'MyW2VTransformer')),
+                                                                    'MyW2VTransformer'),
+                                                       Comparison(dict)),
                                        DagNodeDetails('Word2Vec: transform', ['array'],
                                                       OptimizerInfo(RangeComparison(0, 2000), (4, 2),
                                                                     RangeComparison(0, 800))),

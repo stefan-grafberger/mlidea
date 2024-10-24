@@ -7,6 +7,7 @@ from collections.abc import Iterable
 
 import networkx
 
+from mlidea.instrumentation._operator_types import OperatorContext
 from mlidea._analysis_results import AnalysisResults
 from mlidea.optimization._operator_deletion_filter_push_up import OperatorDeletionFilterPushUp
 from mlidea.optimization._query_optimization_rules import QueryOptimizationRule
@@ -94,6 +95,7 @@ class MultiQueryOptimizer:
             for patch in patch_set:
                 patch.apply(what_if_dag, self.pipeline_executor)
             what_if_dags.append(what_if_dag)
+        self._make_all_nodes_unique(what_if_dags)
         return what_if_dags
 
     def _optimize_and_combine_dags_with_optimization(self, original_dag, patches):
@@ -133,9 +135,17 @@ class MultiQueryOptimizer:
 
         def generate_new_node_ids_if_required(dag_node: DagNode) -> DagNode:
             if dag_node.node_id in nodes_requiring_new_id:
-                result = DagNode(self.pipeline_executor.get_next_op_id(),
+                # Necessary to make sure no outdated results are reused
+                new_node_id = self.pipeline_executor.get_next_op_id(None)
+                new_non_data_kwargs = dag_node.operator_info.non_data_kwargs.copy()
+                new_non_data_kwargs['old_node_id'] = dag_node.node_id
+                new_non_data_kwargs['new_node_id'] = new_node_id
+                operator_context = OperatorContext(dag_node.operator_info.operator,
+                                                   dag_node.operator_info.function_info,
+                                                   new_non_data_kwargs)
+                result = DagNode(new_node_id,
                                  dag_node.code_location,
-                                 dag_node.operator_info,
+                                 operator_context,
                                  dag_node.details,
                                  dag_node.optional_code_info,
                                  dag_node.processing_func,

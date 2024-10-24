@@ -108,9 +108,11 @@ class OperatorImpact(WhatIfAnalysis):
         else:
             replacement_func = passthrough_transformer_processing_func
             replacement_desc = "Do nothing"
-        replacement_node = DagNode(singleton.get_next_op_id(),
+        non_data_kwargs = {'replacement_func': replacement_func, 'replacement_desc': replacement_desc}
+        # FIXME: This shouldn't use None
+        replacement_node = DagNode(singleton.get_next_op_id(None),
                                    operator_to_replace.code_location,
-                                   OperatorContext(OperatorType.TRANSFORMER, None),
+                                   OperatorContext(OperatorType.TRANSFORMER, None, non_data_kwargs),
                                    DagNodeDetails(replacement_desc, operator_to_replace.details.columns),
                                    None,
                                    wrap_projection_func(replacement_func))
@@ -219,7 +221,8 @@ class OperatorImpact(WhatIfAnalysis):
         estimator_node = estimator_nodes[0]
         new_processing_func = partial(self.fit_model_variant, make_classifier_func=model_function)
         new_description = f"Model Variant: {model_description}"
-        new_estimator_node = DagNode(singleton.get_next_op_id(),
+        # FIXME: This shouldn't use None
+        new_estimator_node = DagNode(singleton.get_next_op_id(None),
                                      estimator_node.code_location,
                                      estimator_node.operator_info,
                                      DagNodeDetails(new_description, estimator_node.details.columns,

@@ -3,6 +3,7 @@ Instrument and executes the pipeline
 """
 # TODO: At some point, this should be split into two files, one for mere orchestration, one for instrumentation
 import ast
+import copy
 import logging
 import sys
 import time
@@ -60,15 +61,20 @@ class PipelineExecutor:
     labels_to_extracted_plan_results = {}
     analysis_results = AnalysisResults({}, {}, networkx.DiGraph(), [], {}, networkx.DiGraph(),
                                        RuntimeInfo(0, 0, 0, 0, None, None, 0, 0, 0, 0, 0, 0, 0),
-                                       DagExtractionInfo(networkx.DiGraph(), {}, 0, 0, 0), None)
+                                       DagExtractionInfo(networkx.DiGraph(), {}, 0, 0, {}, {}), None)
     monkey_patch_duration = 0
     skip_optimizer = False
     force_optimization_rules = None
     estimate_only = False
-    operators_to_runtime_during_analysis = []
+    operators_to_runtime_during_analysis = {}
     use_dfs_exec_strategy = False
     disable_monkey_patching = False
     prov_enabled = True
+    cached_intermediates = {}
+    old_dag = None
+    operator_context_parents_to_result = {}
+    enable_caching = True
+    enable_cache_reuse = True
 
     def run(self, *,
             notebook_path: str or None = None,
@@ -84,7 +90,8 @@ class PipelineExecutor:
             force_optimization_rules: list[QueryOptimizationRule] or None = None,
             use_dfs_exec_strategy: bool = False,
             estimate_only=False,
-            prov_enabled=True
+            prov_enabled=True,
+            caching_enabled=True
             ) -> AnalysisResults:
         """
         Instrument and execute the pipeline and evaluate all checks
@@ -111,8 +118,24 @@ class PipelineExecutor:
         self.estimate_only = estimate_only
         self.use_dfs_exec_strategy = use_dfs_exec_strategy
         self.prov_enabled = prov_enabled
+        self.enable_caching = caching_enabled
+        self.enable_cache_reuse = caching_enabled
 
-        if extraction_info is None:
+        if extraction_info is not None:
+            logger.info('Reusing DAG extraction results results from previously instrumented pipeline...')
+            self.analysis_results.runtime_info.original_pipeline_without_importing_and_monkeypatching = None
+            self.next_op_id = extraction_info.next_op_id
+            self.next_patch_id = 0
+            self.next_missing_op_id = extraction_info.next_missing_op_id
+            self.cached_intermediates = extraction_info.cached_intermediates
+            self.operator_context_parents_to_result = extraction_info.operator_context_parents_to_result
+            self.old_dag = extraction_info.original_dag.copy()
+
+        if notebook_path is None and python_code is None and python_path is None:
+            self.analysis_results.original_dag = extraction_info.original_dag.copy()
+            self.original_pipeline_labels_to_extracted_plan_results = \
+                extraction_info.original_pipeline_labels_to_extracted_plan_results.copy()
+        else:
             logger.info('Running instrumented original pipeline...')
             orig_instrumented_exec_start = time.time()
             sys.stdout.flush()
@@ -127,24 +150,15 @@ class PipelineExecutor:
             pipeline_exec_time = self.analysis_results.runtime_info.original_pipeline_without_importing_and_monkeypatching
             logger.info(f'---RUNTIME: Original pipeline execution took {pipeline_exec_time} ms '
                         f'(excluding imports and monkey-patching)')
-        else:
-            logger.info('Reusing DAG extraction results results from previously instrumented pipeline...')
-            self.analysis_results.original_dag = extraction_info.original_dag.copy()
-            self.original_pipeline_labels_to_extracted_plan_results = \
-                extraction_info.original_pipeline_labels_to_extracted_plan_results.copy()
-            self.analysis_results.runtime_info.original_pipeline_without_importing_and_monkeypatching = None
-            self.next_op_id = extraction_info.next_op_id
-            self.next_patch_id = extraction_info.next_patch_id
-            self.next_missing_op_id = extraction_info.next_missing_op_id
 
         logger.info(f'Starting execution of {len(self.analyses)} what-if analyses...')
         self.run_what_if_analyses()
+        self.gen_and_exec_shadow_pipelines()
 
         self.analysis_results.dag_extraction_info = DagExtractionInfo(
             self.analysis_results.original_dag.copy(), self.original_pipeline_labels_to_extracted_plan_results.copy(),
-            self.next_op_id, self.next_patch_id, self.next_missing_op_id)
-
-        self.gen_and_exec_shadow_pipelines()
+            self.next_op_id, self.next_missing_op_id, self.cached_intermediates,
+            self.operator_context_parents_to_result)
 
         logger.info('Done!')
         return self.analysis_results
@@ -173,10 +187,19 @@ class PipelineExecutor:
 
     def gen_and_exec_shadow_pipelines(self):
         for shadow_pipeline in self.shadow_pipelines:
-            shadow_dag = shadow_pipeline.generate_shadow_pipeline_dag(self.analysis_results.original_dag.copy())
+            original_dag_copy = copy.deepcopy(self.analysis_results.original_dag)
+            shadow_dag = shadow_pipeline.generate_shadow_pipeline_dag(original_dag_copy)
             DagExecutor(self).execute(shadow_dag, self.use_dfs_exec_strategy)
-            self.analysis_results.shadow_pipeline_to_dags[shadow_pipeline] = filter_shadow_dag(
-                self.analysis_results.original_dag, shadow_dag)
+            filtered_shadow_dag = filter_shadow_dag(original_dag_copy, shadow_dag)
+
+            # Update the runtime info
+            for node in filtered_shadow_dag.nodes:
+                if node in self.operators_to_runtime_during_analysis:
+                    node.details.optimizer_info = self.operators_to_runtime_during_analysis[node]
+                else:
+                    print(node)
+
+            self.analysis_results.shadow_pipeline_to_dags[shadow_pipeline] = filtered_shadow_dag
         for shadow_pipeline in self.shadow_pipelines:
             report = shadow_pipeline.generate_final_report(self.labels_to_extracted_plan_results)
             self.analysis_results.shadow_pipelines_to_result_reports[shadow_pipeline] = report
@@ -185,6 +208,11 @@ class PipelineExecutor:
         """
         Execute the specified what-if analyses
         """
+        caching_status = self.enable_caching
+        cache_reuse_status = self.enable_cache_reuse
+        self.enable_caching = False  # We do not want to cache the large what-if intermediates
+        # TODO: The QueryOptimizationRule.optimize_dag function cannot deal with reuse yet
+        self.enable_cache_reuse = False
         for analysis in self.analyses:
             logger.info(f'Start plan generation for analysis {type(analysis).__name__}...')
             plan_generation_start = time.time()
@@ -211,10 +239,21 @@ class PipelineExecutor:
             self.analysis_results.runtime_info.what_if_execution = execution_duration * 1000
 
             analysis_estimator_runtimes = [optimizer_info.runtime
-                                           for node, optimizer_info in self.operators_to_runtime_during_analysis
+                                           for node, optimizer_info in self.operators_to_runtime_during_analysis.items()
                                            if node.operator_info.operator == OperatorType.ESTIMATOR]
             self.analysis_results.runtime_info.what_if_execution_combined_model_training = sum(
                 analysis_estimator_runtimes)
+
+            # TODO: self.analysis_results.combined_optimized_dag currently only contains estimates.
+            #  However, ideally, we have both estimates and the true numbers. This is how we can compute the real
+            #  numbers. However, we have some tests that use the estimated numbers in combined_optimized_dag
+            #  currently to check if optimizations work. So, we would need to duplicate the combined_optimized_dag
+            #  to have a version with estimates and one with the actual numbers. However, this is not a priority for now
+            # if self.skip_optimizer is False:
+            #     for node in self.analysis_results.combined_optimized_dag.nodes:
+            #         if node in self.operators_to_runtime_during_analysis:
+            #             node.details.optimizer_info = self.operators_to_runtime_during_analysis[node]
+
             # Some debugging code to look at actual executon time of different operators in optimized plan
             # ops_with_runtimes = [(operator, optimizer_info.runtime) for operator, optimizer_info
             #                      in self.operators_to_runtime_during_analysis]
@@ -224,6 +263,8 @@ class PipelineExecutor:
             for analysis in self.analyses:
                 report = analysis.generate_final_report(self.labels_to_extracted_plan_results)
                 self.analysis_results.analysis_to_result_reports[analysis] = report
+        self.enable_caching = caching_status
+        self.enable_cache_reuse = cache_reuse_status
 
     def run_instrumented_pipeline(self, notebook_path, python_code, python_path):
         """
@@ -234,13 +275,16 @@ class PipelineExecutor:
         parsed_modified_ast = self.instrument_pipeline(parsed_ast, self.track_code_references)
         exec(compile(parsed_modified_ast, filename=self.source_code_path, mode="exec"), self.script_scope)
 
-    def get_next_op_id(self):
+    def get_next_op_id(self, operator_call_info):
         """
         Each operator in the DAG gets a consecutive unique id
         """
-        current_op_id = self.next_op_id
-        self.next_op_id += 1
-        return current_op_id
+        if operator_call_info in self.operator_context_parents_to_result:
+            result = self.operator_context_parents_to_result[operator_call_info].node_id
+        else:
+            result = self.next_op_id
+            self.next_op_id += 1
+        return result
 
     def get_next_patch_id(self):
         """
@@ -276,7 +320,7 @@ class PipelineExecutor:
         self.op_id_to_dag_node = {}
         self.analysis_results = AnalysisResults({}, {}, networkx.DiGraph(), [], {}, networkx.DiGraph(),
                                                 RuntimeInfo(0, 0, 0, 0, None, None, 0, 0, 0, 0, 0, 0, 0),
-                                                DagExtractionInfo(networkx.DiGraph(), {}, 0, 0, 0), None)
+                                                DagExtractionInfo(networkx.DiGraph(), {}, 0, 0, {}, {}), None)
         self.analyses = []
         self.shadow_pipelines = []
         self.original_pipeline_labels_to_extracted_plan_results = {}
@@ -286,10 +330,15 @@ class PipelineExecutor:
         self.skip_optimizer = False
         self.force_optimization_rules = None
         self.estimate_only = False
-        self.operators_to_runtime_during_analysis = []
+        self.operators_to_runtime_during_analysis = {}
         self.use_dfs_exec_strategy = False
         self.disable_monkey_patching = False
         self.prov_enabled = True
+        self.cached_intermediates = {}
+        self.old_dag = None
+        self.operator_context_parents_to_result = {}
+        self.enable_caching = True
+        self.enable_cache_reuse = True
 
     @staticmethod
     def instrument_pipeline(parsed_ast, track_code_references):

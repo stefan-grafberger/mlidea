@@ -3,8 +3,8 @@ mlidea
 
 [![mlidea](https://img.shields.io/badge/❓-mlidea-green)](https://github.com/stefan-grafberger/mlidea)
 [![GitHub license](https://img.shields.io/badge/License-Apache%202.0-yellowgreen.svg)](https://github.com/stefan-grafberger/mlidea/blob/master/LICENSE)
-[![Build Status](https://github.com/stefan-grafberger/mlidea/actions/workflows/build.yml/badge.svg)](https://github.com/stefan-grafberger/mlidea/actions/workflows/build.yml)
-[![codecov](https://codecov.io/gh/stefan-grafberger/mlidea/branch/main/graph/badge.svg?token=NFGV6VEJTI)](https://codecov.io/gh/stefan-grafberger/mlidea)
+[![Build Status](https://github.com/stefan-grafberger/mlidea/actions/workflows/pull_request.yml/badge.svg)](https://github.com/stefan-grafberger/mlidea/actions/workflows/pull_request.yml)
+[![codecov](https://codecov.io/gh/stefan-grafberger/mlidea/graph/badge.svg?token=FK6IOMJVGZ)](https://codecov.io/gh/stefan-grafberger/mlidea)
 
 Interactively Improving ML Data Preparation Code via Shadow Pipelines.
 

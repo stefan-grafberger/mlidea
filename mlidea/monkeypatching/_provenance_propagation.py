@@ -6,7 +6,8 @@ import pandas
 from mlidea.execution._pipeline_executor import singleton
 from mlidea.execution._stat_tracking import get_df_shape
 from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
-from mlidea.monkeypatching._mlinspect_ndarray import MlinspectList
+from mlidea.monkeypatching._mlinspect_ndarray import MlinspectList, TrainTestSplitResult
+
 
 class ProvTrackingInfo:
     """ Contains info if the current calls originate from provenance tracking only """
@@ -170,6 +171,7 @@ def wrap_join_func(source_func):
 
     return partial(propagate_provenance, source_func)
 
+
 def wrap_train_test_split_func(source_func):
     def propagate_provenance(source_func, *inputs):
         prov_info_singleton.prov_tracking_operations_active = True
@@ -180,7 +182,8 @@ def wrap_train_test_split_func(source_func):
                 inputs[0][prov_key] = prov_value
         prov_info_singleton.prov_tracking_operations_active = False
 
-        df_objs = source_func(*inputs)
+        split_results = source_func(*inputs)
+        df_objs = [split_results.train, split_results.test]
         assert isinstance(df_objs, list)
 
         prov_info_singleton.prov_tracking_operations_active = True
@@ -197,7 +200,7 @@ def wrap_train_test_split_func(source_func):
                     split_result.drop([prov_key],  axis=1, inplace=True)
                 split_result._mlinspect_provenance = new_provenance
         prov_info_singleton.prov_tracking_operations_active = False
-        return df_objs
+        return TrainTestSplitResult(*df_objs)
 
     return partial(propagate_provenance, source_func)
 
