@@ -40,7 +40,7 @@ class DagExtractionInfo:
     next_op_id: int
     next_missing_op_id: int
     cached_intermediates: dict[DagNode, any]
-    operator_context_parents_to_result: dict[OperatorCallInfo, any]
+    operator_call_info_to_dag_node: dict[OperatorCallInfo, any]
 
 
 @dataclasses.dataclass

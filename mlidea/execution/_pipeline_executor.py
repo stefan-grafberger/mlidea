@@ -75,6 +75,15 @@ class PipelineExecutor:
     operator_call_info_to_dag_node = {}
     enable_caching = True
     enable_cache_reuse = True
+    # Put this into a new data class
+    undetermined_new_nodes = set()
+    operator_addition = set()
+    operator_deletion = set()
+    operator_replacement = set()
+    operator_transitive = set()
+    unprocessed_call_info_transitive_change_only = {}
+    new_node_to_old_node = {}
+    operator_too_many_changes = set()
 
     def run(self, *,
             notebook_path: str or None = None,
@@ -128,7 +137,7 @@ class PipelineExecutor:
             self.next_patch_id = 0
             self.next_missing_op_id = extraction_info.next_missing_op_id
             self.cached_intermediates = extraction_info.cached_intermediates
-            self.operator_call_info_to_dag_node = extraction_info.operator_context_parents_to_result
+            self.operator_call_info_to_dag_node = extraction_info.operator_call_info_to_dag_node.copy()
             self.old_dag = extraction_info.original_dag.copy()
 
         if notebook_path is None and python_code is None and python_path is None:
@@ -339,6 +348,15 @@ class PipelineExecutor:
         self.operator_call_info_to_dag_node = {}
         self.enable_caching = True
         self.enable_cache_reuse = True
+        # TODO: Put this into a new data class
+        self.undetermined_new_nodes = set()
+        self.operator_addition = set()
+        self.operator_deletion = set()
+        self.operator_replacement = set()
+        self.operator_transitive = set()
+        self.unprocessed_call_info_transitive_change_only = {}
+        self.new_node_to_old_node = {}
+        self.operator_too_many_changes = set()
 
     @staticmethod
     def instrument_pipeline(parsed_ast, track_code_references):
