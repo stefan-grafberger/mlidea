@@ -14,10 +14,10 @@ from fairlearn.metrics import MetricFrame
 from scikeras import wrappers
 from scipy.sparse import csr_matrix
 
-from instrumentation._operator_call_info import OperatorCallInfo, OperatorOutputChange, OutputChangeType
+from mlidea.instrumentation._operator_call_info import OperatorCallInfo, OperatorOutputChange, OutputChangeType
 from mlidea.instrumentation._dag_node import OptimizerInfo, OperatorContext
 from mlidea.monkeypatching._mlinspect_ndarray import MlideaChromaVectorStoreRetrieverPlaceHolder
-from utils._utils import get_sorted_parent_nodes
+from mlidea.utils._utils import get_sorted_parent_nodes
 
 
 def capture_optimizer_info(singleton, operator_call_info, instrumented_function_call: partial,
