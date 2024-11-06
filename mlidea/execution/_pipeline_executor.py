@@ -62,7 +62,7 @@ class PipelineExecutor:
     analysis_results = AnalysisResults({}, {}, networkx.DiGraph(), [], {}, networkx.DiGraph(),
                                        RuntimeInfo(0, 0, 0, 0, None, None, 0, 0, 0, 0, 0, 0, 0),
                                        DagExtractionInfo(networkx.DiGraph(), [], {}, 0, 0,
-                                                         ReuseInfo({}, {}, set(), set(), set(), set(), set(),
+                                                         ReuseInfo({}, {}, set(), set(), set(), set(), set(), set(),
                                                                    {}, {}, set())), None)
     monkey_patch_duration = 0
     skip_optimizer = False
@@ -79,7 +79,7 @@ class PipelineExecutor:
     global_old_dag = None
     global_new_dag = networkx.DiGraph()
     # Put this into a new data class
-    reuse_info = ReuseInfo({}, {}, set(), set(), set(), set(), set(), {}, {}, set())
+    reuse_info = ReuseInfo({}, {}, set(), set(), set(), set(), set(), set(), {}, {}, set())
 
     def run(self, *,
             notebook_path: str or None = None,
@@ -332,7 +332,7 @@ class PipelineExecutor:
                                                 RuntimeInfo(0, 0, 0, 0, None, None, 0, 0, 0, 0, 0, 0, 0),
                                                 DagExtractionInfo(networkx.DiGraph(), [], {}, 0, 0,
                                                                   ReuseInfo({}, {}, set(), set(), set(), set(), set(),
-                                                                            {}, {}, set())), None)
+                                                                            set(),{}, {}, set())), None)
         self.analyses = []
         self.shadow_pipelines = []
         self.original_pipeline_labels_to_extracted_plan_results = {}
@@ -352,7 +352,7 @@ class PipelineExecutor:
         self.enable_cache_reuse = True
         self.global_old_dag = None
         self.global_new_dag = networkx.DiGraph()
-        self.reuse_info = ReuseInfo({}, {}, set(), set(), set(), set(), set(), {}, {}, set())
+        self.reuse_info = ReuseInfo({}, {}, set(), set(), set(), set(), set(), set(), {}, {}, set())
 
     @staticmethod
     def instrument_pipeline(parsed_ast, track_code_references):

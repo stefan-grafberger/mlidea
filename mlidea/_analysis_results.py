@@ -40,6 +40,7 @@ class ReuseInfo:
     operator_deletion: set
     operator_replacement: set
     operator_transitive: set
+    operator_reexecuted: set
     unprocessed_call_info_transitive_change_only: dict
     new_node_to_old_node: dict
     operator_too_many_changes: set

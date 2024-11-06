@@ -58,12 +58,12 @@ class DagExecutor:
                     OperatorType.EXTRACT_RESULT, OperatorType.CONDITIONAL_STOP}
                 optimizer_info, result_df = capture_optimizer_info(self.pipeline_executor, operator_call_info,
                                                                    executable_processing_func,
-                                                                   force_disable_reuse=extract_or_conditional)
+                                                                   extract_or_conditional=extract_or_conditional)
             elif current_node.operator_info.operator == OperatorType.EXTRACT_RESULT:
                 executable_processing_func = partial(current_node.processing_func, ConditionalResult.STOP_EXECUTION)
                 _, result_df = capture_optimizer_info(self.pipeline_executor, operator_call_info,
                                                       executable_processing_func,
-                                                      force_disable_reuse=True)
+                                                      extract_or_conditional=True)
                 optimizer_info = OptimizerInfo(None, None, None)  # We want to avoid the DAG from being confusing
             else:
                 optimizer_info = OptimizerInfo(None, None, None)

@@ -24,21 +24,32 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
                            obj_for_inplace_ops: any or None = None,
                            estimator_transformer_state: any or None = None,
                            keras_batch_size: int or None = None,
-                           force_disable_reuse=False) \
+                           extract_or_conditional=False) \
         -> tuple[OptimizerInfo, any]:
     """Function to measure the runtime of instrumented user function calls and get output metadata"""
     execution_start = time.time()
     not_a_constructor = (obj_for_inplace_ops is None or estimator_transformer_state is not None)
+    # Guaranteed reuse
     if (not_a_constructor and
             operator_call_info in singleton.reuse_info.operator_call_info_to_dag_node
-            and singleton.enable_cache_reuse is True and force_disable_reuse is False):
+            and singleton.enable_cache_reuse is True and extract_or_conditional is False):
         dag_node = singleton.reuse_info.operator_call_info_to_dag_node[operator_call_info]
         result = singleton.reuse_info.cached_intermediates[dag_node]
         if dag_node not in singleton.reuse_info.new_node_to_old_node:
             singleton.reuse_info.new_node_to_old_node[dag_node] = dag_node, OperatorOutputChange(OutputChangeType.NOTHING_CHANGED)
+    elif (not_a_constructor and
+            operator_call_info in singleton.reuse_info.operator_call_info_to_dag_node
+            and singleton.enable_cache_reuse is True and extract_or_conditional is True):
+        # We have to re-execute conditionals
+        dag_node = singleton.reuse_info.operator_call_info_to_dag_node[operator_call_info]
+        result = instrumented_function_call()
+        if estimator_transformer_state is not None:
+            result._mlinspect_annotation = estimator_transformer_state
+        if dag_node not in singleton.reuse_info.new_node_to_old_node:
+            singleton.reuse_info.new_node_to_old_node[dag_node] = dag_node, OperatorOutputChange(
+                OutputChangeType.NOTHING_CHANGED)
     # Maybe reuse
-    elif (not_a_constructor and singleton.enable_cache_reuse is True and force_disable_reuse is False and
-          singleton.old_dag is not None):
+    elif (not_a_constructor and singleton.enable_cache_reuse is True and singleton.old_dag is not None):
 
         parent_nodes_from_previous_run = []
         changes = []
@@ -72,6 +83,8 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
                 singleton.reuse_info.unprocessed_call_info_transitive_change_only.pop(new_dag_parent_operator_call_info)
             elif is_undetermined:
                 singleton.reuse_info.undetermined_new_nodes.remove(new_dag_parent_operator_call_info)
+                # Actually re-executed without any chance of IVM
+                singleton.reuse_info.operator_reexecuted.add(new_dag_parent_node)
 
                 # Maybe don't run all of this code if the change type is already found
                 is_replacement, node_being_replaced = determine_is_replacement(new_dag,
@@ -103,41 +116,34 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
             parent_nodes_from_previous_run.append(corresponding_node_in_old_dag)
             changes.append(change_diff)
 
-        if len([change for change in changes if change.change_type != OutputChangeType.NOTHING_CHANGED]) == 0:
-            result = instrumented_function_call()
-            if estimator_transformer_state is not None:
-                result._mlinspect_annotation = estimator_transformer_state
-            singleton.reuse_info.undetermined_new_nodes.add(operator_call_info)
-        elif (len([change for change in changes if change.change_type == OutputChangeType.TOO_MUCH_CHANGED]) > 0 or
-                len([change for change in changes if change.change_type != OutputChangeType.NOTHING_CHANGED]) > 1):
-            # TODO: Certain kind of changes are also compatible and mergeable, especially if there are just
-            #  multiple different row-level changes.
-            updated_operator_call_info = OperatorCallInfo(OperatorContext(operator_call_info.operator,
-                                                                          operator_call_info.function_info,
-                                                                          operator_call_info.non_data_kwargs),
-                                                          parent_nodes_from_previous_run)
-            singleton.reuse_info.unprocessed_call_info_transitive_change_only[operator_call_info] = (
-                updated_operator_call_info, OperatorOutputChange(OutputChangeType.TOO_MUCH_CHANGED))
-            result = instrumented_function_call()
-            if estimator_transformer_state is not None:
-                result._mlinspect_annotation = estimator_transformer_state
-        else:
+        updated_operator_call_info = OperatorCallInfo(OperatorContext(operator_call_info.operator,
+                                                                      operator_call_info.function_info,
+                                                                      operator_call_info.non_data_kwargs),
+                                                      parent_nodes_from_previous_run)
+        if updated_operator_call_info in singleton.reuse_info.operator_call_info_to_dag_node:
             # Incrementally update the old result
             # First load the old result
-            updated_operator_call_info = OperatorCallInfo(OperatorContext(operator_call_info.operator,
-                                                                          operator_call_info.function_info,
-                                                                          operator_call_info.non_data_kwargs),
-                                                          parent_nodes_from_previous_run)
+
             old_dag_node = singleton.reuse_info.operator_call_info_to_dag_node[updated_operator_call_info]
             old_result = singleton.reuse_info.cached_intermediates[old_dag_node]
             # FIXME: Then update old result
+            # TODO: Look at changes. Certain kind of changes are also compatible and mergeable, especially if there are
+            #  just multiple different row-level changes.
+            # TODO: if extract_or_conditional is True, we always need to reexecute because of the label extraction
             result = instrumented_function_call()
             if estimator_transformer_state is not None:
                 result._mlinspect_annotation = estimator_transformer_state
             # FIXME: At this point, we should know what changed
             singleton.reuse_info.unprocessed_call_info_transitive_change_only[operator_call_info] = (
                 updated_operator_call_info, OperatorOutputChange(OutputChangeType.TOO_MUCH_CHANGED))
-    elif (not_a_constructor is False and operator_call_info in singleton.operator_call_info_to_dag_node
+        else:
+            # TODO: Here we have a real change then. Maybe we want to count those?
+            result = instrumented_function_call()
+            if estimator_transformer_state is not None:
+                result._mlinspect_annotation = estimator_transformer_state
+            singleton.reuse_info.undetermined_new_nodes.add(operator_call_info)
+    # Constructors cannot be reused currently
+    elif (not_a_constructor is False and operator_call_info in singleton.reuse_info.operator_call_info_to_dag_node
             and singleton.enable_cache_reuse is True):
         result = instrumented_function_call()
         if estimator_transformer_state is not None:
@@ -150,9 +156,6 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
         result = instrumented_function_call()
         if estimator_transformer_state is not None:
             result._mlinspect_annotation = estimator_transformer_state
-        singleton.reuse_info.undetermined_new_nodes.add(operator_call_info)
-        # TODO: We might need to do something here to see if conditional changed or not compared to the previous
-        #  execution
         # if singleton.enable_cache_reuse:
         #     dag_node = singleton.operator_call_info_to_dag_node[operator_call_info]
         #     singleton.new_node_to_old_node[dag_node] = dag_node, OperatorOutputChange(OutputChangeType.TOO_MUCH_CHANGED)
