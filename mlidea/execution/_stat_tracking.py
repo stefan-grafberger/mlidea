@@ -34,7 +34,8 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
             and singleton.enable_cache_reuse is True and force_disable_reuse is False):
         dag_node = singleton.reuse_info.operator_call_info_to_dag_node[operator_call_info]
         result = singleton.reuse_info.cached_intermediates[dag_node]
-        singleton.reuse_info.new_node_to_old_node[dag_node] = dag_node, OperatorOutputChange(OutputChangeType.NOTHING_CHANGED)
+        if dag_node not in singleton.reuse_info.new_node_to_old_node:
+            singleton.reuse_info.new_node_to_old_node[dag_node] = dag_node, OperatorOutputChange(OutputChangeType.NOTHING_CHANGED)
     # Maybe reuse
     elif (not_a_constructor and singleton.enable_cache_reuse is True and force_disable_reuse is False and
           singleton.old_dag is not None):
@@ -69,9 +70,6 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
                     singleton.reuse_info.operator_too_many_changes.add(new_dag_parent_node)
                 singleton.reuse_info.new_node_to_old_node[new_dag_parent_node] = dag_node_to_map_to, change_type
                 singleton.reuse_info.unprocessed_call_info_transitive_change_only.pop(new_dag_parent_operator_call_info)
-
-                if change_type.change_type == OutputChangeType.TOO_MUCH_CHANGED:
-                    singleton.reuse_info.operator_too_many_changes.add(new_dag_parent_node)
             elif is_undetermined:
                 singleton.reuse_info.undetermined_new_nodes.remove(new_dag_parent_operator_call_info)
 
