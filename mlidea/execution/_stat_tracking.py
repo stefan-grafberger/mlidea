@@ -140,7 +140,7 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
             singleton.reuse_info.unprocessed_call_info_transitive_change_only[operator_call_info] = (
                 updated_operator_call_info, OperatorOutputChange(OutputChangeType.TOO_MUCH_CHANGED))
     elif (not_a_constructor is False and operator_call_info in singleton.operator_call_info_to_dag_node
-            and singleton.enable_cache_reuse is True and force_disable_reuse is False):
+            and singleton.enable_cache_reuse is True):
         result = instrumented_function_call()
         if estimator_transformer_state is not None:
             result._mlinspect_annotation = estimator_transformer_state

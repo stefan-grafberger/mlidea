@@ -33,16 +33,16 @@ class RuntimeInfo:
 
 @dataclasses.dataclass
 class ReuseInfo:
-    cached_intermediates = {}
-    operator_call_info_to_dag_node = {}
-    undetermined_new_nodes = set()
-    operator_addition = set()
-    operator_deletion = set()
-    operator_replacement = set()
-    operator_transitive = set()
-    unprocessed_call_info_transitive_change_only = {}
-    new_node_to_old_node = {}
-    operator_too_many_changes = set()
+    cached_intermediates: dict
+    operator_call_info_to_dag_node: dict
+    undetermined_new_nodes: set
+    operator_addition: set
+    operator_deletion: set
+    operator_replacement: set
+    operator_transitive: set
+    unprocessed_call_info_transitive_change_only: dict
+    new_node_to_old_node: dict
+    operator_too_many_changes: set
 
 
 @dataclasses.dataclass
