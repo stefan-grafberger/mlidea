@@ -205,6 +205,9 @@ def test_changed_pipeline_code_shadow_pipelines_adult_complex(tmpdir):
     assert "the pipeline metric was" in report_data_errors
     assert "The original result" in report_fairness_slices
 
+    reuse_info = analysis_result.dag_extraction_info.reuse_info
+    print(reuse_info)
+
 
 def test_changed_pipeline_code_shadow_pipelines_anhedonia_llm(tmpdir):
     """

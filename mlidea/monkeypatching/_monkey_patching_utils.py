@@ -4,6 +4,7 @@ Functions for the implementation for the monkey patched functions
 import ast
 import dataclasses
 import sys
+from functools import partial
 
 import numpy
 from langchain_core.retrievers import BaseRetriever
@@ -13,7 +14,7 @@ from scipy.sparse import csr_matrix
 from mlidea.instrumentation._operator_call_info import OperatorCallInfo
 from mlidea.execution import _pipeline_executor
 from mlidea.execution._pipeline_executor import singleton
-from mlidea.execution._stat_tracking import get_df_shape, get_df_memory
+from mlidea.execution._stat_tracking import get_df_shape, get_df_memory, capture_optimizer_info
 from mlidea.instrumentation._dag_node import DagNode, CodeReference, BasicCodeLocation, DagNodeDetails, \
     OptionalCodeInfo, OptimizerInfo
 from mlidea.instrumentation._operator_types import OperatorContext, OperatorType
@@ -244,13 +245,17 @@ def add_dag_node(dag_node: DagNode, dag_node_parents: list[DagNode], function_ca
     if dag_node_parents:
         for parent_index, parent in enumerate(dag_node_parents):
             singleton.analysis_results.original_dag.add_edge(parent, dag_node, arg_index=parent_index)
+            # TODO: This duplication is not that clean
+            singleton.global_new_dag.add_edge(parent, dag_node, arg_index=parent_index)
     else:
         singleton.analysis_results.original_dag.add_node(dag_node)
+        # TODO: This duplication is not that clean
+        singleton.global_new_dag.add_node(dag_node)
     singleton.op_id_to_dag_node[dag_node.node_id] = dag_node
 
     if singleton.enable_caching is True:
-        singleton.operator_call_info_to_dag_node[OperatorCallInfo(dag_node.operator_info, dag_node_parents)] = dag_node
-        singleton.cached_intermediates[dag_node] = function_call_result.function_result
+        singleton.reuse_info.operator_call_info_to_dag_node[OperatorCallInfo(dag_node.operator_info, dag_node_parents)] = dag_node
+        singleton.reuse_info.cached_intermediates[dag_node] = function_call_result.function_result
     # if function_call_result.other is not None:
     # singleton.inspection_results.dag_node_to_inspection_results[dag_node] = backend_result.dag_node_annotation
     # TODO: Do we want to capture other meta information here? Or as part of the DAG node?
@@ -291,6 +296,8 @@ def add_train_label_node(estimator, train_label_arg, function_info):
                                           [input_info_train_labels.dag_node])
     train_label_op_id = _pipeline_executor.singleton.get_next_op_id(operator_call_info)
     process_func = lambda df_object: df_object
+    initial_func = partial(process_func, train_label_arg)
+    _, result = capture_optimizer_info(singleton, operator_call_info, initial_func)
     train_labels_dag_node = DagNode(train_label_op_id,
                                     BasicCodeLocation(estimator.mlinspect_caller_filename, estimator.mlinspect_lineno),
                                     operator_context,
@@ -299,7 +306,7 @@ def add_train_label_node(estimator, train_label_arg, function_info):
                                     get_optional_code_info_or_none(estimator.mlinspect_optional_code_reference,
                                                                    estimator.mlinspect_optional_source_code),
                                     process_func)
-    function_call_result = FunctionCallResult(train_label_arg)
+    function_call_result = FunctionCallResult(result)
     add_dag_node(train_labels_dag_node, [input_info_train_labels.dag_node], function_call_result)
     train_labels_result = function_call_result.function_result
     return function_call_result, train_labels_dag_node, train_labels_result
@@ -317,6 +324,9 @@ def add_train_data_node(estimator, train_data_arg, function_info):
                                           [input_info_train_data.dag_node])
     train_data_op_id = _pipeline_executor.singleton.get_next_op_id(operator_call_info)
     process_func = lambda df_object: df_object
+
+    initial_func = partial(process_func, train_data_arg)
+    _, result = capture_optimizer_info(singleton, operator_call_info, initial_func)
     train_data_dag_node = DagNode(train_data_op_id,
                                   BasicCodeLocation(estimator.mlinspect_caller_filename, estimator.mlinspect_lineno),
                                   operator_context,
@@ -325,7 +335,7 @@ def add_train_data_node(estimator, train_data_arg, function_info):
                                   get_optional_code_info_or_none(estimator.mlinspect_optional_code_reference,
                                                                  estimator.mlinspect_optional_source_code),
                                   process_func)
-    function_call_result = FunctionCallResult(train_data_arg)
+    function_call_result = FunctionCallResult(result)
     add_dag_node(train_data_dag_node, [input_info_train_data.dag_node], function_call_result)
     train_data_result = function_call_result.function_result
     return function_call_result, train_data_dag_node, train_data_result
@@ -342,6 +352,8 @@ def add_test_data_dag_node(test_data_arg, function_info, lineno, optional_code_r
                                           [input_info_test_data.dag_node])
     test_data_op_id = _pipeline_executor.singleton.get_next_op_id(operator_call_info)
     process_func = lambda df_object: df_object
+    initial_func = partial(process_func, test_data_arg)
+    _, result = capture_optimizer_info(singleton, operator_call_info, initial_func)
     test_data_dag_node = DagNode(test_data_op_id,
                                  BasicCodeLocation(caller_filename, lineno),
                                  operator_context,
@@ -350,7 +362,7 @@ def add_test_data_dag_node(test_data_arg, function_info, lineno, optional_code_r
                                                               get_df_memory(test_data_arg))),
                                  get_optional_code_info_or_none(optional_code_reference, optional_source_code),
                                  process_func)
-    function_call_result = FunctionCallResult(test_data_arg)
+    function_call_result = FunctionCallResult(result)
     add_dag_node(test_data_dag_node, [input_info_test_data.dag_node], function_call_result)
     test_data_result = function_call_result.function_result
     return function_call_result, test_data_dag_node, test_data_result
@@ -367,6 +379,8 @@ def add_test_label_node(test_label_arg, caller_filename, function_info, lineno, 
     columns = input_info_test_labels.dag_node.details.columns
     test_label_op_id = _pipeline_executor.singleton.get_next_op_id(operator_call_info)
     process_func = lambda df_object: df_object
+    initial_func = partial(process_func, test_label_arg)
+    _, result = capture_optimizer_info(singleton, operator_call_info, initial_func)
     test_labels_dag_node = DagNode(test_label_op_id,
                                    BasicCodeLocation(caller_filename, lineno),
                                    operator_context,
@@ -376,7 +390,7 @@ def add_test_label_node(test_label_arg, caller_filename, function_info, lineno, 
                                    get_optional_code_info_or_none(optional_code_reference,
                                                                   optional_source_code),
                                    process_func)
-    function_call_result = FunctionCallResult(test_label_arg)
+    function_call_result = FunctionCallResult(result)
     add_dag_node(test_labels_dag_node, [input_info_test_labels.dag_node], function_call_result)
     test_labels_result = function_call_result.function_result
     return function_call_result, test_labels_dag_node, test_labels_result

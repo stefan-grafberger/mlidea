@@ -63,12 +63,17 @@ class DagNode:
     """
 
     node_id: int
-    code_location: BasicCodeLocation
+    code_location: BasicCodeLocation = dataclasses.field(compare=False)
     operator_info: OperatorContext
     details: DagNodeDetails
-    optional_code_info: OptionalCodeInfo or None = None
-    processing_func: Callable or None = dataclasses.field(hash=False, compare=False, default=None)
-    make_classifier_func: Callable or None = dataclasses.field(hash=False, compare=False, default=None)
+    optional_code_info: OptionalCodeInfo or None = dataclasses.field(compare=False, default=None)
+    processing_func: Callable or None = dataclasses.field(compare=False, default=None)
+    make_classifier_func: Callable or None = dataclasses.field(compare=False, default=None)
 
     def __hash__(self):
         return hash(self.node_id)
+
+    def __eq__(self, __value):
+        # FIXME: No idea why this is necessary
+        return (self.node_id == __value.node_id
+                and self.operator_info == __value.operator_info and self.details == __value.details)

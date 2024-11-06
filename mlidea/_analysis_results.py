@@ -31,16 +31,29 @@ class RuntimeInfo:
     what_if_execution: int
     what_if_execution_combined_model_training: int
 
+@dataclasses.dataclass
+class ReuseInfo:
+    cached_intermediates = {}
+    operator_call_info_to_dag_node = {}
+    undetermined_new_nodes = set()
+    operator_addition = set()
+    operator_deletion = set()
+    operator_replacement = set()
+    operator_transitive = set()
+    unprocessed_call_info_transitive_change_only = {}
+    new_node_to_old_node = {}
+    operator_too_many_changes = set()
+
 
 @dataclasses.dataclass
 class DagExtractionInfo:
     """All info required to reuse a previously extracted DAG for different what-if analyses"""
     original_dag: networkx.DiGraph
+    shadow_pipelines: list[networkx.DiGraph]
     original_pipeline_labels_to_extracted_plan_results: dict[str, any]
     next_op_id: int
     next_missing_op_id: int
-    cached_intermediates: dict[DagNode, any]
-    operator_call_info_to_dag_node: dict[OperatorCallInfo, any]
+    reuse_info: ReuseInfo
 
 
 @dataclasses.dataclass
