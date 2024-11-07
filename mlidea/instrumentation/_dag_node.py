@@ -75,5 +75,5 @@ class DagNode:
 
     def __eq__(self, __value):
         # FIXME: No idea why this is necessary
-        return (self.node_id == __value.node_id
+        return (isinstance(__value, DagNode) and self.node_id == __value.node_id
                 and self.operator_info == __value.operator_info and self.details == __value.details)
