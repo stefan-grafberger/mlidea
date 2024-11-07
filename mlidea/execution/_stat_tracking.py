@@ -60,8 +60,11 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
         # TODO: The node does not actually get reused yet. However, this is tricky with constructors
         dag_node = singleton.reuse_info.operator_call_info_to_dag_node[operator_call_info]
         singleton.reuse_info.new_node_to_old_node[dag_node] = dag_node, OperatorOutputChange(OutputChangeType.NOTHING_CHANGED)
-        # Maybe reuse
-    elif singleton.enable_cache_reuse is True and singleton.old_dag is not None:
+    # Maybe reuse
+    # TODO: Do we want to get rid of operator_call_info is not None? This is currently required because of the
+    #  pandas groupby operation that gets executed before agg is called after. We also cannot reuse intermediates
+    #  for that operation currently.
+    elif singleton.enable_cache_reuse is True and singleton.old_dag is not None and operator_call_info is not None:
 
         parent_nodes_from_previous_run = []
         changes = []
@@ -158,7 +161,10 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
                 result = instrumented_function_call()
                 if estimator_transformer_state is not None:
                     result._mlinspect_annotation = estimator_transformer_state
-            singleton.reuse_info.undetermined_new_nodes.add(operator_call_info)
+            if operator_call_info.operator != OperatorType.MISSING_OP:
+                # This can happen, e.g., for the grid search operation in sklearn that we do not want to capture in the
+                #  DAG currently
+                singleton.reuse_info.undetermined_new_nodes.add(operator_call_info)
 
     elif stop_signal_received is False: # Actually execute it
         result = instrumented_function_call()
@@ -234,7 +240,8 @@ def determine_is_replacement(new_dag, new_dag_parent_node, old_dag, operator_cal
     is_replacement = False  # Default: No replacement found
     node_being_replaced = None  # Default: No replacement found
     new_node_type = new_dag_parent_node.operator_info.operator
-    new_parents = set(new_dag.predecessors(new_dag_parent_node))
+    new_parents = {new_node_to_old_node[node][0] if node in new_node_to_old_node else node
+                   for node in new_dag.predecessors(new_dag_parent_node)}
     old_nodes_already_matched = {old_node for old_node, _ in new_node_to_old_node.values()}
     # Search for a similar node in the old DAG
     for old_node in old_dag.nodes:

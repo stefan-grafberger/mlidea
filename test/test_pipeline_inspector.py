@@ -207,6 +207,7 @@ def test_changed_pipeline_code_shadow_pipelines_adult_complex(tmpdir):
 
     reuse_info = analysis_result.dag_extraction_info.reuse_info
     assert len(reuse_info.operator_reexecuted) == 1
+    assert len(reuse_info.operator_replacement) == 1
 
 
 def test_changed_pipeline_code_shadow_pipelines_anhedonia_llm(tmpdir):
@@ -249,6 +250,7 @@ def test_changed_pipeline_code_shadow_pipelines_anhedonia_llm(tmpdir):
 
     reuse_info = analysis_result.dag_extraction_info.reuse_info
     assert len(reuse_info.operator_reexecuted) == 1
+    assert len(reuse_info.operator_replacement) == 1
 
 
 def test_changed_pipeline_code_shadow_pipelines_anhedonia_ml(tmpdir):
@@ -291,6 +293,7 @@ def test_changed_pipeline_code_shadow_pipelines_anhedonia_ml(tmpdir):
 
     reuse_info = analysis_result.dag_extraction_info.reuse_info
     assert len(reuse_info.operator_reexecuted) == 1
+    assert len(reuse_info.operator_replacement) == 1
 
 
 def test_changed_pipeline_code_shadow_pipelines_healthcare(tmpdir):
@@ -334,7 +337,11 @@ def test_changed_pipeline_code_shadow_pipelines_healthcare(tmpdir):
     assert "The original result" in report_fairness_slices
 
     reuse_info = analysis_result.dag_extraction_info.reuse_info
-    assert len(reuse_info.operator_reexecuted) == 1
+    # 2 Replacements in the original DAG for robust scaler fit_transform and transform
+    # 2 Replacements for robust scaler transform in data-errors
+    # 1 Replacement for robust scaler transform in slices
+    assert len(reuse_info.operator_reexecuted) == 5
+    assert len(reuse_info.operator_replacement) == 5
 
 
 def test_changed_pipeline_code_what_if(tmpdir):

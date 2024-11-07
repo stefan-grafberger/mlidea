@@ -413,6 +413,10 @@ class DataFramePatching:
             function_call_result = FunctionCallResult(result)
             add_dag_node(dag_node, dag_node_parents, function_call_result)
             new_result = function_call_result.function_result
+            if isinstance(args[0], str):
+                self[args[0]] = new_result[args[0]]
+            else:
+                raise NotImplementedError(f"TODO: Handling __setitem__ for key type {type(args[0])}")
             assert hasattr(self, "_mlinspect_dag_node")
             assert singleton.prov_enabled is False or hasattr(self, "_mlinspect_provenance")
             self._mlinspect_dag_node = op_id
