@@ -16,7 +16,7 @@ from scipy.sparse import csr_matrix
 
 from mlidea.instrumentation._operator_types import OperatorType, ConditionalResult
 from mlidea.instrumentation._operator_call_info import OperatorCallInfo, OperatorOutputChange, OutputChangeType
-from mlidea.instrumentation._dag_node import OptimizerInfo, OperatorContext
+from mlidea.instrumentation._dag_node import OptimizerInfo, OperatorContext, DagNode
 from mlidea.monkeypatching._mlinspect_ndarray import MlideaChromaVectorStoreRetrieverPlaceHolder
 from mlidea.utils._utils import get_sorted_parent_nodes
 
@@ -26,7 +26,8 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
                            estimator_transformer_state: any or None = None,
                            keras_batch_size: int or None = None,
                            extract_or_conditional=False,
-                           stop_signal_received=False) \
+                           stop_signal_received=False,
+                           current_dag_node: DagNode or None=None) \
         -> tuple[OptimizerInfo, any]:
     """Function to measure the runtime of instrumented user function calls and get output metadata"""
     execution_start = time.time()
@@ -152,9 +153,18 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
                 result = instrumented_function_call()
                 if estimator_transformer_state is not None:
                     result._mlinspect_annotation = estimator_transformer_state
-            # FIXME: At this point, we should know what changed
-            singleton.reuse_info.unprocessed_call_info_transitive_change_only[operator_call_info] = (
-                updated_operator_call_info, OperatorOutputChange(OutputChangeType.TOO_MUCH_CHANGED))
+
+            # Extract results are always a final node and only appear after first creating a DAG node, so no need to
+            #  mark them as transitive here
+            if updated_operator_call_info.operator != OperatorType.EXTRACT_RESULT:
+                # FIXME: At this point, we should know what changed
+                singleton.reuse_info.unprocessed_call_info_transitive_change_only[operator_call_info] = (
+                    updated_operator_call_info, OperatorOutputChange(OutputChangeType.TOO_MUCH_CHANGED))
+            else:
+                old_dag_node = singleton.reuse_info.operator_call_info_to_dag_node[updated_operator_call_info]
+                singleton.reuse_info.operator_transitive.add(current_dag_node)
+                singleton.reuse_info.new_node_to_old_node[current_dag_node] = (
+                    old_dag_node, OperatorOutputChange(OutputChangeType.TOO_MUCH_CHANGED))
         else:
             # TODO: Here we have a real change then. Maybe we want to count those?
             if stop_signal_received is False:

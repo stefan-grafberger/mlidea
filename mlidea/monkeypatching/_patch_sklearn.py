@@ -2514,7 +2514,7 @@ class SklearnLogisticRegressionPatching:
             initial_func_score = partial(processing_func_score, result_predict, test_labels_result)
             non_data_kwargs = get_simple_non_data_kwargs(**kwargs)
             operator_context_score = OperatorContext(OperatorType.SCORE, function_info, non_data_kwargs)
-            operator_call_info_score = OperatorCallInfo(operator_context_predict,
+            operator_call_info_score = OperatorCallInfo(operator_context_score,
                                                         [dag_node_predict, test_labels_node])
             optimizer_info_score, result_score = capture_optimizer_info(singleton, operator_call_info_score,
                                                                         initial_func_score)
@@ -2745,10 +2745,7 @@ class SklearnKerasClassifierPatching:
             # Score
             operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, {})
             non_data_kwargs = get_simple_non_data_kwargs(**kwargs)
-            operator_context_score = OperatorContext(OperatorType.SCORE, function_info, non_data_kwargs)
             estimator_dag_node = get_dag_node_for_id(self.mlinspect_estimator_node_id)
-            operator_call_info_predict = OperatorCallInfo(operator_context_predict,
-                                                          [estimator_dag_node, test_data_node])
             # input_dfs = [data_backend_result.annotated_dfobject, label_backend_result.annotated_dfobject]
 
             # This currently calls predict twice, but patching here is complex. Maybe revisit this in future work
@@ -2756,6 +2753,9 @@ class SklearnKerasClassifierPatching:
                 gorilla.get_original_attribute(wrappers.KerasClassifier, 'predict'))
             initial_func_predict = partial(uninstrumented_predict, self, test_data_result)
             call_info_singleton.scikeras_classifier_active = True
+
+            operator_call_info_predict = OperatorCallInfo(operator_context_predict,
+                                                          [estimator_dag_node, test_data_node])
             optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict,
                                                                             initial_func_predict)
             call_info_singleton.scikeras_classifier_active = False
@@ -2770,7 +2770,8 @@ class SklearnKerasClassifierPatching:
             add_dag_node(dag_node_predict, [estimator_dag_node, test_data_node],
                          function_call_result)
 
-            operator_call_info_score = OperatorCallInfo(operator_context_predict,
+            operator_context_score = OperatorContext(OperatorType.SCORE, function_info, non_data_kwargs)
+            operator_call_info_score = OperatorCallInfo(operator_context_score,
                                                         [dag_node_predict, test_labels_node])
 
             initial_func_score = partial(processing_func_score, result_predict, test_labels_result, *args[2:],
