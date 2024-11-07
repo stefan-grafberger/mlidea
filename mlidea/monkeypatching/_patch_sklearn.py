@@ -2,6 +2,8 @@
 Monkey patching for sklearn
 """
 import copy
+import dis
+import inspect
 import warnings
 from collections.abc import Callable
 from functools import partial
@@ -1788,8 +1790,13 @@ class SklearnFunctionTransformerPatching:
 
             processing_func = wrap_projection_func(processing_func)
 
+            non_data_func_args = self.mlinspect_non_data_func_args
+            transform_func = non_data_func_args.pop('func')
+            non_data_func_args['free_values'] = str([cell.cell_contents for cell in transform_func.__closure__]
+                                                    if transform_func.__closure__ else [])
+            non_data_func_args['source_code'] = inspect.getsource(transform_func)
             operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info,
-                                               self.mlinspect_non_data_func_args)
+                                               non_data_func_args)
             operator_call_info = OperatorCallInfo(operator_context, [input_info.dag_node])
             # This is to prevent udf monkey patching while a FunctionTransformer is active
             singleton.disable_monkey_patching = True
