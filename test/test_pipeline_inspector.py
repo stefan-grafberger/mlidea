@@ -289,6 +289,9 @@ def test_changed_pipeline_code_shadow_pipelines_anhedonia_ml(tmpdir):
     assert "the pipeline metric was" in report_data_errors
     assert "The original result" in report_fairness_slices
 
+    reuse_info = analysis_result.dag_extraction_info.reuse_info
+    assert len(reuse_info.operator_reexecuted) == 1
+
 
 def test_changed_pipeline_code_shadow_pipelines_healthcare(tmpdir):
     """
@@ -329,6 +332,9 @@ def test_changed_pipeline_code_shadow_pipelines_healthcare(tmpdir):
     assert "the pipeline metric was" in report_label_errors
     assert "the pipeline metric was" in report_data_errors
     assert "The original result" in report_fairness_slices
+
+    reuse_info = analysis_result.dag_extraction_info.reuse_info
+    assert len(reuse_info.operator_reexecuted) == 1
 
 
 def test_changed_pipeline_code_what_if(tmpdir):
@@ -430,6 +436,9 @@ def test_dataframe_update(tmpdir):
     assert "No problematic slice could be found" in report
     analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-new"))
     analysis_result.save_shadow_pipeline_dags_to_path(os.path.join(str(tmpdir), "shadow-new"))
+
+    reuse_info = analysis_result.dag_extraction_info.reuse_info
+    assert len(reuse_info.operator_reexecuted) == 1
 
 
 def test_changed_pipeline_code_shadow_pipelines_adult_complex_caching_disabled(tmpdir):

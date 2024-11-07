@@ -51,8 +51,17 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
         if dag_node not in singleton.reuse_info.new_node_to_old_node:
             singleton.reuse_info.new_node_to_old_node[dag_node] = dag_node, OperatorOutputChange(
                 OutputChangeType.NOTHING_CHANGED)
-    # Maybe reuse
-    elif (not_a_constructor and singleton.enable_cache_reuse is True and singleton.old_dag is not None):
+    # Constructors cannot be reused currently
+    elif (not_a_constructor is False and operator_call_info in singleton.reuse_info.operator_call_info_to_dag_node
+            and singleton.enable_cache_reuse is True):
+        result = instrumented_function_call()
+        if estimator_transformer_state is not None:
+            result._mlinspect_annotation = estimator_transformer_state
+        # TODO: The node does not actually get reused yet. However, this is tricky with constructors
+        dag_node = singleton.reuse_info.operator_call_info_to_dag_node[operator_call_info]
+        singleton.reuse_info.new_node_to_old_node[dag_node] = dag_node, OperatorOutputChange(OutputChangeType.NOTHING_CHANGED)
+        # Maybe reuse
+    elif singleton.enable_cache_reuse is True and singleton.old_dag is not None:
 
         parent_nodes_from_previous_run = []
         changes = []
@@ -95,11 +104,13 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
                                                                                operator_call_info, parent_index,
                                                                                singleton.reuse_info.operator_call_info_to_dag_node,
                                                                                singleton.reuse_info.new_node_to_old_node)
-                is_addition, node_being_added_to = determine_is_addition(new_dag, new_dag_parent_node, operator_call_info,
-                                                    singleton.reuse_info.operator_call_info_to_dag_node)
+                is_addition, node_being_added_to = determine_is_addition(new_dag, new_dag_parent_node,
+                                                                         operator_call_info,
+                                                                         singleton.reuse_info.operator_call_info_to_dag_node)
                 is_deletion, deleted_node = determine_is_deletion(new_dag, new_dag_parent_node, old_dag)
 
-                change_diff = OperatorOutputChange(OutputChangeType.TOO_MUCH_CHANGED)  # FIXME: We also need to compute the actual changes!
+                change_diff = OperatorOutputChange(
+                    OutputChangeType.TOO_MUCH_CHANGED)  # FIXME: We also need to compute the actual changes!
                 if is_replacement:
                     singleton.reuse_info.operator_replacement.add(new_dag_parent_node)
                     singleton.reuse_info.new_node_to_old_node[new_dag_parent_node] = node_being_replaced, change_diff
@@ -111,7 +122,8 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
                     singleton.reuse_info.new_node_to_old_node[new_dag_parent_node] = deleted_node, change_diff
                 else:
                     singleton.reuse_info.operator_too_many_changes.add(new_dag_parent_node)
-                    singleton.reuse_info.new_node_to_old_node[new_dag_parent_node] = new_dag_parent_node, OperatorOutputChange(
+                    singleton.reuse_info.new_node_to_old_node[
+                        new_dag_parent_node] = new_dag_parent_node, OperatorOutputChange(
                         OutputChangeType.TOO_MUCH_CHANGED)
 
             assert new_dag_parent_node in singleton.reuse_info.new_node_to_old_node
@@ -147,15 +159,6 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
                 if estimator_transformer_state is not None:
                     result._mlinspect_annotation = estimator_transformer_state
             singleton.reuse_info.undetermined_new_nodes.add(operator_call_info)
-    # Constructors cannot be reused currently
-    elif (not_a_constructor is False and operator_call_info in singleton.reuse_info.operator_call_info_to_dag_node
-            and singleton.enable_cache_reuse is True):
-        result = instrumented_function_call()
-        if estimator_transformer_state is not None:
-            result._mlinspect_annotation = estimator_transformer_state
-        # TODO: The node does not actually get reused yet. However, this is tricky with constructors
-        dag_node = singleton.reuse_info.operator_call_info_to_dag_node[operator_call_info]
-        singleton.reuse_info.new_node_to_old_node[dag_node] = dag_node, OperatorOutputChange(OutputChangeType.NOTHING_CHANGED)
 
     elif stop_signal_received is False: # Actually execute it
         result = instrumented_function_call()
@@ -232,10 +235,11 @@ def determine_is_replacement(new_dag, new_dag_parent_node, old_dag, operator_cal
     node_being_replaced = None  # Default: No replacement found
     new_node_type = new_dag_parent_node.operator_info.operator
     new_parents = set(new_dag.predecessors(new_dag_parent_node))
+    old_nodes_already_matched = {old_node for old_node, _ in new_node_to_old_node.values()}
     # Search for a similar node in the old DAG
     for old_node in old_dag.nodes:
         # Check if operator type matches
-        if old_node.operator_info.operator == new_node_type:
+        if old_node.operator_info.operator == new_node_type and old_node not in old_nodes_already_matched:
             # Check if parents and children match
             # FIXME: Think about using replacement map here
             old_parents = set(old_dag.predecessors(old_node))
@@ -261,6 +265,7 @@ def determine_is_replacement(new_dag, new_dag_parent_node, old_dag, operator_cal
             if new_parents == old_parents and old_children_contains_current_node:
                 is_replacement = True  # Found a 1-to-1 replacement in the old DAG
                 node_being_replaced = old_node
+                break
     return is_replacement, node_being_replaced
 
 
