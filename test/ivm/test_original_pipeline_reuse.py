@@ -48,6 +48,8 @@ def test_changed_pipeline_code_regex_change_or(tmpdir):
 
     compare(expected={0, 1, 2, 3}, actual=all_nodes_before)
     compare(expected={0, 2, 4, 5}, actual=all_nodes_after)
+
+    # TODO: Use the new reuse info for testing
     
     # Now check if nodes were updated as they should be
 

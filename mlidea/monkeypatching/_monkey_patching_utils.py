@@ -260,7 +260,8 @@ def add_dag_node(dag_node: DagNode, dag_node_parents: list[DagNode], function_ca
         if isinstance(function_call_result.function_result, DataFrame):
             df_result = function_call_result.function_result
             df_result_copy = df_result.copy()
-            df_result_copy._mlinspect_provenance = df_result._mlinspect_provenance
+            if hasattr(df_result, "_mlinspect_provenance"):
+                df_result_copy._mlinspect_provenance = df_result._mlinspect_provenance
             # FIXME: Do we need to manually forward other attributes as well?
             singleton.reuse_info.cached_intermediates[dag_node] = df_result_copy
         else:
