@@ -105,3 +105,8 @@ class MlideaChromaVectorStoreRetrieverPlaceHolder(BaseRetriever):
 
     def columns(self):
         return ["texts", *list(self.retrieval_corpus_y[0].keys())]
+
+    def __repr__(self) -> str:
+        return f"MlideaChromaVectorStoreRetrieverPlaceHolder(embedding='{self.embedding}')"
+
+

@@ -14,21 +14,24 @@ from fairlearn.metrics import MetricFrame
 from scikeras import wrappers
 from scipy.sparse import csr_matrix
 
+from mlidea.instrumentation._operator_types import OperatorType, ConditionalResult
 from mlidea.instrumentation._operator_call_info import OperatorCallInfo, OperatorOutputChange, OutputChangeType
 from mlidea.instrumentation._dag_node import OptimizerInfo, OperatorContext
 from mlidea.monkeypatching._mlinspect_ndarray import MlideaChromaVectorStoreRetrieverPlaceHolder
 from mlidea.utils._utils import get_sorted_parent_nodes
 
 
-def capture_optimizer_info(singleton, operator_call_info, instrumented_function_call: partial,
+def capture_optimizer_info(singleton, operator_call_info, instrumented_function_call: partial or None,
                            obj_for_inplace_ops: any or None = None,
                            estimator_transformer_state: any or None = None,
                            keras_batch_size: int or None = None,
-                           extract_or_conditional=False) \
+                           extract_or_conditional=False,
+                           stop_signal_received=False) \
         -> tuple[OptimizerInfo, any]:
     """Function to measure the runtime of instrumented user function calls and get output metadata"""
     execution_start = time.time()
-    not_a_constructor = (obj_for_inplace_ops is None or estimator_transformer_state is not None)
+    not_a_constructor = (obj_for_inplace_ops is None or estimator_transformer_state is not None
+                         or operator_call_info.operator == OperatorType.PROJECTION_MODIFY)
     # Guaranteed reuse
     if (not_a_constructor and
             operator_call_info in singleton.reuse_info.operator_call_info_to_dag_node
@@ -130,17 +133,19 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
             # TODO: Look at changes. Certain kind of changes are also compatible and mergeable, especially if there are
             #  just multiple different row-level changes.
             # TODO: if extract_or_conditional is True, we always need to reexecute because of the label extraction
-            result = instrumented_function_call()
-            if estimator_transformer_state is not None:
-                result._mlinspect_annotation = estimator_transformer_state
+            if stop_signal_received is False:
+                result = instrumented_function_call()
+                if estimator_transformer_state is not None:
+                    result._mlinspect_annotation = estimator_transformer_state
             # FIXME: At this point, we should know what changed
             singleton.reuse_info.unprocessed_call_info_transitive_change_only[operator_call_info] = (
                 updated_operator_call_info, OperatorOutputChange(OutputChangeType.TOO_MUCH_CHANGED))
         else:
             # TODO: Here we have a real change then. Maybe we want to count those?
-            result = instrumented_function_call()
-            if estimator_transformer_state is not None:
-                result._mlinspect_annotation = estimator_transformer_state
+            if stop_signal_received is False:
+                result = instrumented_function_call()
+                if estimator_transformer_state is not None:
+                    result._mlinspect_annotation = estimator_transformer_state
             singleton.reuse_info.undetermined_new_nodes.add(operator_call_info)
     # Constructors cannot be reused currently
     elif (not_a_constructor is False and operator_call_info in singleton.reuse_info.operator_call_info_to_dag_node
@@ -152,23 +157,28 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
         dag_node = singleton.reuse_info.operator_call_info_to_dag_node[operator_call_info]
         singleton.reuse_info.new_node_to_old_node[dag_node] = dag_node, OperatorOutputChange(OutputChangeType.NOTHING_CHANGED)
 
-    else: # Actually execute it
+    elif stop_signal_received is False: # Actually execute it
         result = instrumented_function_call()
         if estimator_transformer_state is not None:
             result._mlinspect_annotation = estimator_transformer_state
         # if singleton.enable_cache_reuse:
         #     dag_node = singleton.operator_call_info_to_dag_node[operator_call_info]
         #     singleton.new_node_to_old_node[dag_node] = dag_node, OperatorOutputChange(OutputChangeType.TOO_MUCH_CHANGED)
-    execution_duration = time.time() - execution_start
-    execution_duration_in_ms = execution_duration * 1000
-    if result is not None:
-        result_or_inplace_obj = result
+    if stop_signal_received:
+        optimizer_info = OptimizerInfo(None, None, None)
+        result = ConditionalResult.STOP_EXECUTION
     else:
-        result_or_inplace_obj = obj_for_inplace_ops
+        execution_duration = time.time() - execution_start
+        execution_duration_in_ms = execution_duration * 1000
+        if result is not None:
+            result_or_inplace_obj = result
+        else:
+            result_or_inplace_obj = obj_for_inplace_ops
 
-    shape = get_df_shape(result_or_inplace_obj)
-    size = get_df_memory(result_or_inplace_obj, estimator_transformer_state, keras_batch_size)
-    return OptimizerInfo(execution_duration_in_ms, shape, size), result
+        shape = get_df_shape(result_or_inplace_obj)
+        size = get_df_memory(result_or_inplace_obj, estimator_transformer_state, keras_batch_size)
+        optimizer_info = OptimizerInfo(execution_duration_in_ms, shape, size)
+    return optimizer_info, result
 
 
 def determine_is_deletion(new_dag, new_dag_parent_node, old_dag):

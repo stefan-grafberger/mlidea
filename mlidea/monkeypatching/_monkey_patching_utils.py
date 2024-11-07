@@ -255,7 +255,20 @@ def add_dag_node(dag_node: DagNode, dag_node_parents: list[DagNode], function_ca
 
     if singleton.enable_caching is True:
         singleton.reuse_info.operator_call_info_to_dag_node[OperatorCallInfo(dag_node.operator_info, dag_node_parents)] = dag_node
-        singleton.reuse_info.cached_intermediates[dag_node] = function_call_result.function_result
+        # # TODO: Is this copy really necessary? Without it, the columns sometimes mismatch with cached dfs that
+        # #  get updated later on during the original pipeline
+        if isinstance(function_call_result.function_result, DataFrame):
+            df_result = function_call_result.function_result
+            df_result_copy = df_result.copy()
+            df_result_copy._mlinspect_provenance = df_result._mlinspect_provenance
+            # FIXME: Do we need to manually forward other attributes as well?
+            singleton.reuse_info.cached_intermediates[dag_node] = df_result_copy
+        else:
+            singleton.reuse_info.cached_intermediates[dag_node] = function_call_result.function_result
+        # if dag_node.operator_info.operator != OperatorType.PROJECTION_MODIFY:
+        #     singleton.reuse_info.cached_intermediates[dag_node] = function_call_result.function_result
+        # else:
+        #     singleton.reuse_info.cached_intermediates[dag_node] = function_call_result.function_result.copy()
     # if function_call_result.other is not None:
     # singleton.inspection_results.dag_node_to_inspection_results[dag_node] = backend_result.dag_node_annotation
     # TODO: Do we want to capture other meta information here? Or as part of the DAG node?

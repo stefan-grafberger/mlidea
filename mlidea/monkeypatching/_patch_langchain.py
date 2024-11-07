@@ -141,8 +141,8 @@ class RunnableSequencePatching:
                     inputs, input_info_a.dag_node.operator_info.function_info, lineno, optional_code_reference,
                     optional_source_code, caller_filename)
 
-                non_data_kwargs = {'steps': self.steps, 'config': config, 'return_exceptions': return_exceptions,
-                                   **kwargs}
+                non_data_kwargs = {'chain': str(retriever_with_info[2].to_json()), 'config': config,
+                                   'return_exceptions': return_exceptions, **kwargs}
                 operator_context_rag = OperatorContext(OperatorType.RAG_JOIN,
                                                    input_info_a.dag_node.operator_info.function_info,
                                                    non_data_kwargs)
@@ -169,8 +169,10 @@ class RunnableSequencePatching:
                 processing_func_predict = partial(
                     RunnableSequencePatching.execute_langchain_batch_with_preexecuted_retriever,
                     self, config, return_exceptions)
+                non_data_kwargs = {'prompt': str(self.get_prompts()), 'config': config,
+                                   'return_exceptions': return_exceptions, **kwargs}
                 operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, non_data_kwargs)
-                operator_call_info_predict = OperatorCallInfo(operator_context_rag,
+                operator_call_info_predict = OperatorCallInfo(operator_context_predict,
                                                               [dag_node_rag])
                 optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict,
                                                                                 partial(processing_func_predict,
