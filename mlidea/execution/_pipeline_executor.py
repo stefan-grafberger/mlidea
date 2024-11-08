@@ -4,6 +4,7 @@ Instrument and executes the pipeline
 # TODO: At some point, this should be split into two files, one for mere orchestration, one for instrumentation
 import ast
 import copy
+import linecache
 import logging
 import sys
 import time
@@ -283,6 +284,14 @@ class PipelineExecutor:
         self.source_code, self.source_code_path = self.load_source_code(notebook_path, python_path, python_code)
         parsed_ast = ast.parse(self.source_code)
         parsed_modified_ast = self.instrument_pipeline(parsed_ast, self.track_code_references)
+
+        # Cache the source code in linecache under the fake filename
+        linecache.cache[self.source_code_path] = (
+            len(self.source_code),  # Size of code in bytes (not really needed here)
+            None,  # Last modification time (unused)
+            self.source_code.splitlines(True),  # Lines of the code
+            self.source_code_path  # Filename
+        )
         exec(compile(parsed_modified_ast, filename=self.source_code_path, mode="exec"), self.script_scope)
 
     def get_next_op_id(self, operator_call_info):

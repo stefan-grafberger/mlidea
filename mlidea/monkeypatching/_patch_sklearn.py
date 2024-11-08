@@ -1790,7 +1790,7 @@ class SklearnFunctionTransformerPatching:
 
             processing_func = wrap_projection_func(processing_func)
 
-            non_data_func_args = self.mlinspect_non_data_func_args
+            non_data_func_args = self.mlinspect_non_data_func_args.copy()
             transform_func = non_data_func_args.pop('func')
             non_data_func_args['free_values'] = str([cell.cell_contents for cell in transform_func.__closure__]
                                                     if transform_func.__closure__ else [])
