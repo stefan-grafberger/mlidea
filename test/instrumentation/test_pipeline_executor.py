@@ -107,7 +107,7 @@ def test_annotation_storage():
 
 def test_black_box_operation():
     """
-    Tests whether the monkey patching of pandas function works
+    Tests whether the mo    nkey patching of pandas function works
     """
     test_code = cleandoc("""
         import pandas

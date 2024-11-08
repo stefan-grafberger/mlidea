@@ -1792,9 +1792,10 @@ class SklearnFunctionTransformerPatching:
 
             non_data_func_args = self.mlinspect_non_data_func_args.copy()
             transform_func = non_data_func_args.pop('func')
-            non_data_func_args['free_values'] = str([cell.cell_contents for cell in transform_func.__closure__]
-                                                    if transform_func.__closure__ else [])
-            non_data_func_args['source_code'] = inspect.getsource(transform_func)
+            if transform_func is not None:
+                non_data_func_args['free_values'] = str([cell.cell_contents for cell in transform_func.__closure__]
+                                                        if transform_func.__closure__ else [])
+                non_data_func_args['source_code'] = inspect.getsource(transform_func)
             operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info,
                                                non_data_func_args)
             operator_call_info = OperatorCallInfo(operator_context, [input_info.dag_node])
