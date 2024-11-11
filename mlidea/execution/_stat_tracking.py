@@ -68,116 +68,8 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
     #  pandas groupby operation that gets executed before agg is called after. We also cannot reuse intermediates
     #  for that operation currently.
     elif singleton.enable_cache_reuse is True and singleton.old_dag is not None and operator_call_info is not None:
-
-        parent_nodes_from_previous_run = []
-        changes = []
-
-        for parent_index, parent_op_id in enumerate(operator_call_info.parent_node_ids):
-            # FIXME: This fails for shadow pipelines because the node is not in the original DAG
-            old_dag = singleton.global_old_dag
-            new_dag = singleton.global_new_dag
-
-            new_dag_parent_node = [node for node in new_dag.nodes if node.node_id == parent_op_id][0]
-
-            # Create operator call info
-            new_dag_parent_operator_call_info = dag_node_to_operator_call_info(
-                new_dag, new_dag_parent_node)
-            unprocessed_transitive_change = new_dag_parent_operator_call_info in singleton.reuse_info.unprocessed_call_info_transitive_change_only
-            is_undetermined = new_dag_parent_operator_call_info in singleton.reuse_info.undetermined_new_nodes
-            assert unprocessed_transitive_change is False or is_undetermined is False
-            if unprocessed_transitive_change:  # We need to delay processing them to ensure consecutive dag node ids
-                old_operator_call_info, change_type = singleton.reuse_info.unprocessed_call_info_transitive_change_only[
-                    new_dag_parent_operator_call_info]
-                if (old_operator_call_info in singleton.reuse_info.operator_call_info_to_dag_node and
-                        len([node for node in old_dag.nodes
-                             if node.node_id == singleton.get_next_op_id(old_operator_call_info)]) > 0):
-                    old_dag_node_id = singleton.get_next_op_id(old_operator_call_info)
-                    dag_node_to_map_to = [node for node in old_dag.nodes if node.node_id == old_dag_node_id][0]
-                    singleton.reuse_info.operator_transitive.add(new_dag_parent_node)
-                else:
-                    dag_node_to_map_to = new_dag_parent_node  # Mapping to old DAG failed
-                    singleton.reuse_info.operator_too_many_changes.add(new_dag_parent_node)
-                singleton.reuse_info.new_node_to_old_node[new_dag_parent_node] = dag_node_to_map_to, change_type
-                singleton.reuse_info.unprocessed_call_info_transitive_change_only.pop(new_dag_parent_operator_call_info)
-            elif is_undetermined:
-                singleton.reuse_info.undetermined_new_nodes.remove(new_dag_parent_operator_call_info)
-                # Actually re-executed without any chance of IVM
-                singleton.reuse_info.operator_reexecuted.add(new_dag_parent_node)
-
-                # Maybe don't run all of this code if the change type is already found
-                is_replacement, node_being_replaced = determine_is_replacement(new_dag,
-                                                                               new_dag_parent_node, old_dag,
-                                                                               operator_call_info, parent_index,
-                                                                               singleton.reuse_info.operator_call_info_to_dag_node,
-                                                                               singleton.reuse_info.new_node_to_old_node)
-                is_addition, node_being_added_to = determine_is_addition(new_dag, new_dag_parent_node,
-                                                                         operator_call_info, parent_index,
-                                                                         singleton.reuse_info.operator_call_info_to_dag_node,
-                                                                         singleton.reuse_info.new_node_to_old_node)
-                is_deletion, deleted_node_child = determine_is_deletion(new_dag, new_dag_parent_node, old_dag)
-
-                change_diff = OperatorOutputChange(
-                    OutputChangeType.TOO_MUCH_CHANGED)  # FIXME: We also need to compute the actual changes!
-                if is_replacement:
-                    singleton.reuse_info.operator_replacement.add(new_dag_parent_node)
-                    singleton.reuse_info.new_node_to_old_node[new_dag_parent_node] = node_being_replaced, change_diff
-                elif is_addition:
-                    singleton.reuse_info.operator_addition.add(new_dag_parent_node)
-                    singleton.reuse_info.new_node_to_old_node[new_dag_parent_node] = node_being_added_to, change_diff
-                elif is_deletion:
-                    singleton.reuse_info.operator_deletion.add(new_dag_parent_node)
-                    singleton.reuse_info.new_node_to_old_node[new_dag_parent_node] = deleted_node_child, change_diff
-                else:
-                    singleton.reuse_info.operator_too_many_changes.add(new_dag_parent_node)
-                    singleton.reuse_info.new_node_to_old_node[
-                        new_dag_parent_node] = new_dag_parent_node, OperatorOutputChange(
-                        OutputChangeType.TOO_MUCH_CHANGED)
-
-            assert new_dag_parent_node in singleton.reuse_info.new_node_to_old_node
-            corresponding_node_in_old_dag, change_diff = singleton.reuse_info.new_node_to_old_node[new_dag_parent_node]
-            parent_nodes_from_previous_run.append(corresponding_node_in_old_dag)
-            changes.append(change_diff)
-
-        updated_operator_call_info = OperatorCallInfo(OperatorContext(operator_call_info.operator,
-                                                                      operator_call_info.function_info,
-                                                                      operator_call_info.non_data_kwargs),
-                                                      parent_nodes_from_previous_run)
-        if updated_operator_call_info in singleton.reuse_info.operator_call_info_to_dag_node:
-            # Incrementally update the old result
-            # First load the old result
-
-            old_dag_node = singleton.reuse_info.operator_call_info_to_dag_node[updated_operator_call_info]
-            old_result = singleton.reuse_info.cached_intermediates[old_dag_node]
-            # FIXME: Then update old result
-            # TODO: Look at changes. Certain kind of changes are also compatible and mergeable, especially if there are
-            #  just multiple different row-level changes.
-            # TODO: if extract_or_conditional is True, we always need to reexecute because of the label extraction
-            if stop_signal_received is False:
-                result = instrumented_function_call()
-                if estimator_transformer_state is not None:
-                    result._mlinspect_annotation = estimator_transformer_state
-
-            # Extract results are always a final node and only appear after first creating a DAG node, so no need to
-            #  mark them as transitive here
-            if updated_operator_call_info.operator != OperatorType.EXTRACT_RESULT:
-                # FIXME: At this point, we should know what changed
-                singleton.reuse_info.unprocessed_call_info_transitive_change_only[operator_call_info] = (
-                    updated_operator_call_info, OperatorOutputChange(OutputChangeType.TOO_MUCH_CHANGED))
-            else:
-                old_dag_node = singleton.reuse_info.operator_call_info_to_dag_node[updated_operator_call_info]
-                singleton.reuse_info.operator_transitive.add(current_dag_node)
-                singleton.reuse_info.new_node_to_old_node[current_dag_node] = (
-                    old_dag_node, OperatorOutputChange(OutputChangeType.TOO_MUCH_CHANGED))
-        else:
-            # TODO: Here we have a real change then. Maybe we want to count those?
-            if stop_signal_received is False:
-                result = instrumented_function_call()
-                if estimator_transformer_state is not None:
-                    result._mlinspect_annotation = estimator_transformer_state
-            if operator_call_info.operator != OperatorType.MISSING_OP:
-                # This can happen, e.g., for the grid search operation in sklearn that we do not want to capture in the
-                #  DAG currently
-                singleton.reuse_info.undetermined_new_nodes.add(operator_call_info)
+        result = execute_with_partial_reuse(current_dag_node, estimator_transformer_state, instrumented_function_call,
+                                            operator_call_info, singleton, stop_signal_received)
 
     elif stop_signal_received is False: # Actually execute it
         result = instrumented_function_call()
@@ -201,6 +93,149 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
         size = get_df_memory(result_or_inplace_obj, estimator_transformer_state, keras_batch_size)
         optimizer_info = OptimizerInfo(execution_duration_in_ms, shape, size)
     return optimizer_info, result
+
+
+def execute_with_partial_reuse(current_dag_node, estimator_transformer_state, instrumented_function_call,
+                               operator_call_info, singleton, stop_signal_received):
+    parent_nodes_from_previous_run = determine_parents_compared_to_previous_dag(operator_call_info, singleton)
+    updated_operator_call_info = OperatorCallInfo(OperatorContext(operator_call_info.operator,
+                                                                  operator_call_info.function_info,
+                                                                  operator_call_info.non_data_kwargs),
+                                                  parent_nodes_from_previous_run)
+    if updated_operator_call_info in singleton.reuse_info.operator_call_info_to_dag_node:
+        # Incrementally update the old result
+        # First load the old result
+
+        old_dag_node = singleton.reuse_info.operator_call_info_to_dag_node[updated_operator_call_info]
+        old_result = singleton.reuse_info.cached_intermediates[old_dag_node]
+        # FIXME: Then update old result
+        # TODO: Look at changes. Certain kind of changes are also compatible and mergeable, especially if there are
+        #  just multiple different row-level changes.
+        # TODO: if extract_or_conditional is True, we always need to reexecute because of the label extraction
+        if stop_signal_received is False:
+            result = instrumented_function_call()
+            if estimator_transformer_state is not None:
+                result._mlinspect_annotation = estimator_transformer_state
+        else:
+            result = ConditionalResult.STOP_EXECUTION
+
+        # Extract results are always a final node and only appear after first creating a DAG node, so no need to
+        #  mark them as transitive here
+        if updated_operator_call_info.operator != OperatorType.EXTRACT_RESULT:
+            # FIXME: At this point, we should know what changed
+            singleton.reuse_info.unprocessed_call_info_transitive_change_only[operator_call_info] = (
+                updated_operator_call_info, OperatorOutputChange(OutputChangeType.TOO_MUCH_CHANGED))
+        else:
+            old_dag_node = singleton.reuse_info.operator_call_info_to_dag_node[updated_operator_call_info]
+            singleton.reuse_info.operator_transitive.add(current_dag_node)
+            singleton.reuse_info.new_node_to_old_node[current_dag_node] = (
+                old_dag_node, OperatorOutputChange(OutputChangeType.TOO_MUCH_CHANGED))
+    else:
+        # TODO: Here we have a real change then. Maybe we want to count those?
+        if stop_signal_received is False:
+            result = instrumented_function_call()
+            if estimator_transformer_state is not None:
+                result._mlinspect_annotation = estimator_transformer_state
+        else:
+            result = ConditionalResult.STOP_EXECUTION
+        if operator_call_info.operator != OperatorType.MISSING_OP:
+            # This can happen, e.g., for the grid search operation in sklearn that we do not want to capture in the
+            #  DAG currently
+            singleton.reuse_info.undetermined_new_nodes.add(operator_call_info)
+
+    return result
+
+
+def determine_parents_compared_to_previous_dag(operator_call_info, singleton):
+    parent_nodes_from_previous_run = []
+    changes = []
+    for parent_index, parent_op_id in enumerate(operator_call_info.parent_node_ids):
+        # FIXME: This fails for shadow pipelines because the node is not in the original DAG
+        old_dag = singleton.global_old_dag
+        new_dag = singleton.global_new_dag
+
+        new_dag_parent_node = [node for node in new_dag.nodes if node.node_id == parent_op_id][0]
+
+        # Create operator call info
+        new_dag_parent_operator_call_info = dag_node_to_operator_call_info(
+            new_dag, new_dag_parent_node)
+        unprocessed_transitive_change = new_dag_parent_operator_call_info in singleton.reuse_info.unprocessed_call_info_transitive_change_only
+        is_undetermined = new_dag_parent_operator_call_info in singleton.reuse_info.undetermined_new_nodes
+        assert unprocessed_transitive_change is False or is_undetermined is False
+        if unprocessed_transitive_change:  # We need to delay processing them to ensure consecutive dag node ids
+            process_transitive_change(new_dag_parent_node, new_dag_parent_operator_call_info, old_dag, singleton)
+        elif is_undetermined:
+            determine_parent_change_type(new_dag, new_dag_parent_node, new_dag_parent_operator_call_info, old_dag,
+                                         operator_call_info, parent_index, singleton)
+
+        assert new_dag_parent_node in singleton.reuse_info.new_node_to_old_node
+        corresponding_node_in_old_dag, change_diff = singleton.reuse_info.new_node_to_old_node[new_dag_parent_node]
+        parent_nodes_from_previous_run.append(corresponding_node_in_old_dag)
+        changes.append(change_diff)
+    return parent_nodes_from_previous_run
+
+
+def process_transitive_change(new_dag_parent_node, new_dag_parent_operator_call_info, old_dag, singleton):
+    old_operator_call_info, change_type = singleton.reuse_info.unprocessed_call_info_transitive_change_only[
+        new_dag_parent_operator_call_info]
+    if (old_operator_call_info in singleton.reuse_info.operator_call_info_to_dag_node and
+            len([node for node in old_dag.nodes
+                 if node.node_id == singleton.get_next_op_id(old_operator_call_info)]) > 0):
+        old_dag_node_id = singleton.get_next_op_id(old_operator_call_info)
+        dag_node_to_map_to = [node for node in old_dag.nodes if node.node_id == old_dag_node_id][0]
+        singleton.reuse_info.operator_transitive.add(new_dag_parent_node)
+    else:
+        dag_node_to_map_to = new_dag_parent_node  # Mapping to old DAG failed
+        singleton.reuse_info.operator_too_many_changes.add(new_dag_parent_node)
+    singleton.reuse_info.new_node_to_old_node[new_dag_parent_node] = dag_node_to_map_to, change_type
+    singleton.reuse_info.unprocessed_call_info_transitive_change_only.pop(new_dag_parent_operator_call_info)
+
+
+def determine_parent_change_type(new_dag, new_dag_parent_node, new_dag_parent_operator_call_info, old_dag,
+                                 operator_call_info, parent_index, singleton):
+    singleton.reuse_info.undetermined_new_nodes.remove(new_dag_parent_operator_call_info)
+    # Actually re-executed without any chance of IVM
+    singleton.reuse_info.operator_reexecuted.add(new_dag_parent_node)
+
+    # Determine the type of change
+    is_replacement, node_being_replaced = determine_is_replacement(new_dag,
+                                                                   new_dag_parent_node, old_dag,
+                                                                   operator_call_info, parent_index,
+                                                                   singleton.reuse_info.operator_call_info_to_dag_node,
+                                                                   singleton.reuse_info.new_node_to_old_node)
+
+    if not is_replacement:
+        is_addition, node_being_added_to = determine_is_addition(new_dag, new_dag_parent_node,
+                                                                 operator_call_info, parent_index,
+                                                                 singleton.reuse_info.operator_call_info_to_dag_node,
+                                                                 singleton.reuse_info.new_node_to_old_node)
+    else:
+        is_addition, node_being_added_to = False, None
+    if not is_replacement and not is_addition:
+        is_deletion, deleted_node_child = determine_is_deletion(new_dag, new_dag_parent_node, old_dag)
+    else:
+        is_deletion, deleted_node_child = False, None
+
+    if is_replacement:
+        singleton.reuse_info.operator_replacement.add(new_dag_parent_node)
+        change_diff = OperatorOutputChange(
+            OutputChangeType.TOO_MUCH_CHANGED)  # FIXME: We also need to compute the actual changes!
+        singleton.reuse_info.new_node_to_old_node[new_dag_parent_node] = node_being_replaced, change_diff
+    elif is_addition:
+        singleton.reuse_info.operator_addition.add(new_dag_parent_node)
+        change_diff = OperatorOutputChange(
+            OutputChangeType.TOO_MUCH_CHANGED)  # FIXME: We also need to compute the actual changes!
+        singleton.reuse_info.new_node_to_old_node[new_dag_parent_node] = node_being_added_to, change_diff
+    elif is_deletion:
+        singleton.reuse_info.operator_deletion.add(new_dag_parent_node)
+        change_diff = OperatorOutputChange(
+            OutputChangeType.TOO_MUCH_CHANGED)  # FIXME: We also need to compute the actual changes!
+        singleton.reuse_info.new_node_to_old_node[new_dag_parent_node] = deleted_node_child, change_diff
+    else:
+        singleton.reuse_info.operator_too_many_changes.add(new_dag_parent_node)
+        singleton.reuse_info.new_node_to_old_node[
+            new_dag_parent_node] = new_dag_parent_node, OperatorOutputChange(
+            OutputChangeType.TOO_MUCH_CHANGED)
 
 
 def determine_is_deletion(new_dag, new_dag_parent_node, old_dag):
