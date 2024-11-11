@@ -9,7 +9,7 @@ import fuzzy_pandas
 from mlidea.instrumentation._operator_call_info import OperatorCallInfo
 from mlidea.execution._pipeline_executor import singleton
 from mlidea import OperatorType, DagNode, BasicCodeLocation, DagNodeDetails
-from mlidea.execution._stat_tracking import capture_optimizer_info
+from mlidea.execution._func_executor import capture_optimizer_info
 from mlidea.instrumentation._operator_types import OperatorContext, FunctionInfo
 from mlidea.monkeypatching._monkey_patching_utils import get_input_info, add_dag_node, \
     get_optional_code_info_or_none, FunctionCallResult, get_simple_non_data_kwargs, execute_patched_func_no_op_id

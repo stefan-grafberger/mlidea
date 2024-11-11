@@ -30,7 +30,7 @@ from mlidea.instrumentation._operator_call_info import OperatorCallInfo
 from mlidea import DagNode, BasicCodeLocation, DagNodeDetails, FunctionInfo, OperatorContext, OperatorType, \
     CodeReference
 from mlidea.execution._pipeline_executor import singleton
-from mlidea.execution._stat_tracking import capture_optimizer_info
+from mlidea.execution._func_executor import capture_optimizer_info
 from mlidea.monkeypatching._mlinspect_ndarray import MlideaChromaVectorStoreRetrieverPlaceHolder, MlinspectList
 from mlidea.monkeypatching._monkey_patching_utils import get_optional_code_info_or_none, \
     FunctionCallResult, add_dag_node, get_input_info, \

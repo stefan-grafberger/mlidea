@@ -9,7 +9,7 @@ from fairlearn import metrics
 
 from mlidea.instrumentation._operator_call_info import OperatorCallInfo
 from mlidea import OperatorType, DagNode, BasicCodeLocation, DagNodeDetails
-from mlidea.execution._stat_tracking import capture_optimizer_info
+from mlidea.execution._func_executor import capture_optimizer_info
 from mlidea.instrumentation._operator_types import OperatorContext, FunctionInfo
 from mlidea.execution._pipeline_executor import singleton
 from mlidea.monkeypatching._monkey_patching_utils import add_dag_node, \

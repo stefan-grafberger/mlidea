@@ -4,7 +4,7 @@ import numpy
 import pandas
 
 from mlidea.execution._pipeline_executor import singleton
-from mlidea.execution._stat_tracking import get_df_shape
+from mlidea.execution._func_executor import get_df_shape
 from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
 from mlidea.monkeypatching._mlinspect_ndarray import MlinspectList, TrainTestSplitResult
 

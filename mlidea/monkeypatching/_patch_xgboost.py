@@ -9,7 +9,7 @@ from sklearn.metrics import accuracy_score
 
 from mlidea.instrumentation._operator_call_info import OperatorCallInfo
 from mlidea.execution._pipeline_executor import singleton
-from mlidea.execution._stat_tracking import capture_optimizer_info
+from mlidea.execution._func_executor import capture_optimizer_info
 from mlidea.instrumentation._dag_node import DagNode, BasicCodeLocation, DagNodeDetails, OptimizerInfo
 from mlidea.instrumentation._operator_types import OperatorContext, FunctionInfo, OperatorType
 from mlidea.monkeypatching._monkey_patching_utils import add_dag_node, \

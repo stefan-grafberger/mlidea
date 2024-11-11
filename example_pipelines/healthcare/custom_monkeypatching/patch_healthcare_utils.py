@@ -8,7 +8,7 @@ import gorilla
 from example_pipelines.healthcare import healthcare_utils
 from example_pipelines.healthcare import _gensim_wrapper
 from mlidea.instrumentation._operator_call_info import OperatorCallInfo
-from mlidea.execution._stat_tracking import capture_optimizer_info
+from mlidea.execution._func_executor import capture_optimizer_info
 from mlidea.instrumentation._operator_types import OperatorContext, FunctionInfo, OperatorType
 from mlidea.instrumentation._dag_node import DagNode, BasicCodeLocation, DagNodeDetails
 from mlidea.execution._pipeline_executor import singleton

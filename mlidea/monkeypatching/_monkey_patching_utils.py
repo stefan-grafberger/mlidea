@@ -14,7 +14,7 @@ from scipy.sparse import csr_matrix
 from mlidea.instrumentation._operator_call_info import OperatorCallInfo
 from mlidea.execution import _pipeline_executor
 from mlidea.execution._pipeline_executor import singleton
-from mlidea.execution._stat_tracking import get_df_shape, get_df_memory, capture_optimizer_info
+from mlidea.execution._func_executor import get_df_shape, get_df_memory, capture_optimizer_info
 from mlidea.instrumentation._dag_node import DagNode, CodeReference, BasicCodeLocation, DagNodeDetails, \
     OptionalCodeInfo, OptimizerInfo
 from mlidea.instrumentation._operator_types import OperatorContext, OperatorType
