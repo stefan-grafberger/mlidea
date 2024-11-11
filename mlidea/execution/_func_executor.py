@@ -14,7 +14,7 @@ from fairlearn.metrics import MetricFrame
 from scikeras import wrappers
 from scipy.sparse import csr_matrix
 
-from mlidea.execution._func_executor_ivm import execute_with_partial_reuse
+from mlidea.ivm._func_executor_ivm import execute_with_partial_reuse
 from mlidea.instrumentation._dag_node import OptimizerInfo, DagNode
 from mlidea.instrumentation._operator_call_info import OperatorOutputChange, OutputChangeType
 from mlidea.instrumentation._operator_types import OperatorType, ConditionalResult

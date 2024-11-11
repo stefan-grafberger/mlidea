@@ -2,7 +2,7 @@
 Functionality to capture optimisation-relevant stats for instrumented operators
 """
 
-from mlidea.execution._func_executor_change_detection import determine_parents_compared_to_previous_dag
+from mlidea.ivm._func_executor_change_detection import determine_parents_compared_to_previous_dag
 from mlidea.instrumentation._dag_node import OperatorContext
 from mlidea.instrumentation._operator_call_info import OperatorCallInfo, OperatorOutputChange, OutputChangeType
 from mlidea.instrumentation._operator_types import OperatorType, ConditionalResult
