@@ -78,8 +78,8 @@ class SklearnMyW2VTransformerPatching:
         operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info, self.mlinspect_non_data_func_args)
         operator_call_info = OperatorCallInfo(operator_context, [input_info.dag_node])
         orig_func_prov = wrap_projection_func(lambda df: original(self, df, *args[1:], **kwargs))
-        initial_func = partial(orig_func_prov, input_info.annotated_dfobject.result_data)
-        optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, initial_func,
+        optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov,
+                                                        [input_info.annotated_dfobject.result_data], {},
                                                         estimator_transformer_state=self)
         dag_node_id = singleton.get_next_op_id(operator_call_info)
         self.mlinspect_transformer_node_id = dag_node_id
@@ -118,8 +118,8 @@ class SklearnMyW2VTransformerPatching:
             operator_call_info = OperatorCallInfo(operator_context, [transformer_dag_node, input_info.dag_node])
 
             orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
-            initial_func = partial(orig_func_prov, self, input_info.annotated_dfobject.result_data)
-            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, initial_func)
+            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov,
+                                                            [self, input_info.annotated_dfobject.result_data], {})
             dag_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                BasicCodeLocation(self.mlinspect_caller_filename, self.mlinspect_lineno),
                                operator_context,

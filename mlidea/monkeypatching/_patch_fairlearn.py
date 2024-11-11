@@ -64,8 +64,7 @@ class MetricFramePatching:
                                                          except_kws=["y_true", "y_pred", "sensitive_features"])
             operator_context = OperatorContext(OperatorType.SCORE, function_info, non_data_kwargs)
             operator_call_info = OperatorCallInfo(operator_context, [input_info_pred.dag_node, test_labels_node, input_info_sensitive_cols.dag_node])
-            initial_func = partial(original, self, *args, **kwargs)
-            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, initial_func, self)
+            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, original, [self, *args], kwargs, self)
 
             def process_metric_frame(bound_metric, y_true, y_pred, sensitive_features):
                 if isinstance(y_true, pandas.Series):
@@ -125,10 +124,9 @@ class MetricsPatching:
 
             non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs, except_kws=['sensitive_features'])
             operator_context = OperatorContext(OperatorType.SCORE, function_info, non_data_kwargs)
-            initial_func = partial(original, y_true, y_pred, *args, **kwargs)
             operator_call_info = OperatorCallInfo(operator_context, [input_info_pred.dag_node, test_labels_node, input_info_sensitive_cols.dag_node])
             call_info_singleton.score_active = True
-            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, initial_func)
+            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, original, [y_true, y_pred, *args], kwargs)
             call_info_singleton.score_active = False
 
             def process_metric_frame(y_true, y_pred, sensitive_features):

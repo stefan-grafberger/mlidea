@@ -310,8 +310,7 @@ def add_train_label_node(estimator, train_label_arg, function_info):
                                           [input_info_train_labels.dag_node])
     train_label_op_id = _pipeline_executor.singleton.get_next_op_id(operator_call_info)
     process_func = lambda df_object: df_object
-    initial_func = partial(process_func, train_label_arg)
-    _, result = capture_optimizer_info(singleton, operator_call_info, initial_func)
+    _, result = capture_optimizer_info(singleton, operator_call_info, process_func, [train_label_arg], {})
     train_labels_dag_node = DagNode(train_label_op_id,
                                     BasicCodeLocation(estimator.mlinspect_caller_filename, estimator.mlinspect_lineno),
                                     operator_context,
@@ -339,8 +338,7 @@ def add_train_data_node(estimator, train_data_arg, function_info):
     train_data_op_id = _pipeline_executor.singleton.get_next_op_id(operator_call_info)
     process_func = lambda df_object: df_object
 
-    initial_func = partial(process_func, train_data_arg)
-    _, result = capture_optimizer_info(singleton, operator_call_info, initial_func)
+    _, result = capture_optimizer_info(singleton, operator_call_info, process_func, [train_data_arg], {})
     train_data_dag_node = DagNode(train_data_op_id,
                                   BasicCodeLocation(estimator.mlinspect_caller_filename, estimator.mlinspect_lineno),
                                   operator_context,
@@ -366,8 +364,7 @@ def add_test_data_dag_node(test_data_arg, function_info, lineno, optional_code_r
                                           [input_info_test_data.dag_node])
     test_data_op_id = _pipeline_executor.singleton.get_next_op_id(operator_call_info)
     process_func = lambda df_object: df_object
-    initial_func = partial(process_func, test_data_arg)
-    _, result = capture_optimizer_info(singleton, operator_call_info, initial_func)
+    _, result = capture_optimizer_info(singleton, operator_call_info, process_func, [test_data_arg], {})
     test_data_dag_node = DagNode(test_data_op_id,
                                  BasicCodeLocation(caller_filename, lineno),
                                  operator_context,
@@ -393,8 +390,7 @@ def add_test_label_node(test_label_arg, caller_filename, function_info, lineno, 
     columns = input_info_test_labels.dag_node.details.columns
     test_label_op_id = _pipeline_executor.singleton.get_next_op_id(operator_call_info)
     process_func = lambda df_object: df_object
-    initial_func = partial(process_func, test_label_arg)
-    _, result = capture_optimizer_info(singleton, operator_call_info, initial_func)
+    _, result = capture_optimizer_info(singleton, operator_call_info, process_func, [test_label_arg], {})
     test_labels_dag_node = DagNode(test_label_op_id,
                                    BasicCodeLocation(caller_filename, lineno),
                                    operator_context,

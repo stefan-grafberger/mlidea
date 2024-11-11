@@ -53,22 +53,20 @@ class DagExecutor:
                         inputs = inputs[:-1]
             # This is necessary because these two node types extract results
             if stop_signal_received is False:
-                executable_processing_func = partial(current_node.processing_func, *inputs)
                 extract_or_conditional = current_node.operator_info.operator in {
                     OperatorType.EXTRACT_RESULT, OperatorType.CONDITIONAL_STOP}
                 optimizer_info, result_df = capture_optimizer_info(self.pipeline_executor, operator_call_info,
-                                                                   executable_processing_func,
+                                                                   current_node.processing_func, inputs, {},
                                                                    extract_or_conditional=extract_or_conditional,
                                                                    current_dag_node=current_node)
             elif current_node.operator_info.operator == OperatorType.EXTRACT_RESULT:
                 # TODO: Clean this up a bit
-                executable_processing_func = partial(current_node.processing_func, ConditionalResult.STOP_EXECUTION)
                 optimizer_info, result_df = capture_optimizer_info(self.pipeline_executor, operator_call_info,
-                                                      executable_processing_func,
+                                                      current_node.processing_func, [ConditionalResult.STOP_EXECUTION], {},
                                                       extract_or_conditional=True,
                                                       current_dag_node=current_node)
             else:
-                optimizer_info, result_df = capture_optimizer_info(self.pipeline_executor, operator_call_info, None,
+                optimizer_info, result_df = capture_optimizer_info(self.pipeline_executor, operator_call_info, None, [], {},
                                               stop_signal_received=True, current_dag_node=current_node)
             self.pipeline_executor.operators_to_runtime_during_analysis[copy(current_node)] = optimizer_info
 

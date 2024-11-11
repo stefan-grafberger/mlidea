@@ -22,6 +22,8 @@ from mlidea.monkeypatching._mlinspect_ndarray import MlideaChromaVectorStoreRetr
 
 
 def capture_optimizer_info(singleton, operator_call_info, instrumented_function_call: partial or None,
+                           instrumented_function_call_args: list[any] or None,
+                           instrumented_function_call_kwargs: dict[str, any] or None,
                            obj_for_inplace_ops: any or None = None,
                            estimator_transformer_state: any or None = None,
                            keras_batch_size: int or None = None,
@@ -30,6 +32,15 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
                            current_dag_node: DagNode or None=None) \
         -> tuple[OptimizerInfo, any]:
     """Function to measure the runtime of instrumented user function calls and get output metadata"""
+    if instrumented_function_call_args is None:
+        instrumented_function_call_args = []
+    if instrumented_function_call_kwargs is None:
+        instrumented_function_call_kwargs = {}
+    if instrumented_function_call is not None:
+        original_func_call_with_args = partial(instrumented_function_call, *instrumented_function_call_args,
+                                               **instrumented_function_call_kwargs)
+    else:
+        original_func_call_with_args = None
     execution_start = time.time()
     not_a_constructor = (obj_for_inplace_ops is None or estimator_transformer_state is not None
                          or operator_call_info.operator == OperatorType.PROJECTION_MODIFY)
@@ -46,7 +57,7 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
             and singleton.enable_cache_reuse is True and extract_or_conditional is True):
         # We have to re-execute conditionals
         dag_node = singleton.reuse_info.operator_call_info_to_dag_node[operator_call_info]
-        result = instrumented_function_call()
+        result = original_func_call_with_args()
         if estimator_transformer_state is not None:
             result._mlinspect_annotation = estimator_transformer_state
         if dag_node not in singleton.reuse_info.new_node_to_old_node:
@@ -55,7 +66,7 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
     # Constructors cannot be reused currently
     elif (not_a_constructor is False and operator_call_info in singleton.reuse_info.operator_call_info_to_dag_node
             and singleton.enable_cache_reuse is True):
-        result = instrumented_function_call()
+        result = original_func_call_with_args()
         if estimator_transformer_state is not None:
             result._mlinspect_annotation = estimator_transformer_state
         # TODO: The node does not actually get reused yet. However, this is tricky with constructors
@@ -66,11 +77,11 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
     #  pandas groupby operation that gets executed before agg is called after. We also cannot reuse intermediates
     #  for that operation currently.
     elif singleton.enable_cache_reuse is True and singleton.old_dag is not None and operator_call_info is not None:
-        result = execute_with_partial_reuse(current_dag_node, estimator_transformer_state, instrumented_function_call,
+        result = execute_with_partial_reuse(current_dag_node, estimator_transformer_state, original_func_call_with_args,
                                             operator_call_info, singleton, stop_signal_received)
 
     elif stop_signal_received is False: # Actually execute it
-        result = instrumented_function_call()
+        result = original_func_call_with_args()
         if estimator_transformer_state is not None:
             result._mlinspect_annotation = estimator_transformer_state
         # if singleton.enable_cache_reuse:
