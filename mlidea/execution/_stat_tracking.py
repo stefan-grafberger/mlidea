@@ -12,6 +12,7 @@ import numpy
 import pandas
 import sklearn
 from fairlearn.metrics import MetricFrame
+from networkx.algorithms.simple_paths import all_simple_paths
 from scikeras import wrappers
 from scipy.sparse import csr_matrix
 
@@ -110,8 +111,9 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
                                                                                singleton.reuse_info.operator_call_info_to_dag_node,
                                                                                singleton.reuse_info.new_node_to_old_node)
                 is_addition, node_being_added_to = determine_is_addition(new_dag, new_dag_parent_node,
-                                                                         operator_call_info,
-                                                                         singleton.reuse_info.operator_call_info_to_dag_node)
+                                                                         operator_call_info, parent_index,
+                                                                         singleton.reuse_info.operator_call_info_to_dag_node,
+                                                                         singleton.reuse_info.new_node_to_old_node)
                 is_deletion, deleted_node_child = determine_is_deletion(new_dag, new_dag_parent_node, old_dag)
 
                 change_diff = OperatorOutputChange(
@@ -237,7 +239,8 @@ def determine_is_deletion(new_dag, new_dag_parent_node, old_dag):
     return is_deletion, deleted_node_child
 
 
-def determine_is_addition(new_dag, new_dag_parent_node, operator_call_info, operator_call_info_to_dag_node):
+def determine_is_addition(new_dag, new_dag_parent_node, operator_call_info, parent_index,
+                          operator_call_info_to_dag_node, new_node_to_old_node):
     # I can check if a operator call info constructed based on the current node and the previous node
     # parents exists in the old dag
     # FIXME: Think about using replacement map here
@@ -252,6 +255,42 @@ def determine_is_addition(new_dag, new_dag_parent_node, operator_call_info, oper
         is_addition = test_addition_operator_call_info in operator_call_info_to_dag_node
         node_being_added_to = parent_parents[0]
         result = is_addition, node_being_added_to
+    elif (len(parent_parents) == 2 and new_dag_parent_node.operator_info.operator in
+        {OperatorType.PROJECTION_MODIFY, OperatorType.SELECTION}):
+        is_addition = False
+
+        before_addition_parent_candidate = networkx.lowest_common_ancestor(new_dag, parent_parents[0],
+                                                                           parent_parents[1])
+        before_addition_parent = None
+        if before_addition_parent_candidate is not None:
+            simple_paths = list(networkx.all_simple_paths(new_dag, before_addition_parent_candidate, new_dag_parent_node))
+            nodes_in_paths = set(node for path in simple_paths for node in path)
+            nodes_in_paths.discard(before_addition_parent_candidate)
+            nodes_in_paths.discard(new_dag_parent_node)
+            if len([node for node in nodes_in_paths if node.operator_info.operator not in {OperatorType.SUBSCRIPT,
+                                                                                       OperatorType.PROJECTION,
+                                                                                       OperatorType.PROJECTION_MODIFY}]) == 0:
+                before_addition_parent = before_addition_parent_candidate
+
+        if before_addition_parent is not None:
+            old_parent_node_ids = []
+            for arg_index, parent_node_id in enumerate(list(operator_call_info.parent_node_ids)):
+                parent_node = [node for node in new_dag.nodes if node.node_id == parent_node_id][0]
+                if arg_index == parent_index:
+                    old_parent_node_ids.append(before_addition_parent.node_id)
+                elif parent_node in new_node_to_old_node:
+                    old_parent_node_ids.append(new_node_to_old_node[parent_node][0].node_id)
+                else:
+                    old_parent_node_ids.append(parent_node_id)
+
+            test_addition_operator_call_info = OperatorCallInfo(
+                OperatorContext(operator_call_info.operator,
+                                operator_call_info.function_info,
+                                operator_call_info.non_data_kwargs),
+                old_parent_node_ids
+            )
+            is_addition = test_addition_operator_call_info in operator_call_info_to_dag_node
+        result = is_addition, before_addition_parent
     else:
         result = False, None  # Fast updates for addition of operations like joins is not supported currently
     return result
