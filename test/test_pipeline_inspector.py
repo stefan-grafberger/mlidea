@@ -7,6 +7,7 @@ from inspect import cleandoc
 import networkx
 from testfixtures import compare
 
+from example_pipelines._pipelines import HEALTHCARE_DELETED_PY
 from example_pipelines.healthcare import custom_monkeypatching
 from example_pipelines import ADULT_SIMPLE_PY, ADULT_SIMPLE_IPYNB, HEALTHCARE_PY, ADULT_COMPLEX_PY, \
     ADULT_COMPLEX_MODIFIED_PY, ANHEDONIA_LLM_PY, ANHEDONIA_LLM_MODIFIED_PY, ANHEDONIA_ML_MODIFIED_PY, ANHEDONIA_ML_PY, \
@@ -342,6 +343,54 @@ def test_changed_pipeline_code_shadow_pipelines_healthcare(tmpdir):
     # 1 Replacement for robust scaler transform in slices
     assert len(reuse_info.operator_reexecuted) == 5
     assert len(reuse_info.operator_replacement) == 5
+
+
+def test_deleted_op_pipeline_code_shadow_pipelines_healthcare(tmpdir):
+    """
+    Tests whether the Data Cleaning analysis works for a very simple pipeline with a DecisionTree score
+    """
+    label_errors = LabelErrors(proxy_model=True)
+    data_errors = DataErrorRobustness(corruption_significant_relative_threshold=1.0)
+    slices = FairnessSlices(database_path=DATABASE_PATH_FUNC_TRANSFORMER)
+    shadow_pipelines = [label_errors, data_errors, slices]
+
+    analysis_result = PipelineAnalyzer \
+        .on_pipeline_from_py_file(HEALTHCARE_PY) \
+        .add_custom_monkey_patching_modules([custom_monkeypatching]) \
+        .add_shadow_pipelines(shadow_pipelines) \
+        .execute()
+
+    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-old"))
+    analysis_result.save_shadow_pipeline_dags_to_path(os.path.join(str(tmpdir), "shadow-old"))
+
+    report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
+    report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
+    report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
+    assert "the pipeline metric was" in report_label_errors
+    assert "the pipeline metric was" in report_data_errors
+    assert "The original result" in report_fairness_slices
+
+    analysis_result = PipelineAnalyzer \
+        .on_changed_pipeline_from_py_file(analysis_result.dag_extraction_info, HEALTHCARE_DELETED_PY) \
+        .add_custom_monkey_patching_modules([custom_monkeypatching]) \
+        .add_shadow_pipelines(shadow_pipelines) \
+        .execute()
+    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-new"))
+    analysis_result.save_shadow_pipeline_dags_to_path(os.path.join(str(tmpdir), "shadow-new"))
+
+    report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
+    report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
+    report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
+    assert "the pipeline metric was" in report_label_errors
+    assert "the pipeline metric was" in report_data_errors
+    assert "The original result" in report_fairness_slices
+
+    reuse_info = analysis_result.dag_extraction_info.reuse_info
+    # 2 Replacements in the original DAG for robust scaler fit_transform and transform
+    # 2 Replacements for robust scaler transform in data-errors
+    # 1 Replacement for robust scaler transform in slices
+    assert len(reuse_info.operator_reexecuted) == 1
+    assert len(reuse_info.operator_deletion) == 1
 
 
 def test_changed_pipeline_code_what_if(tmpdir):

@@ -21,6 +21,8 @@ HEALTHCARE_PY = os.path.join(str(get_project_root()), "example_pipelines", "heal
 HEALTHCARE_PNG = os.path.join(str(get_project_root()), "example_pipelines", "healthcare", "healthcare.png")
 HEALTHCARE_MODIFIED_PY = os.path.join(str(get_project_root()), "example_pipelines", "healthcare",
                                       "healthcare_modified.py")
+HEALTHCARE_DELETED_PY = os.path.join(str(get_project_root()), "example_pipelines", "healthcare",
+                                      "healthcare_deleted_op.py")
 
 ANHEDONIA_ML_PY = os.path.join(str(get_project_root()), "example_pipelines", "anhedonia_ml", "anhedonia_ml.py")
 ANHEDONIA_ML_PNG = os.path.join(str(get_project_root()), "example_pipelines", "anhedonia_ml", "anhedonia_ml.png")

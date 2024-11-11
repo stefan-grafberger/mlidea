@@ -6,6 +6,7 @@ import time
 from functools import partial
 
 import keras
+import networkx
 from dill import dumps
 import numpy
 import pandas
@@ -111,7 +112,7 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
                 is_addition, node_being_added_to = determine_is_addition(new_dag, new_dag_parent_node,
                                                                          operator_call_info,
                                                                          singleton.reuse_info.operator_call_info_to_dag_node)
-                is_deletion, deleted_node = determine_is_deletion(new_dag, new_dag_parent_node, old_dag)
+                is_deletion, deleted_node_child = determine_is_deletion(new_dag, new_dag_parent_node, old_dag)
 
                 change_diff = OperatorOutputChange(
                     OutputChangeType.TOO_MUCH_CHANGED)  # FIXME: We also need to compute the actual changes!
@@ -123,7 +124,7 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
                     singleton.reuse_info.new_node_to_old_node[new_dag_parent_node] = node_being_added_to, change_diff
                 elif is_deletion:
                     singleton.reuse_info.operator_deletion.add(new_dag_parent_node)
-                    singleton.reuse_info.new_node_to_old_node[new_dag_parent_node] = deleted_node, change_diff
+                    singleton.reuse_info.new_node_to_old_node[new_dag_parent_node] = deleted_node_child, change_diff
                 else:
                     singleton.reuse_info.operator_too_many_changes.add(new_dag_parent_node)
                     singleton.reuse_info.new_node_to_old_node[
@@ -204,20 +205,36 @@ def determine_is_deletion(new_dag, new_dag_parent_node, old_dag):
     # We can check the old DAG: if new_dag_parent_node is in the old DAG, but has a parent that does
     #  not exist in the new DAG, but if the parent parent exists in the new DAG
     is_deletion = False
-    deleted_node = None
+    deleted_node_child = None
     # FIXME: Think about using replacement map here
     # Step 1: Confirm the node exists in both DAGs
-    if new_dag_parent_node in old_dag:
+    # candidates for current node, ignoring the node id
+    candidates = [node for node in old_dag.nodes if (node.operator_info == new_dag_parent_node.operator_info and
+                                                     node.details == new_dag_parent_node.details)]
+
+    for candidate in candidates:
         # Step 2: Check each parent in the old DAG
-        for parent in old_dag.predecessors(new_dag_parent_node):
+        for parent in old_dag.predecessors(candidate):
             # If the parent is missing in the new DAG
             if parent not in new_dag:
                 # Check if the grandparent exists in the new DAG
                 for grandparent in old_dag.predecessors(parent):
-                    if grandparent in new_dag:
-                        is_deletion = True  # Found a deleted node's child with an existing grandparent
-                        deleted_node = parent
-    return is_deletion, deleted_node
+                    if grandparent in new_dag and grandparent.operator_info.operator != OperatorType.SUBSCRIPT:
+                        # However, maybe we want to make sure to look at all nodes in-between
+                        simple_paths = list(networkx.all_simple_paths(old_dag, grandparent, candidate))
+                        if len(simple_paths) != 0:
+                            nodes_in_paths = set(node for path in simple_paths for node in path)
+                            nodes_in_paths.remove(grandparent)
+                            nodes_in_paths.remove(parent)
+                            nodes_in_paths.remove(candidate)
+                            if len([node for node in nodes_in_paths if
+                                    node.operator_info.operator not in {OperatorType.SUBSCRIPT,
+                                                                        OperatorType.PROJECTION}]) == 0:
+                                is_deletion = True  # Found a deleted node's child with an existing grandparent
+                                # deleted_node = parent
+                                # deleted_node_parent = grandparent
+                                deleted_node_child = candidate
+    return is_deletion, deleted_node_child
 
 
 def determine_is_addition(new_dag, new_dag_parent_node, operator_call_info, operator_call_info_to_dag_node):

@@ -139,15 +139,19 @@ class SklearnModelSelectionPatching:
             train_operator_context = OperatorContext(OperatorType.TRAIN_TEST_SPLIT, function_info,
                                                      train_non_data_kwargs)
             operator_call_info_train = OperatorCallInfo(train_operator_context, [main_dag_node])
+            # TODO: Could also use train_test_split_train here
+            prov_func_w_wrapping = wrap_projection_func(lambda df: df)
+            initial_func_train = partial(prov_func_w_wrapping, result.train)
+            optimizer_info_train, result_train = capture_optimizer_info(singleton, operator_call_info_train,
+                                                                        initial_func_train)
             dag_node = DagNode(singleton.get_next_op_id(operator_call_info_train),
                                BasicCodeLocation(caller_filename, lineno),
                                train_operator_context,
-                               DagNodeDetails(description, columns, OptimizerInfo(0, get_df_shape(
-                                   result.train), get_df_memory(result.train))),
+                               DagNodeDetails(description, columns, optimizer_info_train),
                                get_optional_code_info_or_none(optional_code_reference, optional_source_code),
                                train_test_split_train)
 
-            train_function_call_result = FunctionCallResult(result.train)
+            train_function_call_result = FunctionCallResult(result_train)
             add_dag_node(dag_node, [main_dag_node], train_function_call_result)
             new_train_result = train_function_call_result.function_result
 
@@ -157,16 +161,17 @@ class SklearnModelSelectionPatching:
             test_operator_context = OperatorContext(OperatorType.TRAIN_TEST_SPLIT, function_info,
                                                     test_non_data_kwargs)
             operator_call_info_test = OperatorCallInfo(test_operator_context, [main_dag_node])
+            initial_func_test = partial(prov_func_w_wrapping, result.test)
+            optimizer_info_test, result_test = capture_optimizer_info(singleton, operator_call_info_test,
+                                                                      initial_func_test)
             dag_node = DagNode(singleton.get_next_op_id(operator_call_info_test),
                                BasicCodeLocation(caller_filename, lineno),
                                test_operator_context,
-                               DagNodeDetails(description, columns, OptimizerInfo(
-                                   0, get_df_shape(result.test),
-                                   get_df_memory(result.test))),
+                               DagNodeDetails(description, columns, optimizer_info_test),
                                get_optional_code_info_or_none(optional_code_reference, optional_source_code),
                                train_test_split_test)
 
-            test_function_call_result = FunctionCallResult(result.test)
+            test_function_call_result = FunctionCallResult(result_test)
             add_dag_node(dag_node, [main_dag_node], test_function_call_result)
             new_test_result = test_function_call_result.function_result
 
@@ -347,7 +352,7 @@ class SklearnComposePatching:
         input_infos = [get_input_info(input_df_obj, self.mlinspect_filename, self.mlinspect_lineno, function_info,
                                         self.mlinspect_optional_code_reference, self.mlinspect_optional_source_code)
                        for input_df_obj in args[0]]
-        non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs, except_indices=[0])
+        non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs, except_indices=[0], except_kws=['n_samples'])
         operator_context = OperatorContext(OperatorType.CONCATENATION, function_info, non_data_kwargs)
         operator_call_info = OperatorCallInfo(operator_context, input_infos)
         # input_annotated_dfs = [input_info.annotated_dfobject for input_info in input_infos]
