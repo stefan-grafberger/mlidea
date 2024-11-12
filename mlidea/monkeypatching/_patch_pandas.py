@@ -17,7 +17,7 @@ from mlidea.instrumentation._dag_node import OptimizerInfo
 from mlidea.instrumentation._operator_types import OperatorContext, FunctionInfo
 from mlidea.execution._pipeline_executor import singleton
 from mlidea.monkeypatching._monkey_patching_utils import get_input_info, add_dag_node, \
-    get_dag_node_for_id, execute_patched_func_no_op_id, get_optional_code_info_or_none, FunctionCallResult, \
+    execute_patched_func_no_op_id, get_optional_code_info_or_none, FunctionCallResult, \
     execute_patched_internal_func_with_depth, get_dag_node_copy_with_optimizer_info, get_simple_non_data_kwargs, \
     InputInfo
 from mlidea.monkeypatching._patch_sklearn import call_info_singleton
@@ -627,7 +627,7 @@ class DataFrameGroupByPatching:
             function_info = FunctionInfo('pandas.core.groupby.generic', 'agg')
             if not hasattr(self, '_mlinspect_dag_node'):
                 raise NotImplementedError("TODO: Support agg if groupby happened in external code")
-            input_dag_node = get_dag_node_for_id(self._mlinspect_dag_node)  # pylint: disable=no-member
+            input_dag_node = singleton.get_dag_node_for_id(self._mlinspect_dag_node)  # pylint: disable=no-member
 
             groupby_func = self._mlinspect_groupby_func  # pylint: disable=no-member
             groupby_optimizer_info = self._mlinspect_groupby_optimizer_info  # pylint: disable=no-member

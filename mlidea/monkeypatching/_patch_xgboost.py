@@ -14,7 +14,7 @@ from mlidea.instrumentation._dag_node import DagNode, BasicCodeLocation, DagNode
 from mlidea.instrumentation._operator_types import OperatorContext, FunctionInfo, OperatorType
 from mlidea.monkeypatching._monkey_patching_utils import add_dag_node, \
     execute_patched_func_indirect_allowed, execute_patched_func_no_op_id, \
-    get_optional_code_info_or_none, get_dag_node_for_id, add_train_data_node, \
+    get_optional_code_info_or_none, add_train_data_node, \
     add_train_label_node, add_test_label_node, add_test_data_dag_node, FunctionCallResult, get_simple_non_data_kwargs
 from mlidea.monkeypatching._patch_sklearn import call_info_singleton
 from mlidea.monkeypatching._provenance_propagation import wrap_predict_func
@@ -159,7 +159,7 @@ class XGBoostXGBClassifierPatching:
 
             original_predict = wrap_predict_func(gorilla.get_original_attribute(xgboost.XGBClassifier, 'predict'))
             operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, {})
-            estimator_dag_node = get_dag_node_for_id(self.mlinspect_estimator_node_id)
+            estimator_dag_node = singleton.get_dag_node_for_id(self.mlinspect_estimator_node_id)
             operator_call_info_predict = OperatorCallInfo(operator_context_predict, [estimator_dag_node, test_data_node])
             optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict,
                                                                             original_predict, [self, test_data_result])
@@ -221,7 +221,7 @@ class XGBoostXGBClassifierPatching:
 
             original_predict = wrap_predict_func(gorilla.get_original_attribute(xgboost.XGBClassifier, 'predict'))
             operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, {})
-            estimator_dag_node = get_dag_node_for_id(self.mlinspect_estimator_node_id)
+            estimator_dag_node = singleton.get_dag_node_for_id(self.mlinspect_estimator_node_id)
             operator_call_info_predict = OperatorCallInfo(operator_context_predict,
                                                         [estimator_dag_node, test_data_node])
             optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict,

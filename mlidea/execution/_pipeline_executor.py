@@ -53,7 +53,6 @@ class PipelineExecutor:
     next_patch_id = 0
     next_missing_op_id = -1
     track_code_references = True
-    op_id_to_dag_node = {}
     analyses = []
     shadow_pipelines = []
     custom_monkey_patching = []
@@ -63,7 +62,7 @@ class PipelineExecutor:
     analysis_results = AnalysisResults({}, {}, networkx.DiGraph(), [], {}, networkx.DiGraph(),
                                        RuntimeInfo(0, 0, 0, 0, None, None, 0, 0, 0, 0, 0, 0, 0),
                                        DagExtractionInfo(networkx.DiGraph(), [], {}, 0, 0,
-                                                         ReuseInfo({}, {}, set(), set(), set(), set(), set(), set(),
+                                                         ReuseInfo({}, {}, {}, set(), set(), set(), set(), set(), set(),
                                                                    {}, {}, set())), None)
     monkey_patch_duration = 0
     skip_optimizer = False
@@ -80,7 +79,7 @@ class PipelineExecutor:
     global_old_dag = None
     global_new_dag = networkx.DiGraph()
     # Put this into a new data class
-    reuse_info = ReuseInfo({}, {}, set(), set(), set(), set(), set(), set(), {}, {}, set())
+    reuse_info = ReuseInfo({}, {}, {}, set(), set(), set(), set(), set(), set(), {}, {}, set())
 
     def run(self, *,
             notebook_path: str or None = None,
@@ -135,6 +134,7 @@ class PipelineExecutor:
             self.next_missing_op_id = extraction_info.next_missing_op_id
             self.reuse_info.cached_intermediates = extraction_info.reuse_info.cached_intermediates
             self.reuse_info.operator_call_info_to_dag_node = extraction_info.reuse_info.operator_call_info_to_dag_node.copy()
+            self.reuse_info.op_id_to_dag_node = extraction_info.reuse_info.op_id_to_dag_node.copy()
             self.old_dag = extraction_info.original_dag.copy()
             self.old_shadow_pipelines = copy.deepcopy(extraction_info.shadow_pipelines)
             self.global_old_dag = networkx.compose_all([self.old_dag, *(self.old_shadow_pipelines or [])])
@@ -321,6 +321,12 @@ class PipelineExecutor:
         self.next_missing_op_id -= 1
         return current_missing_op_id
 
+    def get_dag_node_for_id(self, dag_node_id: int):
+        """
+        Get a DAG node by id
+        """
+        return self.reuse_info.op_id_to_dag_node[dag_node_id]
+
     def reset(self):
         """
         Reset all attributes in the singleton object. This can be used when there are multiple repeated calls to mlidea
@@ -336,11 +342,10 @@ class PipelineExecutor:
         self.next_patch_id = 0
         self.next_missing_op_id = -1
         self.track_code_references = True
-        self.op_id_to_dag_node = {}
         self.analysis_results = AnalysisResults({}, {}, networkx.DiGraph(), [], {}, networkx.DiGraph(),
                                                 RuntimeInfo(0, 0, 0, 0, None, None, 0, 0, 0, 0, 0, 0, 0),
                                                 DagExtractionInfo(networkx.DiGraph(), [], {}, 0, 0,
-                                                                  ReuseInfo({}, {}, set(), set(), set(), set(), set(),
+                                                                  ReuseInfo({}, {}, {}, set(), set(), set(), set(), set(),
                                                                             set(),{}, {}, set())), None)
         self.analyses = []
         self.shadow_pipelines = []
@@ -361,7 +366,7 @@ class PipelineExecutor:
         self.enable_cache_reuse = True
         self.global_old_dag = None
         self.global_new_dag = networkx.DiGraph()
-        self.reuse_info = ReuseInfo({}, {}, set(), set(), set(), set(), set(), set(), {}, {}, set())
+        self.reuse_info = ReuseInfo({}, {}, {}, set(), set(), set(), set(), set(), set(), {}, {}, set())
 
     @staticmethod
     def instrument_pipeline(parsed_ast, track_code_references):

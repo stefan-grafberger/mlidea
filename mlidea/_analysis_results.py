@@ -31,6 +31,7 @@ class RuntimeInfo:
 
 @dataclasses.dataclass
 class ReuseInfo:
+    op_id_to_dag_node: dict
     cached_intermediates: dict
     operator_call_info_to_dag_node: dict
     undetermined_new_nodes: set

@@ -151,7 +151,7 @@ def get_input_info(df_object, caller_filename, lineno, function_info, optional_c
     columns = get_column_names(df_object)
     if hasattr(df_object, "_mlinspect_dag_node"):
         input_op_id = df_object._mlinspect_dag_node
-        input_dag_node = singleton.op_id_to_dag_node[input_op_id]
+        input_dag_node = singleton.reuse_info.op_id_to_dag_node[input_op_id]
         input_info = InputInfo(input_dag_node, AnnotatedDfObject(df_object, None))  # TODO: Remove annotation stuff
     else:
         if optional_code_reference:
@@ -250,7 +250,7 @@ def add_dag_node(dag_node: DagNode, dag_node_parents: list[DagNode], function_ca
         singleton.analysis_results.original_dag.add_node(dag_node)
         # TODO: This duplication is not that clean
         singleton.global_new_dag.add_node(dag_node)
-    singleton.op_id_to_dag_node[dag_node.node_id] = dag_node
+    singleton.reuse_info.op_id_to_dag_node[dag_node.node_id] = dag_node
 
     if singleton.enable_caching is True:
         singleton.reuse_info.operator_call_info_to_dag_node[OperatorCallInfo(dag_node.operator_info, dag_node_parents)] = dag_node
@@ -272,13 +272,6 @@ def add_dag_node(dag_node: DagNode, dag_node_parents: list[DagNode], function_ca
     # if function_call_result.other is not None:
     # singleton.inspection_results.dag_node_to_inspection_results[dag_node] = backend_result.dag_node_annotation
     # TODO: Do we want to capture other meta information here? Or as part of the DAG node?
-
-
-def get_dag_node_for_id(dag_node_id: int):
-    """
-    Get a DAG node by id
-    """
-    return singleton.op_id_to_dag_node[dag_node_id]
 
 
 def get_optional_code_info_or_none(optional_code_reference: CodeReference or None,

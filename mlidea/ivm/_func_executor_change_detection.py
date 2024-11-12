@@ -17,7 +17,7 @@ def determine_parents_compared_to_previous_dag(operator_call_info, singleton):
         old_dag = singleton.global_old_dag
         new_dag = singleton.global_new_dag
 
-        new_dag_parent_node = [node for node in new_dag.nodes if node.node_id == parent_op_id][0]
+        new_dag_parent_node = singleton.get_dag_node_for_id(parent_op_id)
 
         # Create operator call info
         new_dag_parent_operator_call_info = dag_node_to_operator_call_info(
@@ -42,10 +42,9 @@ def process_transitive_change(new_dag_parent_node, new_dag_parent_operator_call_
     old_operator_call_info, change_type = singleton.reuse_info.unprocessed_call_info_transitive_change_only[
         new_dag_parent_operator_call_info]
     if (old_operator_call_info in singleton.reuse_info.operator_call_info_to_dag_node and
-            len([node for node in old_dag.nodes
-                 if node.node_id == singleton.get_next_op_id(old_operator_call_info)]) > 0):
+            singleton.reuse_info.operator_call_info_to_dag_node[old_operator_call_info] in old_dag):
         old_dag_node_id = singleton.get_next_op_id(old_operator_call_info)
-        dag_node_to_map_to = [node for node in old_dag.nodes if node.node_id == old_dag_node_id][0]
+        dag_node_to_map_to = singleton.get_dag_node_for_id(old_dag_node_id)
         singleton.reuse_info.operator_transitive.add(new_dag_parent_node)
     else:
         dag_node_to_map_to = new_dag_parent_node  # Mapping to old DAG failed
@@ -61,21 +60,17 @@ def determine_parent_change_type(new_dag, new_dag_parent_node, new_dag_parent_op
     singleton.reuse_info.operator_reexecuted.add(new_dag_parent_node)
 
     # Determine the type of change
-    is_replacement, node_being_replaced = determine_is_replacement(new_dag,
+    is_replacement, node_being_replaced = determine_is_replacement(singleton, new_dag,
                                                                    new_dag_parent_node, old_dag,
-                                                                   operator_call_info, parent_index,
-                                                                   singleton.reuse_info.operator_call_info_to_dag_node,
-                                                                   singleton.reuse_info.new_node_to_old_node)
+                                                                   operator_call_info, parent_index)
 
     if not is_replacement:
-        is_addition, node_being_added_to = determine_is_addition(new_dag, new_dag_parent_node,
-                                                                 operator_call_info, parent_index,
-                                                                 singleton.reuse_info.operator_call_info_to_dag_node,
-                                                                 singleton.reuse_info.new_node_to_old_node)
+        is_addition, node_being_added_to = determine_is_addition(singleton, new_dag, new_dag_parent_node,
+                                                                 operator_call_info, parent_index)
     else:
         is_addition, node_being_added_to = False, None
     if not is_replacement and not is_addition:
-        is_deletion, deleted_node_child = determine_is_deletion(new_dag, new_dag_parent_node, old_dag)
+        is_deletion, deleted_node_child = determine_is_deletion(singleton, new_dag, new_dag_parent_node, old_dag)
     else:
         is_deletion, deleted_node_child = False, None
 
@@ -101,7 +96,7 @@ def determine_parent_change_type(new_dag, new_dag_parent_node, new_dag_parent_op
             OutputChangeType.TOO_MUCH_CHANGED)
 
 
-def determine_is_deletion(new_dag, new_dag_parent_node, old_dag):
+def determine_is_deletion(singleton, new_dag, new_dag_parent_node, old_dag):
     # We can check the old DAG: if new_dag_parent_node is in the old DAG, but has a parent that does
     #  not exist in the new DAG, but if the parent parent exists in the new DAG
     is_deletion = False
@@ -111,6 +106,7 @@ def determine_is_deletion(new_dag, new_dag_parent_node, old_dag):
     # candidates for current node, ignoring the node id
     candidates = [node for node in old_dag.nodes if (node.operator_info == new_dag_parent_node.operator_info and
                                                      node.details == new_dag_parent_node.details)]
+    # FIXME: Is the performance of this okay?
 
     for candidate in candidates:
         # Step 2: Check each parent in the old DAG if the parent is missing in the new DAG
@@ -139,8 +135,7 @@ def determine_is_deletion(new_dag, new_dag_parent_node, old_dag):
     return is_deletion, deleted_node_child
 
 
-def determine_is_addition(new_dag, new_dag_parent_node, operator_call_info, parent_index,
-                          operator_call_info_to_dag_node, new_node_to_old_node):
+def determine_is_addition(singleton, new_dag, new_dag_parent_node, operator_call_info, parent_index):
     # I can check if a operator call info constructed based on the current node and the previous node
     # parents exists in the old dag
     parent_parents = get_sorted_parent_nodes(new_dag, new_dag_parent_node)
@@ -151,7 +146,7 @@ def determine_is_addition(new_dag, new_dag_parent_node, operator_call_info, pare
                             operator_call_info.non_data_kwargs),
             parent_parents
         )
-        is_addition = test_addition_operator_call_info in operator_call_info_to_dag_node
+        is_addition = test_addition_operator_call_info in singleton.reuse_info.operator_call_info_to_dag_node
         node_being_added_to = parent_parents[0]
         result = is_addition, node_being_added_to
     elif (len(parent_parents) == 2 and new_dag_parent_node.operator_info.operator in
@@ -174,11 +169,11 @@ def determine_is_addition(new_dag, new_dag_parent_node, operator_call_info, pare
         if before_addition_parent is not None:
             old_parent_node_ids = []
             for arg_index, parent_node_id in enumerate(list(operator_call_info.parent_node_ids)):
-                parent_node = [node for node in new_dag.nodes if node.node_id == parent_node_id][0]
+                parent_node = singleton.get_dag_node_for_id(parent_node_id)
                 if arg_index == parent_index:
                     old_parent_node_ids.append(before_addition_parent.node_id)
-                elif parent_node in new_node_to_old_node:
-                    old_parent_node_ids.append(new_node_to_old_node[parent_node][0].node_id)
+                elif parent_node in singleton.reuse_info.new_node_to_old_node:
+                    old_parent_node_ids.append(singleton.reuse_info.new_node_to_old_node[parent_node][0].node_id)
                 else:
                     old_parent_node_ids.append(parent_node_id)
 
@@ -188,15 +183,14 @@ def determine_is_addition(new_dag, new_dag_parent_node, operator_call_info, pare
                                 operator_call_info.non_data_kwargs),
                 old_parent_node_ids
             )
-            is_addition = test_addition_operator_call_info in operator_call_info_to_dag_node
+            is_addition = test_addition_operator_call_info in singleton.reuse_info.operator_call_info_to_dag_node
         result = is_addition, before_addition_parent
     else:
         result = False, None  # Fast updates for addition of operations like joins is not supported currently
     return result
 
 
-def determine_is_replacement(new_dag, new_dag_parent_node, old_dag, operator_call_info, parent_index,
-                             operator_call_info_to_dag_node, new_node_to_old_node):
+def determine_is_replacement(singleton, new_dag, new_dag_parent_node, old_dag, operator_call_info, parent_index):
     # to compute is_replacement, we check the parents to new_dag_parent_operator_call_info and operator
     #  type and look in the old DAG if we can find a similar operation there with the same child and
     #  the same parents
@@ -205,9 +199,9 @@ def determine_is_replacement(new_dag, new_dag_parent_node, old_dag, operator_cal
     is_replacement = False  # Default: No replacement found
     node_being_replaced = None  # Default: No replacement found
     new_node_type = new_dag_parent_node.operator_info.operator
-    new_parents = {new_node_to_old_node[node][0] if node in new_node_to_old_node else node
+    new_parents = {singleton.reuse_info.new_node_to_old_node[node][0] if node in singleton.reuse_info.new_node_to_old_node else node
                    for node in new_dag.predecessors(new_dag_parent_node)}
-    old_nodes_already_matched = {old_node for old_node, _ in new_node_to_old_node.values()}
+    old_nodes_already_matched = {old_node for old_node, _ in singleton.reuse_info.new_node_to_old_node.values()}
     # Search for a similar node in the old DAG
     for old_node in old_dag.nodes:
         # Check if operator type matches
@@ -219,18 +213,18 @@ def determine_is_replacement(new_dag, new_dag_parent_node, old_dag, operator_cal
 
             old_parent_node_ids = []
             for arg_index, parent_node_id in enumerate(list(operator_call_info.parent_node_ids)):
-                parent_node = [node for node in new_dag.nodes if node.node_id == parent_node_id][0]
+                parent_node = singleton.get_dag_node_for_id(parent_node_id)
                 if arg_index == parent_index:
                     old_parent_node_ids.append(old_node.node_id)
-                elif parent_node in new_node_to_old_node:
-                    old_parent_node_ids.append(new_node_to_old_node[parent_node][0].node_id)
+                elif parent_node in singleton.reuse_info.new_node_to_old_node:
+                    old_parent_node_ids.append(singleton.reuse_info.new_node_to_old_node[parent_node][0].node_id)
                 else:
                     old_parent_node_ids.append(parent_node_id)
             old_children_contains_current_node = OperatorCallInfo(
                 OperatorContext(operator_call_info.operator, operator_call_info.function_info,
                                 operator_call_info.non_data_kwargs),
                 old_parent_node_ids
-            ) in operator_call_info_to_dag_node
+            ) in singleton.reuse_info.operator_call_info_to_dag_node
             if new_parents == old_parents and old_children_contains_current_node:
                 is_replacement = True  # Found a 1-to-1 replacement in the old DAG
                 node_being_replaced = old_node
