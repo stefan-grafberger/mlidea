@@ -322,22 +322,10 @@ class DataFramePatching:
                 columns = list(self.columns)  # pylint: disable=no-member
                 selection_series_input_info = get_input_info(args[0], caller_filename, lineno, function_info,
                                                              optional_code_reference, optional_source_code)
-                # FIXME: Add test to make sure that this DAG node is included as a parent correctly
+
                 dag_parents.append(selection_series_input_info.dag_node)
                 operator_call_info = OperatorCallInfo(operator_context, [input_info, selection_series_input_info])
-                if optional_source_code:
-                    description_code = optional_source_code
-                    if '[' in description_code:
-                        description_code = description_code[description_code.find('[')+1:]
-                    if ']' in description_code:
-                        description_code = description_code[:description_code.rfind(']')]
-                    df_names = re.findall(r"([^\W0-9]\w*)\[.*\]", description_code)
-                    if len(df_names) is not None:
-                        for df_name in df_names:
-                            description_code = description_code.replace(df_name, "df")
-                    description = f"Select by Series: {description_code}"
-                else:
-                    description = "Select by Series"
+                description = DataFramePatching.get_getitem_selection_description(optional_source_code)
 
                 processing_func = wrap_filter_func(lambda df, filter_series: original(df, filter_series, *args[1:], **kwargs))
                 dag_node = DagNode(singleton.get_next_op_id(operator_call_info),
@@ -361,6 +349,23 @@ class DataFramePatching:
             return new_result
 
         return execute_patched_func_no_op_id(original, execute_inspections, self, *args, **kwargs)
+
+    @staticmethod
+    def get_getitem_selection_description(optional_source_code):
+        if optional_source_code:
+            description_code = optional_source_code
+            if '[' in description_code:
+                description_code = description_code[description_code.find('[') + 1:]
+            if ']' in description_code:
+                description_code = description_code[:description_code.rfind(']')]
+            df_names = re.findall(r"([^\W0-9]\w*)\[.*\]", description_code)
+            if len(df_names) is not None:
+                for df_name in df_names:
+                    description_code = description_code.replace(df_name, "df")
+            description = f"Select by Series: {description_code}"
+        else:
+            description = "Select by Series"
+        return description
 
     @gorilla.name('__setitem__')
     @gorilla.settings(allow_hit=True)
@@ -1029,23 +1034,8 @@ class SeriesPatching:
             input_info_self = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
                                              optional_source_code)
             dag_node_parents = [input_info_self.dag_node]
-            non_data_kwargs = {'cmp_op': cmp_op}
-            operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info, non_data_kwargs)
-            if cmp_op == operator.eq:  # pylint: disable=comparison-with-callable
-                description = "="
-            elif cmp_op == operator.ne:  # pylint: disable=comparison-with-callable
-                description = "!="
-            elif cmp_op == operator.gt:  # pylint: disable=comparison-with-callable
-                description = ">"
-            elif cmp_op == operator.ge:  # pylint: disable=comparison-with-callable
-                description = ">="
-            elif cmp_op == operator.lt:  # pylint: disable=comparison-with-callable
-                description = "<"
-            elif cmp_op == operator.le:  # pylint: disable=comparison-with-callable
-                description = "<="
-            else:
-                print(f"Operation {cmp_op} is not supported yet!")
-                assert False
+            operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info, {'cmp_op': cmp_op})
+            description = SeriesPatching.get_cmp_method_op_description(cmp_op)
             if not isinstance(other, pandas.Series):
                 if isinstance(other, str):
                     description += f" '{other}'"
@@ -1082,6 +1072,25 @@ class SeriesPatching:
             return new_result
 
         return execute_patched_internal_func_with_depth(original, execute_inspections, 4, self, other, cmp_op)
+
+    @staticmethod
+    def get_cmp_method_op_description(cmp_op):
+        if cmp_op == operator.eq:  # pylint: disable=comparison-with-callable
+            description = "="
+        elif cmp_op == operator.ne:  # pylint: disable=comparison-with-callable
+            description = "!="
+        elif cmp_op == operator.gt:  # pylint: disable=comparison-with-callable
+            description = ">"
+        elif cmp_op == operator.ge:  # pylint: disable=comparison-with-callable
+            description = ">="
+        elif cmp_op == operator.lt:  # pylint: disable=comparison-with-callable
+            description = "<"
+        elif cmp_op == operator.le:  # pylint: disable=comparison-with-callable
+            description = "<="
+        else:
+            print(f"Operation {cmp_op} is not supported yet!")
+            assert False
+        return description
 
     @gorilla.name('_logical_method')
     @gorilla.settings(allow_hit=True)
@@ -1175,21 +1184,8 @@ class SeriesPatching:
             input_info_self = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
                                              optional_source_code)
             dag_node_parents = [input_info_self.dag_node]
-            non_data_kwargs = {'arith_op': arith_op}
-            operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info, non_data_kwargs)
-            if arith_op == operator.add or arith_op.__name__ == "radd":  # pylint: disable=comparison-with-callable
-                description = "+"
-            elif arith_op == operator.sub or arith_op.__name__ == "rsub":  # pylint: disable=comparison-with-callable
-                description = "-"
-            elif arith_op == operator.mul or arith_op.__name__ == "rmul":  # pylint: disable=comparison-with-callable
-                description = "*"
-            elif arith_op == operator.truediv:  # pylint: disable=comparison-with-callable
-                description = "/"
-            elif arith_op.__name__ == "rtruediv":
-                description = "/"
-            else:
-                print(f"Operation {arith_op} is not supported yet!")
-                assert False
+            operator_context = OperatorContext(OperatorType.SUBSCRIPT, function_info, {'arith_op': arith_op})
+            description = SeriesPatching.get_arith_method_op_description(arith_op)
             if not isinstance(other, pandas.Series):
                 if isinstance(other, str):
                     description += f" '{other}'"
@@ -1226,6 +1222,23 @@ class SeriesPatching:
             return new_result
 
         return execute_patched_internal_func_with_depth(original, execute_inspections, 4, self, other, arith_op)
+
+    @staticmethod
+    def get_arith_method_op_description(arith_op):
+        if arith_op == operator.add or arith_op.__name__ == "radd":  # pylint: disable=comparison-with-callable
+            description = "+"
+        elif arith_op == operator.sub or arith_op.__name__ == "rsub":  # pylint: disable=comparison-with-callable
+            description = "-"
+        elif arith_op == operator.mul or arith_op.__name__ == "rmul":  # pylint: disable=comparison-with-callable
+            description = "*"
+        elif arith_op == operator.truediv:  # pylint: disable=comparison-with-callable
+            description = "/"
+        elif arith_op.__name__ == "rtruediv":
+            description = "/"
+        else:
+            print(f"Operation {arith_op} is not supported yet!")
+            assert False
+        return description
 
 
 @gorilla.patches(pandas.core.strings.StringMethods)

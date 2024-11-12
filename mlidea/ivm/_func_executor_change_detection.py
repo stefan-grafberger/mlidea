@@ -14,7 +14,6 @@ def determine_parents_compared_to_previous_dag(operator_call_info, singleton):
     parent_nodes_from_previous_run = []
     changes = []
     for parent_index, parent_op_id in enumerate(operator_call_info.parent_node_ids):
-        # FIXME: This fails for shadow pipelines because the node is not in the original DAG
         old_dag = singleton.global_old_dag
         new_dag = singleton.global_new_dag
 
@@ -142,7 +141,6 @@ def determine_is_addition(new_dag, new_dag_parent_node, operator_call_info, pare
                           operator_call_info_to_dag_node, new_node_to_old_node):
     # I can check if a operator call info constructed based on the current node and the previous node
     # parents exists in the old dag
-    # FIXME: Think about using replacement map here
     parent_parents = get_sorted_parent_nodes(new_dag, new_dag_parent_node)
     if len(parent_parents) == 1:
         test_addition_operator_call_info = OperatorCallInfo(
@@ -213,12 +211,9 @@ def determine_is_replacement(new_dag, new_dag_parent_node, old_dag, operator_cal
         # Check if operator type matches
         if old_node.operator_info.operator == new_node_type and old_node not in old_nodes_already_matched:
             # Check if parents and children match
-            # FIXME: Think about using replacement map here
             old_parents = set(old_dag.predecessors(old_node))
-            old_children = set(old_dag.successors(old_node))
-
-            # TODO: Theoretically, there can be situations with simultaneous changes in the form of multiple
-            #  replacement-like node inserts, then we need to be careful with naive replacement maps
+            # Not needed for now because old_children_contains_current_node does this part of the check
+            # old_children = set(old_dag.successors(old_node))
 
             old_parent_node_ids = []
             for arg_index, parent_node_id in enumerate(list(operator_call_info.parent_node_ids)):

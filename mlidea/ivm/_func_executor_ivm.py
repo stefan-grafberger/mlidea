@@ -20,7 +20,7 @@ def execute_with_partial_reuse(current_dag_node, estimator_transformer_state, in
         # First load the old result
 
         old_dag_node = singleton.reuse_info.operator_call_info_to_dag_node[updated_operator_call_info]
-        old_result = singleton.reuse_info.cached_intermediates[old_dag_node]
+        old_result = singleton.reuse_info.cached_intermediates[old_dag_node]  # pylint: disable=unused-variable
         # FIXME: Then update old result
         # TODO: Look at changes. Certain kind of changes are also compatible and mergeable, especially if there are
         #  just multiple different row-level changes.
