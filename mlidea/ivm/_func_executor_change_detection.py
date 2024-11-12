@@ -113,27 +113,29 @@ def determine_is_deletion(new_dag, new_dag_parent_node, old_dag):
                                                      node.details == new_dag_parent_node.details)]
 
     for candidate in candidates:
-        # Step 2: Check each parent in the old DAG
-        for parent in old_dag.predecessors(candidate):
-            # If the parent is missing in the new DAG
-            if parent not in new_dag:
-                # Check if the grandparent exists in the new DAG
-                for grandparent in old_dag.predecessors(parent):
-                    if grandparent in new_dag and grandparent.operator_info.operator != OperatorType.SUBSCRIPT:
-                        # However, maybe we want to make sure to look at all nodes in-between
-                        simple_paths = list(networkx.all_simple_paths(old_dag, grandparent, candidate))
-                        if len(simple_paths) != 0:
-                            nodes_in_paths = set(node for path in simple_paths for node in path)
-                            nodes_in_paths.remove(grandparent)
-                            nodes_in_paths.remove(parent)
-                            nodes_in_paths.remove(candidate)
-                            if len([node for node in nodes_in_paths if
-                                    node.operator_info.operator not in {OperatorType.SUBSCRIPT,
-                                                                        OperatorType.PROJECTION}]) == 0:
-                                is_deletion = True  # Found a deleted node's child with an existing grandparent
-                                # deleted_node = parent
-                                # deleted_node_parent = grandparent
-                                deleted_node_child = candidate
+        # Step 2: Check each parent in the old DAG if the parent is missing in the new DAG
+        candidate_old_parents_not_in_new_dag = [parent for parent in old_dag.predecessors(candidate)
+                                                if parent not in new_dag]
+        for old_parent in candidate_old_parents_not_in_new_dag:
+            # Check if the grandparent exists in the new DAG
+            grand_parents_in_both_dags = [grandparent for grandparent in old_dag.predecessors(old_parent)
+                                        if grandparent in new_dag and
+                                        grandparent.operator_info.operator != OperatorType.SUBSCRIPT]
+            for grandparent in grand_parents_in_both_dags:
+                # However, maybe we want to make sure to look at all nodes in-between
+                simple_paths = list(networkx.all_simple_paths(old_dag, grandparent, candidate))
+                if len(simple_paths) != 0:
+                    nodes_in_paths = set(node for path in simple_paths for node in path)
+                    nodes_in_paths.remove(grandparent)
+                    nodes_in_paths.remove(old_parent)
+                    nodes_in_paths.remove(candidate)
+                    if len([node for node in nodes_in_paths if
+                            node.operator_info.operator not in {OperatorType.SUBSCRIPT,
+                                                                OperatorType.PROJECTION}]) == 0:
+                        is_deletion = True  # Found a deleted node's child with an existing grandparent
+                        # deleted_node = parent
+                        # deleted_node_parent = grandparent
+                        deleted_node_child = candidate
     return is_deletion, deleted_node_child
 
 
