@@ -9,7 +9,7 @@ from numpy import random
 from mlidea.instrumentation._operator_call_info import OperatorCallInfo
 from mlidea.execution._pipeline_executor import singleton
 from mlidea import DagNode, BasicCodeLocation, DagNodeDetails
-from mlidea.execution._stat_tracking import capture_optimizer_info
+from mlidea.execution._func_executor import capture_optimizer_info
 from mlidea.instrumentation._operator_types import OperatorContext, FunctionInfo, OperatorType
 from mlidea.monkeypatching._monkey_patching_utils import add_dag_node, \
     get_optional_code_info_or_none, FunctionCallResult, get_simple_non_data_kwargs, execute_patched_func_no_op_id
@@ -37,7 +37,7 @@ class NumpyRandomPatching:
             operator_call_info = OperatorCallInfo(operator_context, [])
             op_id = singleton.get_next_op_id(operator_call_info)
             processing_func = wrap_data_source_func(partial(original, *args, **kwargs), op_id)
-            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, processing_func)
+            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, processing_func, [])
             dag_node = DagNode(op_id,
                                BasicCodeLocation(caller_filename, lineno),
                                operator_context,

@@ -55,4 +55,4 @@ def test_instrumented_py_pipeline_runs():
     """
     dag = run_and_assert_all_op_outputs_inspected(HEALTHCARE_PY, ["age_group", "race"], HEALTHCARE_PNG,
                                                   [custom_monkeypatching])
-    assert len(dag) == 52
+    assert len(dag) == 50

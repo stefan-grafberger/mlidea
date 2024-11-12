@@ -321,7 +321,7 @@ class DataErrorRobustness(ShadowPipeline):
                                    parents[0].details.columns),
                                None,
                                processing_func)
-        add_parent_node_edges(new_dag, new_fix_node, parents)
+        add_parent_node_edges(singleton, new_dag, new_fix_node, parents)
         return new_fix_node
 
     def _get_corruption_significant_conditional_node(self, data_type_index, new_dag, parents):
@@ -357,7 +357,7 @@ class DataErrorRobustness(ShadowPipeline):
                                           f"Corrupt {self._corruption_fraction} of {data_type.value} values", None),
                                       parents[0].details.columns,
                                       processing_func)
-        add_parent_node_edges(new_dag, new_corruption_node, parents)
+        add_parent_node_edges(singleton, new_dag, new_corruption_node, parents)
         return new_corruption_node
 
     def _add_fix_computation_llm(self,

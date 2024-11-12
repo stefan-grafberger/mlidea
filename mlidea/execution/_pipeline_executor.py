@@ -4,6 +4,7 @@ Instrument and executes the pipeline
 # TODO: At some point, this should be split into two files, one for mere orchestration, one for instrumentation
 import ast
 import copy
+import linecache
 import logging
 import sys
 import time
@@ -19,7 +20,7 @@ from nbconvert import PythonExporter
 from mlidea.instrumentation._call_capture_transformer import CallCaptureTransformer
 from mlidea import monkeypatching
 from mlidea.instrumentation._operator_types import OperatorType
-from mlidea._analysis_results import AnalysisResults, RuntimeInfo, DagExtractionInfo
+from mlidea._analysis_results import AnalysisResults, RuntimeInfo, DagExtractionInfo, ReuseInfo
 from mlidea.analysis._what_if_analysis import WhatIfAnalysis
 from mlidea.execution._dag_executor import DagExecutor
 from mlidea.optimization._multi_query_optimizer import MultiQueryOptimizer
@@ -52,7 +53,6 @@ class PipelineExecutor:
     next_patch_id = 0
     next_missing_op_id = -1
     track_code_references = True
-    op_id_to_dag_node = {}
     analyses = []
     shadow_pipelines = []
     custom_monkey_patching = []
@@ -61,7 +61,9 @@ class PipelineExecutor:
     labels_to_extracted_plan_results = {}
     analysis_results = AnalysisResults({}, {}, networkx.DiGraph(), [], {}, networkx.DiGraph(),
                                        RuntimeInfo(0, 0, 0, 0, None, None, 0, 0, 0, 0, 0, 0, 0),
-                                       DagExtractionInfo(networkx.DiGraph(), {}, 0, 0, {}, {}), None)
+                                       DagExtractionInfo(networkx.DiGraph(), [], {}, 0, 0,
+                                                         ReuseInfo({}, {}, {}, set(), set(), set(), set(), set(), set(),
+                                                                   {}, {}, set())), None)
     monkey_patch_duration = 0
     skip_optimizer = False
     force_optimization_rules = None
@@ -70,11 +72,14 @@ class PipelineExecutor:
     use_dfs_exec_strategy = False
     disable_monkey_patching = False
     prov_enabled = True
-    cached_intermediates = {}
     old_dag = None
-    operator_context_parents_to_result = {}
+    old_shadow_pipelines = None
     enable_caching = True
     enable_cache_reuse = True
+    global_old_dag = None
+    global_new_dag = networkx.DiGraph()
+    # Put this into a new data class
+    reuse_info = ReuseInfo({}, {}, {}, set(), set(), set(), set(), set(), set(), {}, {}, set())
 
     def run(self, *,
             notebook_path: str or None = None,
@@ -123,13 +128,7 @@ class PipelineExecutor:
 
         if extraction_info is not None:
             logger.info('Reusing DAG extraction results results from previously instrumented pipeline...')
-            self.analysis_results.runtime_info.original_pipeline_without_importing_and_monkeypatching = None
-            self.next_op_id = extraction_info.next_op_id
-            self.next_patch_id = 0
-            self.next_missing_op_id = extraction_info.next_missing_op_id
-            self.cached_intermediates = extraction_info.cached_intermediates
-            self.operator_context_parents_to_result = extraction_info.operator_context_parents_to_result
-            self.old_dag = extraction_info.original_dag.copy()
+            self.initialize_state_from_extraction_info(extraction_info)
 
         if notebook_path is None and python_code is None and python_path is None:
             self.analysis_results.original_dag = extraction_info.original_dag.copy()
@@ -156,12 +155,25 @@ class PipelineExecutor:
         self.gen_and_exec_shadow_pipelines()
 
         self.analysis_results.dag_extraction_info = DagExtractionInfo(
-            self.analysis_results.original_dag.copy(), self.original_pipeline_labels_to_extracted_plan_results.copy(),
-            self.next_op_id, self.next_missing_op_id, self.cached_intermediates,
-            self.operator_context_parents_to_result)
+            self.analysis_results.original_dag.copy(),
+            copy.deepcopy(list(self.analysis_results.shadow_pipeline_to_dags.values())),
+            self.original_pipeline_labels_to_extracted_plan_results.copy(),
+            self.next_op_id, self.next_missing_op_id, self.reuse_info)
 
         logger.info('Done!')
         return self.analysis_results
+
+    def initialize_state_from_extraction_info(self, extraction_info):
+        self.analysis_results.runtime_info.original_pipeline_without_importing_and_monkeypatching = None
+        self.next_op_id = extraction_info.next_op_id
+        self.next_patch_id = 0
+        self.next_missing_op_id = extraction_info.next_missing_op_id
+        self.reuse_info.cached_intermediates = extraction_info.reuse_info.cached_intermediates
+        self.reuse_info.operator_call_info_to_dag_node = extraction_info.reuse_info.operator_call_info_to_dag_node.copy()
+        self.reuse_info.op_id_to_dag_node = extraction_info.reuse_info.op_id_to_dag_node.copy()
+        self.old_dag = extraction_info.original_dag.copy()
+        self.old_shadow_pipelines = copy.deepcopy(extraction_info.shadow_pipelines)
+        self.global_old_dag = networkx.compose_all([self.old_dag, *(self.old_shadow_pipelines or [])])
 
     def prepare_runtime_info(self, orig_instrumented_exec_start):
         orig_instrumented_exec_duration = (time.time() - orig_instrumented_exec_start -
@@ -186,9 +198,11 @@ class PipelineExecutor:
                 test_data_node.details.optimizer_info.shape
 
     def gen_and_exec_shadow_pipelines(self):
+        # Required for the execution engine for the IVM to detect changes
         for shadow_pipeline in self.shadow_pipelines:
             original_dag_copy = copy.deepcopy(self.analysis_results.original_dag)
             shadow_dag = shadow_pipeline.generate_shadow_pipeline_dag(original_dag_copy)
+            self.global_new_dag = networkx.compose_all([self.global_new_dag, shadow_dag])
             DagExecutor(self).execute(shadow_dag, self.use_dfs_exec_strategy)
             filtered_shadow_dag = filter_shadow_dag(original_dag_copy, shadow_dag)
 
@@ -273,14 +287,22 @@ class PipelineExecutor:
         self.source_code, self.source_code_path = self.load_source_code(notebook_path, python_path, python_code)
         parsed_ast = ast.parse(self.source_code)
         parsed_modified_ast = self.instrument_pipeline(parsed_ast, self.track_code_references)
+
+        # Cache the source code in linecache under the fake filename
+        linecache.cache[self.source_code_path] = (
+            len(self.source_code),  # Size of code in bytes (not really needed here)
+            None,  # Last modification time (unused)
+            self.source_code.splitlines(True),  # Lines of the code
+            self.source_code_path  # Filename
+        )
         exec(compile(parsed_modified_ast, filename=self.source_code_path, mode="exec"), self.script_scope)
 
     def get_next_op_id(self, operator_call_info):
         """
         Each operator in the DAG gets a consecutive unique id
         """
-        if operator_call_info in self.operator_context_parents_to_result:
-            result = self.operator_context_parents_to_result[operator_call_info].node_id
+        if operator_call_info in self.reuse_info.operator_call_info_to_dag_node:
+            result = self.reuse_info.operator_call_info_to_dag_node[operator_call_info].node_id
         else:
             result = self.next_op_id
             self.next_op_id += 1
@@ -302,6 +324,12 @@ class PipelineExecutor:
         self.next_missing_op_id -= 1
         return current_missing_op_id
 
+    def get_dag_node_for_id(self, dag_node_id: int):
+        """
+        Get a DAG node by id
+        """
+        return self.reuse_info.op_id_to_dag_node[dag_node_id]
+
     def reset(self):
         """
         Reset all attributes in the singleton object. This can be used when there are multiple repeated calls to mlidea
@@ -317,10 +345,11 @@ class PipelineExecutor:
         self.next_patch_id = 0
         self.next_missing_op_id = -1
         self.track_code_references = True
-        self.op_id_to_dag_node = {}
         self.analysis_results = AnalysisResults({}, {}, networkx.DiGraph(), [], {}, networkx.DiGraph(),
                                                 RuntimeInfo(0, 0, 0, 0, None, None, 0, 0, 0, 0, 0, 0, 0),
-                                                DagExtractionInfo(networkx.DiGraph(), {}, 0, 0, {}, {}), None)
+                                                DagExtractionInfo(networkx.DiGraph(), [], {}, 0, 0,
+                                                                  ReuseInfo({}, {}, {}, set(), set(), set(), set(), set(),
+                                                                            set(),{}, {}, set())), None)
         self.analyses = []
         self.shadow_pipelines = []
         self.original_pipeline_labels_to_extracted_plan_results = {}
@@ -334,11 +363,13 @@ class PipelineExecutor:
         self.use_dfs_exec_strategy = False
         self.disable_monkey_patching = False
         self.prov_enabled = True
-        self.cached_intermediates = {}
         self.old_dag = None
-        self.operator_context_parents_to_result = {}
+        self.old_shadow_pipelines = None
         self.enable_caching = True
         self.enable_cache_reuse = True
+        self.global_old_dag = None
+        self.global_new_dag = networkx.DiGraph()
+        self.reuse_info = ReuseInfo({}, {}, {}, set(), set(), set(), set(), set(), set(), {}, {}, set())
 
     @staticmethod
     def instrument_pipeline(parsed_ast, track_code_references):

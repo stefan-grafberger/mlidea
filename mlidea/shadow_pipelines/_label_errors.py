@@ -192,7 +192,7 @@ class LabelErrors(ShadowPipeline):
                                           f"Flip {self._cleaning_batch_size} most likely incorrect labels", None),
                                       parents[0].details.columns,
                                       LabelErrors._label_flip_processing_func_ml)
-        add_parent_node_edges(new_dag, new_label_flip_node, parents)
+        add_parent_node_edges(singleton, new_dag, new_label_flip_node, parents)
         return new_label_flip_node
 
     def _add_orig_proxy_score_computation_ml(self, likely_mislabeled_rows_condition_node, _, new_dag,
@@ -228,7 +228,7 @@ class LabelErrors(ShadowPipeline):
                                        f"Top {self._cleaning_batch_size} Shapley values", None),
                                    parent_nodes[0].details.columns,
                                    processing_func)
-        add_parent_node_edges(new_dag, new_shapley_node, parent_nodes)
+        add_parent_node_edges(singleton, new_dag, new_shapley_node, parent_nodes)
         _ = get_intermediate_extraction_node(singleton, new_dag, [new_shapley_node], "label-errors-shapley-values")
         return new_shapley_node
 
@@ -264,7 +264,7 @@ class LabelErrors(ShadowPipeline):
                                           f"Flip {self._cleaning_batch_size} most likely incorrect labels", None),
                                       None,
                                       LabelErrors._label_flip_processing_func_llm)
-        add_parent_node_edges(new_dag, new_label_flip_node, parents)
+        add_parent_node_edges(singleton, new_dag, new_label_flip_node, parents)
         return new_label_flip_node
 
     def _get_label_flip_indices_node(self, new_dag, parents):
@@ -282,7 +282,7 @@ class LabelErrors(ShadowPipeline):
                                                   None),
                                               None,
                                               LabelErrors._get_rows_to_flip_llm)
-        add_parent_node_edges(new_dag, new_label_flip_indices_node, parents)
+        add_parent_node_edges(singleton, new_dag, new_label_flip_indices_node, parents)
         return new_label_flip_indices_node
 
     def _add_shapley_value_computation_llm(self, label_encoder_operators, new_dag, rag_join_operators, score_operators,
@@ -315,7 +315,7 @@ class LabelErrors(ShadowPipeline):
                                        f"Top {self._cleaning_batch_size} Shapley values", None),
                                    None,
                                    processing_func)
-        add_parent_node_edges(new_dag, new_shapley_node, parents)
+        add_parent_node_edges(singleton, new_dag, new_shapley_node, parents)
         return new_shapley_node
 
     @staticmethod

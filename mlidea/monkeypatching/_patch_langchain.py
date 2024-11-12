@@ -30,7 +30,7 @@ from mlidea.instrumentation._operator_call_info import OperatorCallInfo
 from mlidea import DagNode, BasicCodeLocation, DagNodeDetails, FunctionInfo, OperatorContext, OperatorType, \
     CodeReference
 from mlidea.execution._pipeline_executor import singleton
-from mlidea.execution._stat_tracking import capture_optimizer_info
+from mlidea.execution._func_executor import capture_optimizer_info
 from mlidea.monkeypatching._mlinspect_ndarray import MlideaChromaVectorStoreRetrieverPlaceHolder, MlinspectList
 from mlidea.monkeypatching._monkey_patching_utils import get_optional_code_info_or_none, \
     FunctionCallResult, add_dag_node, get_input_info, \
@@ -141,8 +141,8 @@ class RunnableSequencePatching:
                     inputs, input_info_a.dag_node.operator_info.function_info, lineno, optional_code_reference,
                     optional_source_code, caller_filename)
 
-                non_data_kwargs = {'steps': self.steps, 'config': config, 'return_exceptions': return_exceptions,
-                                   **kwargs}
+                non_data_kwargs = {'chain': str(retriever_with_info[2].to_json()), 'config': config,
+                                   'return_exceptions': return_exceptions, **kwargs}
                 operator_context_rag = OperatorContext(OperatorType.RAG_JOIN,
                                                    input_info_a.dag_node.operator_info.function_info,
                                                    non_data_kwargs)
@@ -150,8 +150,8 @@ class RunnableSequencePatching:
 
                 processing_func = partial(RunnableSequencePatching.execute_retriever, retriever_with_info)
                 optimizer_info, result = capture_optimizer_info(singleton, operator_call_info_rag,
-                                                                partial(processing_func, retriever_with_info[3],
-                                                                        test_data_result))
+                                                                processing_func, [retriever_with_info[3],
+                                                                        test_data_result])
                 description = "Embedding similarity join"
                 dag_node_rag = DagNode(singleton.get_next_op_id(operator_call_info_rag),
                                        input_info_a.dag_node.code_location,
@@ -169,12 +169,14 @@ class RunnableSequencePatching:
                 processing_func_predict = partial(
                     RunnableSequencePatching.execute_langchain_batch_with_preexecuted_retriever,
                     self, config, return_exceptions)
+                non_data_kwargs = {'prompt': str(self.get_prompts()), 'config': config,
+                                   'return_exceptions': return_exceptions, **kwargs}
                 operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, non_data_kwargs)
-                operator_call_info_predict = OperatorCallInfo(operator_context_rag,
+                operator_call_info_predict = OperatorCallInfo(operator_context_predict,
                                                               [dag_node_rag])
                 optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict,
-                                                                                partial(processing_func_predict,
-                                                                                        embedding_join_result))
+                                                                                processing_func_predict,
+                                                                                        [embedding_join_result])
                 dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info_predict),
                                            BasicCodeLocation(caller_filename, lineno),
                                            operator_context_predict,
@@ -371,8 +373,8 @@ class ChromaPatching:
                 new_result = MlideaChromaVectorStoreRetrieverPlaceHolder(input_dfs[0], input_dfs[1], embedding)
                 return new_result
 
-            initial_func = partial(processing_func, train_data_result, train_labels_result, **kwargs)
-            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, initial_func)
+            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, processing_func,
+                                                            [train_data_result, train_labels_result])
 
             dag_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                BasicCodeLocation(caller_filename, lineno),

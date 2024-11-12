@@ -6,45 +6,124 @@ import time
 from functools import partial
 
 import keras
-from dill import dumps
 import numpy
 import pandas
 import sklearn
+from dill import dumps
 from fairlearn.metrics import MetricFrame
 from scikeras import wrappers
 from scipy.sparse import csr_matrix
 
-from mlidea.instrumentation._dag_node import OptimizerInfo
+from mlidea.ivm._func_executor_ivm import execute_with_partial_reuse
+from mlidea.instrumentation._dag_node import OptimizerInfo, DagNode
+from mlidea.instrumentation._operator_call_info import OperatorOutputChange, OutputChangeType
+from mlidea.instrumentation._operator_types import OperatorType, ConditionalResult
 from mlidea.monkeypatching._mlinspect_ndarray import MlideaChromaVectorStoreRetrieverPlaceHolder
 
 
-def capture_optimizer_info(singleton, operator_call_info, instrumented_function_call: partial,
+def capture_optimizer_info(singleton, operator_call_info, instrumented_function_call: partial or None,
+                           instrumented_function_call_args: list[any] or None,
                            obj_for_inplace_ops: any or None = None,
                            estimator_transformer_state: any or None = None,
                            keras_batch_size: int or None = None,
-                           force_disable_reuse=False) \
+                           extract_or_conditional=False,
+                           stop_signal_received=False,
+                           current_dag_node: DagNode or None=None) \
         -> tuple[OptimizerInfo, any]:
     """Function to measure the runtime of instrumented user function calls and get output metadata"""
-    execution_start = time.time()
-    if ((obj_for_inplace_ops is None or estimator_transformer_state is not None) and
-            operator_call_info in singleton.operator_context_parents_to_result
-            and singleton.enable_cache_reuse is True and force_disable_reuse is False):
-        dag_node = singleton.operator_context_parents_to_result[operator_call_info]
-        result = singleton.cached_intermediates[dag_node]
+    # pylint: disable=too-many-arguments
+    if instrumented_function_call_args is None:
+        instrumented_function_call_args = []
+    if instrumented_function_call is not None:
+        original_func_call_with_args = partial(instrumented_function_call, *instrumented_function_call_args)
     else:
-        result = instrumented_function_call()
+        original_func_call_with_args = None
+    execution_start = time.time()
+    not_a_constructor = (obj_for_inplace_ops is None or estimator_transformer_state is not None
+                         or operator_call_info.operator == OperatorType.PROJECTION_MODIFY)
+    if singleton.enable_cache_reuse is True:
+        result = try_ivm_reuse_using_cache(current_dag_node, estimator_transformer_state, extract_or_conditional,
+                                           not_a_constructor, operator_call_info, original_func_call_with_args,
+                                           singleton, stop_signal_received)
+
+    else:
+        result = execute_function(estimator_transformer_state, original_func_call_with_args, stop_signal_received)
+
+    optimizer_info = get_optimizer_info(estimator_transformer_state, execution_start, keras_batch_size,
+                                        obj_for_inplace_ops, result, stop_signal_received)
+    return optimizer_info, result
+
+
+def try_ivm_reuse_using_cache(current_dag_node, estimator_transformer_state, extract_or_conditional, not_a_constructor,
+                              operator_call_info, original_func_call_with_args, singleton, stop_signal_received):
+    # Guaranteed reuse
+    if (not_a_constructor and
+            operator_call_info in singleton.reuse_info.operator_call_info_to_dag_node
+            and extract_or_conditional is False):
+        dag_node = singleton.reuse_info.operator_call_info_to_dag_node[operator_call_info]
+        result = singleton.reuse_info.cached_intermediates[dag_node]
+        if dag_node not in singleton.reuse_info.new_node_to_old_node:
+            singleton.reuse_info.new_node_to_old_node[dag_node] = dag_node, OperatorOutputChange(
+                OutputChangeType.NOTHING_CHANGED)
+    # We have to re-execute conditionals
+    elif (not_a_constructor and
+          operator_call_info in singleton.reuse_info.operator_call_info_to_dag_node
+          and extract_or_conditional is True):
+        dag_node = singleton.reuse_info.operator_call_info_to_dag_node[operator_call_info]
+        result = original_func_call_with_args()
         if estimator_transformer_state is not None:
             result._mlinspect_annotation = estimator_transformer_state
-    execution_duration = time.time() - execution_start
-    execution_duration_in_ms = execution_duration * 1000
-    if result is not None:
-        result_or_inplace_obj = result
+        if dag_node not in singleton.reuse_info.new_node_to_old_node:
+            singleton.reuse_info.new_node_to_old_node[dag_node] = dag_node, OperatorOutputChange(
+                OutputChangeType.NOTHING_CHANGED)
+    # Constructors cannot be reused currently
+    elif (not_a_constructor is False and operator_call_info in singleton.reuse_info.operator_call_info_to_dag_node):
+        result = original_func_call_with_args()
+        if estimator_transformer_state is not None:
+            result._mlinspect_annotation = estimator_transformer_state
+        # TODO: The node does not actually get reused yet. However, this is tricky with constructors
+        dag_node = singleton.reuse_info.operator_call_info_to_dag_node[operator_call_info]
+        singleton.reuse_info.new_node_to_old_node[dag_node] = dag_node, OperatorOutputChange(
+            OutputChangeType.NOTHING_CHANGED)
+    # Maybe reuse
+    # TODO: Do we want to get rid of operator_call_info is not None? This is currently required because of the
+    #  pandas groupby operation that gets executed before agg is called after. We also cannot reuse intermediates
+    #  for that operation currently.
+    elif singleton.old_dag is not None and operator_call_info is not None:
+        result = execute_with_partial_reuse(current_dag_node, estimator_transformer_state, original_func_call_with_args,
+                                            operator_call_info, singleton, stop_signal_received)
+    # Fallback
     else:
-        result_or_inplace_obj = obj_for_inplace_ops
+        result = execute_function(estimator_transformer_state, original_func_call_with_args, stop_signal_received)
+    return result
 
-    shape = get_df_shape(result_or_inplace_obj)
-    size = get_df_memory(result_or_inplace_obj, estimator_transformer_state, keras_batch_size)
-    return OptimizerInfo(execution_duration_in_ms, shape, size), result
+
+def execute_function(estimator_transformer_state, original_func_call_with_args, stop_signal_received):
+    if stop_signal_received is False:  # Actually execute it
+        result = original_func_call_with_args()
+        if estimator_transformer_state is not None:
+            result._mlinspect_annotation = estimator_transformer_state
+    else:
+        result = ConditionalResult.STOP_EXECUTION
+    return result
+
+
+def get_optimizer_info(estimator_transformer_state, execution_start, keras_batch_size, obj_for_inplace_ops, result,
+                       stop_signal_received):
+    if stop_signal_received is False:
+        execution_duration = time.time() - execution_start
+        execution_duration_in_ms = execution_duration * 1000
+        if result is not None:
+            result_or_inplace_obj = result
+        else:
+            result_or_inplace_obj = obj_for_inplace_ops
+
+        shape = get_df_shape(result_or_inplace_obj)
+        size = get_df_memory(result_or_inplace_obj, estimator_transformer_state, keras_batch_size)
+        optimizer_info = OptimizerInfo(execution_duration_in_ms, shape, size)
+    else:
+        optimizer_info = OptimizerInfo(None, None, None)
+    return optimizer_info
 
 
 def get_df_memory(result_or_inplace_obj, estimator_transformer_state: any or None = None,

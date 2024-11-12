@@ -31,7 +31,7 @@ def weak_labeling(data):
 
 
 def encode_features():
-    #model = SentenceTransformer('mrm8488/bert-tiny-finetuned-squadv2')  # model named is changed for time and computation gians :)
+    #model = SentenceTransformer('mrm8488/bert-tiny-finetuned-squadv2')  # model named is changed for time and computation gains :)
     model = SentenceTransformer('all-MiniLM-L6-v2')  # model from the tutorial page
     embedder = FunctionTransformer(lambda item: model.encode(item))  # pylint: disable=unnecessary-lambda
     preprocessor = ColumnTransformer(transformers=[('embedder', embedder, 'tweet')])

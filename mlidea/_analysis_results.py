@@ -5,8 +5,6 @@ import dataclasses
 
 import networkx
 
-from mlidea.instrumentation._operator_call_info import OperatorCallInfo
-from mlidea.instrumentation._dag_node import DagNode
 from mlidea.execution._patches import PipelinePatch
 from mlidea.visualisation import save_fig_to_path
 
@@ -31,16 +29,32 @@ class RuntimeInfo:
     what_if_execution: int
     what_if_execution_combined_model_training: int
 
+@dataclasses.dataclass
+class ReuseInfo:
+    # pylint: disable=too-many-instance-attributes
+    op_id_to_dag_node: dict
+    cached_intermediates: dict
+    operator_call_info_to_dag_node: dict
+    undetermined_new_nodes: set
+    operator_addition: set
+    operator_deletion: set
+    operator_replacement: set
+    operator_transitive: set
+    operator_reexecuted: set
+    unprocessed_call_info_transitive_change_only: dict
+    new_node_to_old_node: dict
+    operator_too_many_changes: set
+
 
 @dataclasses.dataclass
 class DagExtractionInfo:
     """All info required to reuse a previously extracted DAG for different what-if analyses"""
     original_dag: networkx.DiGraph
+    shadow_pipelines: list[networkx.DiGraph]
     original_pipeline_labels_to_extracted_plan_results: dict[str, any]
     next_op_id: int
     next_missing_op_id: int
-    cached_intermediates: dict[DagNode, any]
-    operator_context_parents_to_result: dict[OperatorCallInfo, any]
+    reuse_info: ReuseInfo
 
 
 @dataclasses.dataclass

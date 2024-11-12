@@ -3,14 +3,13 @@ The place where the DAG execution happens
 """
 import dataclasses
 from copy import copy
-from functools import partial
 
 import networkx
 
+from mlidea.execution._func_executor import capture_optimizer_info
+from mlidea.instrumentation._dag_node import DagNode
 from mlidea.instrumentation._operator_call_info import OperatorCallInfo
-from mlidea.execution._stat_tracking import capture_optimizer_info
 from mlidea.instrumentation._operator_types import OperatorType, ConditionalResult
-from mlidea.instrumentation._dag_node import DagNode, OptimizerInfo
 from mlidea.utils._utils import get_sorted_parent_nodes
 
 
@@ -53,27 +52,36 @@ class DagExecutor:
                         inputs = inputs[:-1]
             # This is necessary because these two node types extract results
             if stop_signal_received is False:
-                executable_processing_func = partial(current_node.processing_func, *inputs)
                 extract_or_conditional = current_node.operator_info.operator in {
                     OperatorType.EXTRACT_RESULT, OperatorType.CONDITIONAL_STOP}
                 optimizer_info, result_df = capture_optimizer_info(self.pipeline_executor, operator_call_info,
-                                                                   executable_processing_func,
-                                                                   force_disable_reuse=extract_or_conditional)
+                                                                   current_node.processing_func, inputs,
+                                                                   extract_or_conditional=extract_or_conditional,
+                                                                   current_dag_node=current_node)
             elif current_node.operator_info.operator == OperatorType.EXTRACT_RESULT:
-                executable_processing_func = partial(current_node.processing_func, ConditionalResult.STOP_EXECUTION)
-                _, result_df = capture_optimizer_info(self.pipeline_executor, operator_call_info,
-                                                      executable_processing_func,
-                                                      force_disable_reuse=True)
-                optimizer_info = OptimizerInfo(None, None, None)  # We want to avoid the DAG from being confusing
+                # TODO: Clean this up a bit
+                optimizer_info, result_df = capture_optimizer_info(self.pipeline_executor, operator_call_info,
+                                                      current_node.processing_func, [ConditionalResult.STOP_EXECUTION],
+                                                      extract_or_conditional=True,
+                                                      current_dag_node=current_node)
             else:
-                optimizer_info = OptimizerInfo(None, None, None)
-                result_df = ConditionalResult.STOP_EXECUTION
+                optimizer_info, result_df = capture_optimizer_info(self.pipeline_executor, operator_call_info, None, [],
+                                              stop_signal_received=True, current_dag_node=current_node)
             self.pipeline_executor.operators_to_runtime_during_analysis[copy(current_node)] = optimizer_info
 
             if self.pipeline_executor.enable_caching is True:
-                self.pipeline_executor.operator_context_parents_to_result[
+                self.pipeline_executor.reuse_info.operator_call_info_to_dag_node[
                     OperatorCallInfo(current_node.operator_info, parent_nodes)] = current_node
-                self.pipeline_executor.cached_intermediates[current_node] = result_df
+                # TODO: Here no copy should be necessary as the executor already makes sure to use only copies as
+                #  input
+                self.pipeline_executor.reuse_info.cached_intermediates[current_node] = result_df
+                # # TODO: Is this copy really necessary? Without it, the columns sometimes mismatch with cached dfs that
+                # #  get updated later on during the original pipeline
+                # self.pipeline_executor.reuse_info.cached_intermediates[current_node] = result_df.copy()
+                # if current_node.operator_info.operator != OperatorType.PROJECTION_MODIFY:
+                #     self.pipeline_executor.reuse_info.cached_intermediates[current_node] = result_df
+                # else:
+                #     self.pipeline_executor.reuse_info.cached_intermediates[current_node] = result_df.copy()
 
             result = self.replace_node_with_result(dag, current_node, result_df)
             return result

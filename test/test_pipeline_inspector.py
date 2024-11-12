@@ -7,16 +7,15 @@ from inspect import cleandoc
 import networkx
 from testfixtures import compare
 
-from example_pipelines.healthcare import custom_monkeypatching
 from example_pipelines import ADULT_SIMPLE_PY, ADULT_SIMPLE_IPYNB, HEALTHCARE_PY, ADULT_COMPLEX_PY, \
-    ADULT_COMPLEX_MODIFIED_PY, ANHEDONIA_LLM_PY, ANHEDONIA_LLM_MODIFIED_PY, ANHEDONIA_ML_MODIFIED_PY, ANHEDONIA_ML_PY, \
-    HEALTHCARE_MODIFIED_PY
+    ADULT_COMPLEX_MODIFIED_PY
+from example_pipelines.healthcare import custom_monkeypatching
 from mlidea import PipelineAnalyzer, OperatorType
 from mlidea.analysis._data_cleaning import DataCleaning, ErrorType
-from mlidea.testing._testing_helper_utils import get_expected_dag_adult_easy, visualize_dags_shadow_pipelines
 from mlidea.shadow_pipelines._data_errors import DataErrorRobustness
 from mlidea.shadow_pipelines._label_errors import LabelErrors
 from mlidea.shadow_pipelines._slices import FairnessSlices
+from mlidea.testing._testing_helper_utils import get_expected_dag_adult_easy, visualize_dags_shadow_pipelines
 from mlidea.utils import get_project_root
 
 DATABASE_PATH_FUNC_TRANSFORMER = f"{str(get_project_root())}/test/offline/.function_transformer_cache.db"
@@ -167,164 +166,6 @@ def test_multiple_shadow_pipelines(tmpdir):
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
 
-def test_changed_pipeline_code_shadow_pipelines_adult_complex(tmpdir):
-    """
-    Tests whether the Data Cleaning analysis works for a very simple pipeline with a DecisionTree score
-    """
-    label_errors = LabelErrors(proxy_model=True)
-    data_errors = DataErrorRobustness(corruption_significant_relative_threshold=1.0)
-    slices = FairnessSlices(database_path=DATABASE_PATH_FUNC_TRANSFORMER)
-    shadow_pipelines = [label_errors, data_errors, slices]
-
-    analysis_result = PipelineAnalyzer \
-        .on_pipeline_from_py_file(ADULT_COMPLEX_PY) \
-        .add_shadow_pipelines(shadow_pipelines) \
-        .execute()
-
-    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-old"))
-    analysis_result.save_shadow_pipeline_dags_to_path(os.path.join(str(tmpdir), "shadow-old"))
-
-    report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
-    report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "the pipeline metric was" in report_label_errors
-    assert "the pipeline metric was" in report_data_errors
-    assert "The original result" in report_fairness_slices
-
-    analysis_result = PipelineAnalyzer \
-        .on_changed_pipeline_from_py_file(analysis_result.dag_extraction_info, ADULT_COMPLEX_MODIFIED_PY) \
-        .add_shadow_pipelines(shadow_pipelines) \
-        .execute()
-    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-new"))
-    analysis_result.save_shadow_pipeline_dags_to_path(os.path.join(str(tmpdir), "shadow-new"))
-
-    report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
-    report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "the pipeline metric was" in report_label_errors
-    assert "the pipeline metric was" in report_data_errors
-    assert "The original result" in report_fairness_slices
-
-
-def test_changed_pipeline_code_shadow_pipelines_anhedonia_llm(tmpdir):
-    """
-    Tests whether the Data Cleaning analysis works for a very simple pipeline with a DecisionTree score
-    """
-    label_errors = LabelErrors(proxy_model=False)
-    data_errors = DataErrorRobustness(corruption_significant_relative_threshold=1.0)
-    slices = FairnessSlices(database_path=DATABASE_PATH_FUNC_TRANSFORMER)
-    shadow_pipelines = [label_errors, data_errors, slices]
-
-    analysis_result = PipelineAnalyzer \
-        .on_pipeline_from_py_file(ANHEDONIA_LLM_PY) \
-        .add_shadow_pipelines(shadow_pipelines) \
-        .execute()
-
-    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-old"))
-    analysis_result.save_shadow_pipeline_dags_to_path(os.path.join(str(tmpdir), "shadow-old"))
-
-    report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
-    report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "the pipeline metric was" in report_label_errors
-    assert "the pipeline metric was" in report_data_errors
-    assert "The original result" in report_fairness_slices
-
-    analysis_result = PipelineAnalyzer \
-        .on_changed_pipeline_from_py_file(analysis_result.dag_extraction_info, ANHEDONIA_LLM_MODIFIED_PY) \
-        .add_shadow_pipelines(shadow_pipelines) \
-        .execute()
-    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-new"))
-    analysis_result.save_shadow_pipeline_dags_to_path(os.path.join(str(tmpdir), "shadow-new"))
-
-    report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
-    report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "the pipeline metric was" in report_label_errors
-    assert "the pipeline metric was" in report_data_errors
-    assert "The original result" in report_fairness_slices
-
-
-def test_changed_pipeline_code_shadow_pipelines_anhedonia_ml(tmpdir):
-    """
-    Tests whether the Data Cleaning analysis works for a very simple pipeline with a DecisionTree score
-    """
-    label_errors = LabelErrors(proxy_model=True)
-    data_errors = DataErrorRobustness(corruption_significant_relative_threshold=1.0)
-    slices = FairnessSlices(database_path=DATABASE_PATH_FUNC_TRANSFORMER)
-    shadow_pipelines = [label_errors, data_errors, slices]
-
-    analysis_result = PipelineAnalyzer \
-        .on_pipeline_from_py_file(ANHEDONIA_ML_PY) \
-        .add_shadow_pipelines(shadow_pipelines) \
-        .execute()
-
-    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-old"))
-    analysis_result.save_shadow_pipeline_dags_to_path(os.path.join(str(tmpdir), "shadow-old"))
-
-    report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
-    report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "the pipeline metric was" in report_label_errors
-    assert "the pipeline metric was" in report_data_errors
-    assert "The original result" in report_fairness_slices
-
-    analysis_result = PipelineAnalyzer \
-        .on_changed_pipeline_from_py_file(analysis_result.dag_extraction_info, ANHEDONIA_ML_MODIFIED_PY) \
-        .add_shadow_pipelines(shadow_pipelines) \
-        .execute()
-    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-new"))
-    analysis_result.save_shadow_pipeline_dags_to_path(os.path.join(str(tmpdir), "shadow-new"))
-
-    report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
-    report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "the pipeline metric was" in report_label_errors
-    assert "the pipeline metric was" in report_data_errors
-    assert "The original result" in report_fairness_slices
-
-
-def test_changed_pipeline_code_shadow_pipelines_healthcare(tmpdir):
-    """
-    Tests whether the Data Cleaning analysis works for a very simple pipeline with a DecisionTree score
-    """
-    label_errors = LabelErrors(proxy_model=True)
-    data_errors = DataErrorRobustness(corruption_significant_relative_threshold=1.0)
-    slices = FairnessSlices(database_path=DATABASE_PATH_FUNC_TRANSFORMER)
-    shadow_pipelines = [label_errors, data_errors, slices]
-
-    analysis_result = PipelineAnalyzer \
-        .on_pipeline_from_py_file(HEALTHCARE_PY) \
-        .add_custom_monkey_patching_modules([custom_monkeypatching]) \
-        .add_shadow_pipelines(shadow_pipelines) \
-        .execute()
-
-    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-old"))
-    analysis_result.save_shadow_pipeline_dags_to_path(os.path.join(str(tmpdir), "shadow-old"))
-
-    report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
-    report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "the pipeline metric was" in report_label_errors
-    assert "the pipeline metric was" in report_data_errors
-    assert "The original result" in report_fairness_slices
-
-    analysis_result = PipelineAnalyzer \
-        .on_changed_pipeline_from_py_file(analysis_result.dag_extraction_info, HEALTHCARE_MODIFIED_PY) \
-        .add_custom_monkey_patching_modules([custom_monkeypatching]) \
-        .add_shadow_pipelines(shadow_pipelines) \
-        .execute()
-    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-new"))
-    analysis_result.save_shadow_pipeline_dags_to_path(os.path.join(str(tmpdir), "shadow-new"))
-
-    report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
-    report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "the pipeline metric was" in report_label_errors
-    assert "the pipeline metric was" in report_data_errors
-    assert "The original result" in report_fairness_slices
-
-
 def test_changed_pipeline_code_what_if(tmpdir):
     """
     Tests whether the Data Cleaning analysis works for a very simple pipeline with a DecisionTree score
@@ -353,7 +194,47 @@ def test_changed_pipeline_code_what_if(tmpdir):
     assert report.shape == (19, 4)
 
 
-def test_dataframe_update(tmpdir):
+def test_changed_pipeline_code_shadow_pipelines_adult_complex_caching_disabled(tmpdir):
+    """
+    Tests whether the Data Cleaning analysis works for a very simple pipeline with a DecisionTree score
+    """
+    label_errors = LabelErrors(proxy_model=True)
+    data_errors = DataErrorRobustness(corruption_significant_relative_threshold=1.0)
+    slices = FairnessSlices(database_path=DATABASE_PATH_FUNC_TRANSFORMER)
+    shadow_pipelines = [label_errors, data_errors, slices]
+
+    analysis_result = PipelineAnalyzer \
+        .on_pipeline_from_py_file(ADULT_COMPLEX_PY) \
+        .add_shadow_pipelines(shadow_pipelines) \
+        .set_caching(False) \
+        .execute()
+
+    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-old"))
+    analysis_result.save_shadow_pipeline_dags_to_path(os.path.join(str(tmpdir), "shadow-old"))
+
+    report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
+    report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
+    report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
+    assert "the pipeline metric was" in report_label_errors
+    assert "the pipeline metric was" in report_data_errors
+    assert "The original result" in report_fairness_slices
+
+    analysis_result = PipelineAnalyzer \
+        .on_changed_pipeline_from_py_file(analysis_result.dag_extraction_info, ADULT_COMPLEX_MODIFIED_PY) \
+        .add_shadow_pipelines(shadow_pipelines) \
+        .execute()
+    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-new"))
+    analysis_result.save_shadow_pipeline_dags_to_path(os.path.join(str(tmpdir), "shadow-new"))
+
+    report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
+    report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
+    report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
+    assert "the pipeline metric was" in report_label_errors
+    assert "the pipeline metric was" in report_data_errors
+    assert "The original result" in report_fairness_slices
+
+
+def test_change_reuse_df_update(tmpdir):
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
     """
@@ -425,49 +306,12 @@ def test_dataframe_update(tmpdir):
     analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-new"))
     analysis_result.save_shadow_pipeline_dags_to_path(os.path.join(str(tmpdir), "shadow-new"))
 
-
-def test_changed_pipeline_code_shadow_pipelines_adult_complex_caching_disabled(tmpdir):
-    """
-    Tests whether the Data Cleaning analysis works for a very simple pipeline with a DecisionTree score
-    """
-    label_errors = LabelErrors(proxy_model=True)
-    data_errors = DataErrorRobustness(corruption_significant_relative_threshold=1.0)
-    slices = FairnessSlices(database_path=DATABASE_PATH_FUNC_TRANSFORMER)
-    shadow_pipelines = [label_errors, data_errors, slices]
-
-    analysis_result = PipelineAnalyzer \
-        .on_pipeline_from_py_file(ADULT_COMPLEX_PY) \
-        .add_shadow_pipelines(shadow_pipelines) \
-        .set_caching(False) \
-        .execute()
-
-    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-old"))
-    analysis_result.save_shadow_pipeline_dags_to_path(os.path.join(str(tmpdir), "shadow-old"))
-
-    report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
-    report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "the pipeline metric was" in report_label_errors
-    assert "the pipeline metric was" in report_data_errors
-    assert "The original result" in report_fairness_slices
-
-    analysis_result = PipelineAnalyzer \
-        .on_changed_pipeline_from_py_file(analysis_result.dag_extraction_info, ADULT_COMPLEX_MODIFIED_PY) \
-        .add_shadow_pipelines(shadow_pipelines) \
-        .execute()
-    analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-new"))
-    analysis_result.save_shadow_pipeline_dags_to_path(os.path.join(str(tmpdir), "shadow-new"))
-
-    report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
-    report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "the pipeline metric was" in report_label_errors
-    assert "the pipeline metric was" in report_data_errors
-    assert "The original result" in report_fairness_slices
+    reuse_info = analysis_result.dag_extraction_info.reuse_info
+    assert len(reuse_info.operator_reexecuted) == 1
 
 
 def assert_healthcare_pipeline_output_complete(inspector_result):
     """ Assert that the healthcare DAG was extracted completely """
     for dag_node, _ in inspector_result.analysis_to_result_reports.items():
         assert dag_node.operator_info.operator != OperatorType.MISSING_OP
-    assert len(inspector_result.original_dag) == 52
+    assert len(inspector_result.original_dag) == 50

@@ -183,7 +183,7 @@ class FairnessSlices(ShadowPipeline):
                                             DagNodeDetails("Compute slice finder indexes", None),
                                             None,
                                             FairnessSlices.extract_slice_finder_result)
-        add_parent_node_edges(new_dag, slice_finder_indices_node, parents)
+        add_parent_node_edges(singleton, new_dag, slice_finder_indices_node, parents)
         return slice_finder_indices_node
 
     @staticmethod
@@ -312,7 +312,7 @@ class FairnessSlices(ShadowPipeline):
                                               parents[0].details.columns),
                                None,
                                processing_func)
-        add_parent_node_edges(new_dag, new_fix_node, parents)
+        add_parent_node_edges(singleton, new_dag, new_fix_node, parents)
         return new_fix_node
 
     def _add_slice_finder_computation(self, data_sources_with_sensitive_columns, new_dag, predict_operators,
@@ -339,7 +339,7 @@ class FairnessSlices(ShadowPipeline):
                                         DagNodeDetails("Run Slice Finder", None),
                                         None,
                                         slice_finder_process_func)
-        add_parent_node_edges(new_dag, new_slice_finder_node, parents)
+        add_parent_node_edges(singleton, new_dag, new_slice_finder_node, parents)
         return new_slice_finder_node
 
     def generate_final_report(self, extracted_plan_results: dict[str, any]) -> any:

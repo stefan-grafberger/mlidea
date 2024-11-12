@@ -40,7 +40,7 @@ def get_intermediate_extraction_node(singleton, dag, parents, label: str):
                                   DagNodeDetails(None, parents[0].details.columns),
                                   None,
                                   extract_intermediate)
-    add_parent_node_edges(dag, new_extraction_node, parents)
+    add_parent_node_edges(singleton, dag, new_extraction_node, parents)
     return new_extraction_node
 
 
@@ -53,7 +53,7 @@ def copy_node_with_new_id(singleton, dag, dag_node_to_copy, new_parents):
                      dag_node_to_copy.optional_code_info,
                      dag_node_to_copy.processing_func,
                      dag_node_to_copy.make_classifier_func)
-    add_parent_node_edges(dag, result, new_parents)
+    add_parent_node_edges(singleton, dag, result, new_parents)
     return result
 
 
@@ -314,7 +314,7 @@ def get_conditional_stop_node(singleton, dag, condition_func, function_info,
                                    DagNodeDetails(description, None),
                                    None,
                                    processing_func)
-    add_parent_node_edges(dag, new_conditional_node, parent_nodes)
+    add_parent_node_edges(singleton, dag, new_conditional_node, parent_nodes)
     return new_conditional_node
 
 
@@ -545,13 +545,15 @@ def get_diff_filter_node(singleton, dag, parents):
                                            parents[0].details.columns),
                                        None,
                                        apply_diff_filter)
-    add_parent_node_edges(dag, new_fix_diff_filter_node, parents)
+    add_parent_node_edges(singleton, dag, new_fix_diff_filter_node, parents)
     return new_fix_diff_filter_node
 
 
-def add_parent_node_edges(dag, node_with_parents, parents):
+def add_parent_node_edges(singleton, dag, node_with_parents, parents):
     for arg_index, parent in enumerate(parents):
         dag.add_edge(parent, node_with_parents, arg_index=arg_index)
+    singleton.reuse_info.op_id_to_dag_node[node_with_parents.node_id] = node_with_parents
+
 
 
 def get_changed_indices_node(singleton, dag, parent_nodes):
@@ -565,7 +567,7 @@ def get_changed_indices_node(singleton, dag, parent_nodes):
                                        DagNodeDetails("Detect changed indices", ["array"]),
                                        None,
                                        changed_data_diff_detection)
-    add_parent_node_edges(dag, new_changed_indices_node, parent_nodes)
+    add_parent_node_edges(singleton, dag, new_changed_indices_node, parent_nodes)
     return new_changed_indices_node
 
 
@@ -581,7 +583,7 @@ def merge_prediction_diff_with_old_predictions(singleton, dag, parent_nodes):
                                                               parent_nodes[0].details.columns),
                                                None,
                                                update_prediction_diff)
-    add_parent_node_edges(dag, new_fix_predict_diff_update_node, parent_nodes)
+    add_parent_node_edges(singleton, dag, new_fix_predict_diff_update_node, parent_nodes)
     return new_fix_predict_diff_update_node
 
 
@@ -681,7 +683,7 @@ def get_concat_node(singleton, new_dag, parents):
                           DagNodeDetails("Concat sensitive attributes", columns),
                           None,
                           concat_func)
-    add_parent_node_edges(new_dag, concat_node, parents)
+    add_parent_node_edges(singleton, new_dag, concat_node, parents)
     return concat_node
 
 
@@ -699,7 +701,7 @@ def get_prov_join_node(singleton, new_dag, parents):
                         DagNodeDetails("Join on provenance", columns),
                         None,
                         prov_join_with_data_source)
-    add_parent_node_edges(new_dag, join_node, parents)
+    add_parent_node_edges(singleton, new_dag, join_node, parents)
     return join_node
 
 
@@ -716,7 +718,7 @@ def get_projection_nodes(singleton, new_dag, parents, column_names):
                               DagNodeDetails(f"to {column_names}", column_names),
                               None,
                               projection_processing_func)
-    add_parent_node_edges(new_dag, projection_node, parents)
+    add_parent_node_edges(singleton, new_dag, projection_node, parents)
     return projection_node
 
 
@@ -735,7 +737,7 @@ def get_proxy_model_node(executor_singleton, dag, parent_nodes):
                                  DagNodeDetails(new_description, None, None),
                                  None,
                                  new_processing_func)
-    add_parent_node_edges(dag, new_estimator_node, parent_nodes)
+    add_parent_node_edges(executor_singleton, dag, new_estimator_node, parent_nodes)
     return new_estimator_node
 
 
@@ -778,5 +780,5 @@ def get_rag_join_update_node(singleton, new_dag, parents):
                                        DagNodeDetails("RAG join for test set diff", None),
                                        None,
                                        rag_join_update)
-    add_parent_node_edges(new_dag, new_rag_join_update_node, parents)
+    add_parent_node_edges(singleton, new_dag, new_rag_join_update_node, parents)
     return new_rag_join_update_node
