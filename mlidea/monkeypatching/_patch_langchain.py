@@ -151,7 +151,7 @@ class RunnableSequencePatching:
                 processing_func = partial(RunnableSequencePatching.execute_retriever, retriever_with_info)
                 optimizer_info, result = capture_optimizer_info(singleton, operator_call_info_rag,
                                                                 processing_func, [retriever_with_info[3],
-                                                                        test_data_result], {})
+                                                                        test_data_result])
                 description = "Embedding similarity join"
                 dag_node_rag = DagNode(singleton.get_next_op_id(operator_call_info_rag),
                                        input_info_a.dag_node.code_location,
@@ -176,7 +176,7 @@ class RunnableSequencePatching:
                                                               [dag_node_rag])
                 optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict,
                                                                                 processing_func_predict,
-                                                                                        [embedding_join_result], {})
+                                                                                        [embedding_join_result])
                 dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info_predict),
                                            BasicCodeLocation(caller_filename, lineno),
                                            operator_context_predict,
@@ -374,7 +374,7 @@ class ChromaPatching:
                 return new_result
 
             optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, processing_func,
-                                                            [train_data_result, train_labels_result], kwargs)
+                                                            [train_data_result, train_labels_result])
 
             dag_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                BasicCodeLocation(caller_filename, lineno),

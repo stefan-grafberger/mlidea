@@ -46,7 +46,7 @@ class FuzzyPandasPatching:
             # No input_infos copy needed because it's only a selection and the rows not being removed don't change
             optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, processing_func,
                                                             [input_info_a.annotated_dfobject.result_data,
-                                   input_info_b.annotated_dfobject.result_data], {})
+                                   input_info_b.annotated_dfobject.result_data])
             description = FuzzyPandasPatching.get_fuzzy_merge_description(**kwargs)
 
             dag_node = DagNode(singleton.get_next_op_id(operator_call_info),

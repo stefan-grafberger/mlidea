@@ -90,9 +90,16 @@ class XGBoostXGBClassifierPatching:
             operator_context = OperatorContext(OperatorType.ESTIMATOR, function_info, self.mlinspect_non_data_func_args)
             operator_call_info = OperatorCallInfo(operator_context, [train_data_node, train_labels_node])
             # input_dfs = [data_backend_result.annotated_dfobject, label_backend_result.annotated_dfobject]
-            optimizer_info, _ = capture_optimizer_info(singleton, operator_call_info, original,
-                                                       [self, train_data_result, train_labels_result, *args[2:]],
-                                                       kwargs, self, estimator_transformer_state=self)
+
+            def initial_func(estimator_self, train_data, train_labels):
+                fitted_estimator = original(estimator_self, train_data, train_labels, *args[2:], **kwargs)
+                return fitted_estimator
+
+            initial_func = partial(initial_func, self)
+
+            optimizer_info, _ = capture_optimizer_info(singleton, operator_call_info, initial_func,
+                                                       [train_data_result, train_labels_result],
+                                                       self, estimator_transformer_state=self)
             optimizer_info_with_search = OptimizerInfo(optimizer_info.runtime + param_search_runtime,
                                                        optimizer_info.shape, optimizer_info.memory)
             self.mlinspect_estimator_node_id = singleton.get_next_op_id(operator_call_info)
@@ -155,7 +162,7 @@ class XGBoostXGBClassifierPatching:
             estimator_dag_node = get_dag_node_for_id(self.mlinspect_estimator_node_id)
             operator_call_info_predict = OperatorCallInfo(operator_context_predict, [estimator_dag_node, test_data_node])
             optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict,
-                                                                            original_predict, [self, test_data_result], {})
+                                                                            original_predict, [self, test_data_result])
             dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info_predict),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
@@ -171,7 +178,7 @@ class XGBoostXGBClassifierPatching:
                                                           [dag_node_predict, test_labels_node])
             optimizer_info_score, result_score = capture_optimizer_info(singleton, operator_call_info_score,
                                                                         processing_func_score,
-                                                                        [result_predict, test_labels_result], {})
+                                                                        [result_predict, test_labels_result])
             dag_node_score = DagNode(singleton.get_next_op_id(operator_call_info_score),
                                      BasicCodeLocation(caller_filename, lineno),
                                      operator_context_score,
@@ -218,7 +225,7 @@ class XGBoostXGBClassifierPatching:
             operator_call_info_predict = OperatorCallInfo(operator_context_predict,
                                                         [estimator_dag_node, test_data_node])
             optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict,
-                                                                            original_predict, [self, test_data_result], {})
+                                                                            original_predict, [self, test_data_result])
             dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info_predict),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,

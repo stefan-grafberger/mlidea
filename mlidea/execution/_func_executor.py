@@ -23,7 +23,6 @@ from mlidea.monkeypatching._mlinspect_ndarray import MlideaChromaVectorStoreRetr
 
 def capture_optimizer_info(singleton, operator_call_info, instrumented_function_call: partial or None,
                            instrumented_function_call_args: list[any] or None,
-                           instrumented_function_call_kwargs: dict[str, any] or None,
                            obj_for_inplace_ops: any or None = None,
                            estimator_transformer_state: any or None = None,
                            keras_batch_size: int or None = None,
@@ -32,12 +31,10 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
                            current_dag_node: DagNode or None=None) \
         -> tuple[OptimizerInfo, any]:
     """Function to measure the runtime of instrumented user function calls and get output metadata"""
-    assert len(instrumented_function_call_kwargs) == 0
     if instrumented_function_call_args is None:
         instrumented_function_call_args = []
     if instrumented_function_call is not None:
-        original_func_call_with_args = partial(instrumented_function_call, *instrumented_function_call_args,
-                                               **instrumented_function_call_kwargs)
+        original_func_call_with_args = partial(instrumented_function_call, *instrumented_function_call_args)
     else:
         original_func_call_with_args = None
     execution_start = time.time()

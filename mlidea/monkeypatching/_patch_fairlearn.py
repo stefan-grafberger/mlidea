@@ -74,7 +74,7 @@ class MetricFramePatching:
             initial_func = partial(initial_func, original, self, kwargs['metrics'])
             initial_func_args = [kwargs["y_true"], kwargs["y_pred"], kwargs["sensitive_features"]]
 
-            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, initial_func, initial_func_args, {}, self)
+            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, initial_func, initial_func_args, self)
 
             def process_metric_frame(bound_metric, y_true, y_pred, sensitive_features):
                 if isinstance(y_true, pandas.Series):
@@ -144,7 +144,7 @@ class MetricsPatching:
                 initial_func_args.append(kwargs['sensitive_features'])
 
             call_info_singleton.score_active = True
-            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, process_metric_frame, initial_func_args, {})
+            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, process_metric_frame, initial_func_args)
             call_info_singleton.score_active = False
 
             dag_node = DagNode(singleton.get_next_op_id(operator_call_info),

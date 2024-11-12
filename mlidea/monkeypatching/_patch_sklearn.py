@@ -64,7 +64,7 @@ class SklearnPreprocessingPatching:
             op_id = singleton.get_next_op_id(operator_call_info)
             processing_func = wrap_projection_func(lambda df: original(df, *args[1:], **kwargs))
             optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, processing_func,
-                                                            [input_info.annotated_dfobject.result_data], {})
+                                                            [input_info.annotated_dfobject.result_data])
 
             classes = kwargs['classes']
             description = f"label_binarize, classes: {classes}"
@@ -114,7 +114,7 @@ class SklearnModelSelectionPatching:
 
             prov_func_w_wrapping = wrap_train_test_split_func(train_test_split_and_wrapping)
             optimizer_info, result = capture_optimizer_info(singleton, operator_call_info_orig, prov_func_w_wrapping,
-                                                            [input_info.annotated_dfobject.result_data], {})
+                                                            [input_info.annotated_dfobject.result_data])
 
             def train_test_split_train(split_result):
                 return split_result.train
@@ -141,7 +141,7 @@ class SklearnModelSelectionPatching:
             # TODO: Could also use train_test_split_train here
             prov_func_w_wrapping = wrap_projection_func(lambda df: df)
             optimizer_info_train, result_train = capture_optimizer_info(singleton, operator_call_info_train,
-                                                                        prov_func_w_wrapping, [result.train], {})
+                                                                        prov_func_w_wrapping, [result.train])
             dag_node = DagNode(singleton.get_next_op_id(operator_call_info_train),
                                BasicCodeLocation(caller_filename, lineno),
                                train_operator_context,
@@ -160,7 +160,7 @@ class SklearnModelSelectionPatching:
                                                     test_non_data_kwargs)
             operator_call_info_test = OperatorCallInfo(test_operator_context, [main_dag_node])
             optimizer_info_test, result_test = capture_optimizer_info(singleton, operator_call_info_test,
-                                                                      prov_func_w_wrapping, [result.test], {})
+                                                                      prov_func_w_wrapping, [result.test])
             dag_node = DagNode(singleton.get_next_op_id(operator_call_info_test),
                                BasicCodeLocation(caller_filename, lineno),
                                test_operator_context,
@@ -258,8 +258,9 @@ class SklearnGridSearchCVPatching:
         original = gorilla.get_original_attribute(model_selection.GridSearchCV, '_run_search')
         # TODO: Handle Grid Search better
         operator_call_info = OperatorCallInfo(OperatorContext(OperatorType.MISSING_OP, None, {}), [])
-        optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, original,
-                                                        [self, *args], kwargs, self)
+        initial_func = partial(original, self, *args, **kwargs)
+        optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, initial_func,
+                                                        [], self)
         call_info_singleton.param_search_active = False
         call_info_singleton.param_search_duration = optimizer_info.runtime
 
@@ -354,9 +355,6 @@ class SklearnComposePatching:
         operator_call_info = OperatorCallInfo(operator_context, input_infos)
         # input_annotated_dfs = [input_info.annotated_dfobject for input_info in input_infos]
         # No input_infos copy needed because it's only a selection and the rows not being removed don't change
-        initial_func = wrap_projection_func(lambda df: original(self, df, *args[1:], **kwargs))
-        optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, initial_func, [args[0]], {})
-
         def processing_func(*input_dfs):
             transformer = compose.ColumnTransformer(**self.mlinspect_non_data_func_args)
             # This is code out of the ColumnTransformer, maybe we can find a cleaner concat solution in the future
@@ -369,7 +367,7 @@ class SklearnComposePatching:
             else:
                 transformer.sparse_output_ = False
             n_samples = _num_samples(input_dfs[0])
-            transformed_data = transformer._hstack(input_dfs, n_samples=n_samples)
+            transformed_data = original(transformer, Xs=input_dfs, n_samples=n_samples)
             transformed_data = wrap_in_mlinspect_array_if_necessary(transformed_data)
             # Not sure if this might be necessary at some point
             # transformed_data._mlinspect_annotation = transformer
@@ -377,6 +375,9 @@ class SklearnComposePatching:
 
         # Treating this as projection here is only okay because this is a ColumnTransformer concat
         processing_func = wrap_projection_func(processing_func)
+
+
+        optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, processing_func, args[0])
 
         dag_node = DagNode(singleton.get_next_op_id(operator_call_info),
                            BasicCodeLocation(self.mlinspect_filename, self.mlinspect_lineno),
@@ -449,7 +450,7 @@ class SklearnStandardScalerPatching:
         operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info, self.mlinspect_non_data_func_args)
         orig_func_prov = wrap_projection_func(lambda df: original(self, df, *args[1:], **kwargs))
         operator_call_info = OperatorCallInfo(operator_context, [input_info])
-        optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov, [input_info.annotated_dfobject.result_data], {},
+        optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov, [input_info.annotated_dfobject.result_data],
                                                         estimator_transformer_state=self)
         dag_node_id = singleton.get_next_op_id(operator_call_info)
         self.mlinspect_transformer_node_id = dag_node_id
@@ -490,7 +491,7 @@ class SklearnStandardScalerPatching:
             operator_call_info = OperatorCallInfo(operator_context, [transformer_dag_node, input_info.dag_node])
             orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
             optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov,
-                                                            [self, input_info.annotated_dfobject.result_data], {})
+                                                            [self, input_info.annotated_dfobject.result_data])
             dag_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                BasicCodeLocation(self.mlinspect_caller_filename, self.mlinspect_lineno),
                                operator_context,
@@ -567,7 +568,7 @@ class SklearnRobustScalerPatching:
         operator_call_info = OperatorCallInfo(operator_context, [input_info])
         orig_func_prov = wrap_projection_func(lambda df: original(self, df, *args[1:], **kwargs))
         optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov,
-                                                        [input_info.annotated_dfobject.result_data], {},
+                                                        [input_info.annotated_dfobject.result_data],
                                                         estimator_transformer_state=self)
         dag_node_id = singleton.get_next_op_id(operator_call_info)
         self.mlinspect_transformer_node_id = dag_node_id
@@ -608,7 +609,7 @@ class SklearnRobustScalerPatching:
             operator_call_info = OperatorCallInfo(operator_context, [transformer_dag_node, input_info.dag_node])
             orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
             optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov,
-                                                            [self, input_info.annotated_dfobject.result_data], {})
+                                                            [self, input_info.annotated_dfobject.result_data])
             dag_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                BasicCodeLocation(self.mlinspect_caller_filename, self.mlinspect_lineno),
                                operator_context,
@@ -696,7 +697,7 @@ class SklearnCountVectorizerPatching:
         operator_call_info = OperatorCallInfo(operator_context, [input_info.dag_node])
         orig_func_prov = wrap_projection_func(lambda df: original(self, df, *args[1:], **kwargs))
         optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov,
-                                                        [input_info.annotated_dfobject.result_data], {},
+                                                        [input_info.annotated_dfobject.result_data],
                                                         estimator_transformer_state=self)
         dag_node_id = singleton.get_next_op_id(operator_call_info)
         self.mlinspect_transformer_node_id = dag_node_id
@@ -737,7 +738,7 @@ class SklearnCountVectorizerPatching:
             operator_call_info = OperatorCallInfo(operator_context, [transformer_dag_node, input_info.dag_node])
             orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
             optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov,
-                                                            [self, input_info.annotated_dfobject.result_data], {})
+                                                            [self, input_info.annotated_dfobject.result_data])
             dag_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                BasicCodeLocation(self.mlinspect_caller_filename, self.mlinspect_lineno),
                                operator_context,
@@ -812,7 +813,7 @@ class SklearnTfidfTransformerPatching:
         operator_call_info = OperatorCallInfo(operator_context, [input_info.dag_node])
         orig_func_prov = wrap_projection_func(lambda df: original(self, df, *args[1:], **kwargs))
         optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov,
-                                                        [input_info.annotated_dfobject.result_data], {},
+                                                        [input_info.annotated_dfobject.result_data],
                                                         estimator_transformer_state=self)
         dag_node_id = singleton.get_next_op_id(operator_call_info)
         self.mlinspect_transformer_node_id = dag_node_id
@@ -853,7 +854,7 @@ class SklearnTfidfTransformerPatching:
             operator_call_info = OperatorCallInfo(operator_context, [transformer_dag_node, input_info.dag_node])
             orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
             optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov,
-                                                            [self, input_info.annotated_dfobject.result_data], {})
+                                                            [self, input_info.annotated_dfobject.result_data])
             dag_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                BasicCodeLocation(self.mlinspect_caller_filename, self.mlinspect_lineno),
                                operator_context,
@@ -928,7 +929,7 @@ class SklearnTruncatedSVDPatching:
         operator_call_info = OperatorCallInfo(operator_context, [input_info.dag_node])
         orig_func_prov = wrap_projection_func(lambda df: original(self, df, *args[1:], **kwargs))
         optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov,
-                                                        [input_info.annotated_dfobject.result_data], {},
+                                                        [input_info.annotated_dfobject.result_data],
                                                         estimator_transformer_state=self)
         dag_node_id = singleton.get_next_op_id(operator_call_info)
         self.mlinspect_transformer_node_id = dag_node_id
@@ -969,7 +970,7 @@ class SklearnTruncatedSVDPatching:
             operator_call_info = OperatorCallInfo(operator_context, [transformer_dag_node, input_info.dag_node])
             orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
             optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov,
-                                                            [self, input_info.annotated_dfobject.result_data], {})
+                                                            [self, input_info.annotated_dfobject.result_data])
             dag_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                BasicCodeLocation(self.mlinspect_caller_filename, self.mlinspect_lineno),
                                operator_context,
@@ -1047,7 +1048,7 @@ class SklearnPCAPatching:
         operator_call_info = OperatorCallInfo(operator_context, [input_info.dag_node])
         orig_func_prov = wrap_projection_func(lambda df: original(self, df, *args[1:], **kwargs))
         optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov,
-                                                        [input_info.annotated_dfobject.result_data], {},
+                                                        [input_info.annotated_dfobject.result_data],
                                                         estimator_transformer_state=self)
         dag_node_id = singleton.get_next_op_id(operator_call_info)
         self.mlinspect_transformer_node_id = dag_node_id
@@ -1088,7 +1089,7 @@ class SklearnPCAPatching:
             operator_call_info = OperatorCallInfo(operator_context, [transformer_dag_node, input_info.dag_node])
             orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
             optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov,
-                                                            [self, input_info.annotated_dfobject.result_data], {})
+                                                            [self, input_info.annotated_dfobject.result_data])
             dag_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                BasicCodeLocation(self.mlinspect_caller_filename, self.mlinspect_lineno),
                                operator_context,
@@ -1177,7 +1178,7 @@ class SklearnFeatureUnionPatching:
 
         operator_context = OperatorContext(OperatorType.CONCATENATION, function_info, fit_params)
         operator_call_info = OperatorCallInfo(operator_context, input_infos)
-        optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, processing_func, Xs, {},
+        optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, processing_func, Xs,
                                                         estimator_transformer_state=self)
         dag_node_id = singleton.get_next_op_id(operator_call_info)
         self.mlinspect_transformer_node_id = dag_node_id
@@ -1241,7 +1242,7 @@ class SklearnFeatureUnionPatching:
 
             operator_context = OperatorContext(OperatorType.CONCATENATION, function_info, {})
             operator_call_info = OperatorCallInfo(operator_context, input_infos)
-            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, processing_func, Xs, {})
+            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, processing_func, Xs)
             dag_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                BasicCodeLocation(self.mlinspect_caller_filename, self.mlinspect_lineno),
                                operator_context,
@@ -1327,7 +1328,7 @@ class SklearnHasingVectorizerPatching:
         operator_call_info = OperatorCallInfo(operator_context, [input_info.dag_node])
         orig_func_prov = wrap_projection_func(lambda df: original(self, df, *args[1:], **kwargs))
         optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov,
-                                                        [input_info.annotated_dfobject.result_data], {},
+                                                        [input_info.annotated_dfobject.result_data],
                                                         estimator_transformer_state=self)
         dag_node_id = singleton.get_next_op_id(operator_call_info)
         self.mlinspect_transformer_node_id = dag_node_id
@@ -1366,7 +1367,7 @@ class SklearnHasingVectorizerPatching:
             operator_call_info = OperatorCallInfo(operator_context, [transformer_dag_node, input_info.dag_node])
             orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
             optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov,
-                                                            [self, input_info.annotated_dfobject.result_data], {})
+                                                            [self, input_info.annotated_dfobject.result_data])
             dag_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                BasicCodeLocation(self.mlinspect_caller_filename, self.mlinspect_lineno),
                                operator_context,
@@ -1438,7 +1439,7 @@ class SklearnKBinsDiscretizerPatching:
         operator_call_info = OperatorCallInfo(operator_context, [input_info.dag_node])
         orig_func_prov = wrap_projection_func(lambda df: original(self, df, *args[1:], **kwargs))
         optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov,
-                                                        [input_info.annotated_dfobject.result_data], {},
+                                                        [input_info.annotated_dfobject.result_data],
                                                         estimator_transformer_state=self)
         dag_node_id = singleton.get_next_op_id(operator_call_info)
         self.mlinspect_transformer_node_id = dag_node_id
@@ -1478,7 +1479,7 @@ class SklearnKBinsDiscretizerPatching:
             operator_call_info = OperatorCallInfo(operator_context, [transformer_dag_node, input_info.dag_node])
             orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
             optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov,
-                                                            [self, input_info.annotated_dfobject.result_data], {})
+                                                            [self, input_info.annotated_dfobject.result_data])
             dag_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                BasicCodeLocation(self.mlinspect_caller_filename, self.mlinspect_lineno),
                                operator_context,
@@ -1553,7 +1554,7 @@ class SklearnOneHotEncoderPatching:
         operator_call_info = OperatorCallInfo(operator_context, [input_info.dag_node])
         orig_func_prov = wrap_projection_func(lambda df: original(self, df, *args[1:], **kwargs))
         optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov,
-                                                        [input_info.annotated_dfobject.result_data], {},
+                                                        [input_info.annotated_dfobject.result_data],
                                                         estimator_transformer_state=self)
         dag_node_id = singleton.get_next_op_id(operator_call_info)
         self.mlinspect_transformer_node_id = dag_node_id
@@ -1592,7 +1593,7 @@ class SklearnOneHotEncoderPatching:
             operator_call_info = OperatorCallInfo(operator_context, [transformer_dag_node, input_info.dag_node])
             orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
             optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov,
-                                                            [self, input_info.annotated_dfobject.result_data], {})
+                                                            [self, input_info.annotated_dfobject.result_data])
             dag_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                BasicCodeLocation(self.mlinspect_caller_filename, self.mlinspect_lineno),
                                operator_context,
@@ -1668,7 +1669,7 @@ class SklearnSimpleImputerPatching:
         operator_call_info = OperatorCallInfo(operator_context, [input_info.dag_node])
         orig_func_prov = wrap_projection_func(lambda df: original(self, df, *args[1:], **kwargs))
         optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov,
-                                                        [input_info.annotated_dfobject.result_data], {},
+                                                        [input_info.annotated_dfobject.result_data],
                                                         estimator_transformer_state=self)
         if isinstance(input_info.annotated_dfobject.result_data, pandas.DataFrame):
             columns = list(input_info.annotated_dfobject.result_data.columns)
@@ -1712,7 +1713,7 @@ class SklearnSimpleImputerPatching:
             operator_call_info = OperatorCallInfo(operator_context, [transformer_dag_node, input_info.dag_node])
             orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
             optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov,
-                                                            [self, input_info.annotated_dfobject.result_data], {})
+                                                            [self, input_info.annotated_dfobject.result_data])
             if isinstance(input_info.annotated_dfobject.result_data, pandas.DataFrame):
                 columns = list(input_info.annotated_dfobject.result_data.columns)
             else:
@@ -1802,7 +1803,7 @@ class SklearnFunctionTransformerPatching:
             singleton.disable_monkey_patching = True
             orig_func_prov = wrap_projection_func(lambda df: original(self, df, *args[1:], **kwargs))
             optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov,
-                                                            [input_info.annotated_dfobject.result_data], {},
+                                                            [input_info.annotated_dfobject.result_data],
                                                             estimator_transformer_state=self)
             # Enable monkey patching again
             singleton.disable_monkey_patching = False
@@ -1853,7 +1854,7 @@ class SklearnFunctionTransformerPatching:
             singleton.disable_monkey_patching = True
             orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
             optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov,
-                                                            [self, input_info.annotated_dfobject.result_data], {})
+                                                            [self, input_info.annotated_dfobject.result_data])
             # Enable monkey patching again
             singleton.disable_monkey_patching = False
             # End disable hack
@@ -1964,8 +1965,15 @@ class SklearnDecisionTreePatching:
             operator_context = OperatorContext(OperatorType.ESTIMATOR, function_info, self.mlinspect_non_data_func_args)
             operator_call_info = OperatorCallInfo(operator_context, [train_data_node, train_labels_node])
             # input_dfs = [data_backend_result.annotated_dfobject, label_backend_result.annotated_dfobject]
-            optimizer_info, _ = capture_optimizer_info(singleton, operator_call_info, original,
-                                                       [self, train_data_result, train_labels_result, *args[2:]], kwargs, self,
+
+            def initial_func(estimator_self, train_data, train_labels):
+                fitted_estimator = original(estimator_self, train_data, train_labels, *args[2:], **kwargs)
+                return fitted_estimator
+
+            initial_func = partial(initial_func, self)
+
+            optimizer_info, _ = capture_optimizer_info(singleton, operator_call_info, initial_func,
+                                                       [train_data_result, train_labels_result], self,
                                                        estimator_transformer_state=self)
             optimizer_info_with_search = OptimizerInfo(optimizer_info.runtime + param_search_runtime,
                                                        optimizer_info.shape, optimizer_info.memory)
@@ -2027,7 +2035,7 @@ class SklearnDecisionTreePatching:
                                                           [estimator_dag_node, test_data_node])
             optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict,
                                                                             original_predict,
-                                                                            [self, test_data_result], {})
+                                                                            [self, test_data_result])
             dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info_predict),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
@@ -2043,7 +2051,7 @@ class SklearnDecisionTreePatching:
                                                         [dag_node_predict, test_labels_node])
             optimizer_info_score, result_score = capture_optimizer_info(singleton, operator_call_info_score,
                                                                         processing_func_score,
-                                                                        [result_predict, test_labels_result], {})
+                                                                        [result_predict, test_labels_result])
             dag_node_score = DagNode(singleton.get_next_op_id(operator_call_info_score),
                                      BasicCodeLocation(caller_filename, lineno),
                                      operator_context_score,
@@ -2091,7 +2099,7 @@ class SklearnDecisionTreePatching:
             operator_call_info_predict = OperatorCallInfo(operator_context_predict,
                                                           [estimator_dag_node, test_data_node])
             optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict,
-                                                                            original_predict, [self, test_data_result], {})
+                                                                            original_predict, [self, test_data_result])
             dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info_predict),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
@@ -2198,8 +2206,15 @@ class SklearnSGDClassifierPatching:
             operator_context = OperatorContext(OperatorType.ESTIMATOR, function_info, self.mlinspect_non_data_func_args)
             operator_call_info = OperatorCallInfo(operator_context, [train_data_node, train_labels_node])
             # input_dfs = [data_backend_result.annotated_dfobject, label_backend_result.annotated_dfobject]
-            optimizer_info, _ = capture_optimizer_info(singleton, operator_call_info, original,
-                                                       [self, train_data_result, train_labels_result, *args[2:]], kwargs, self,
+
+            def initial_func(estimator_self, train_data, train_labels):
+                fitted_estimator = original(estimator_self, train_data, train_labels, *args[2:], **kwargs)
+                return fitted_estimator
+
+            initial_func = partial(initial_func, self)
+
+            optimizer_info, _ = capture_optimizer_info(singleton, operator_call_info, initial_func,
+                                                       [train_data_result, train_labels_result], self,
                                                        estimator_transformer_state=self)
             optimizer_info_with_search = OptimizerInfo(optimizer_info.runtime + param_search_runtime,
                                                        optimizer_info.shape, optimizer_info.memory)
@@ -2264,7 +2279,7 @@ class SklearnSGDClassifierPatching:
                                                           [estimator_dag_node, test_data_node])
             optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict,
                                                                             original_predict,
-                                                                            [self, test_data_result], {})
+                                                                            [self, test_data_result])
             dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info_predict),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
@@ -2279,7 +2294,7 @@ class SklearnSGDClassifierPatching:
             operator_call_info_score = OperatorCallInfo(operator_context_score,
                                                         [dag_node_predict, test_labels_node])
             optimizer_info_score, result_score = capture_optimizer_info(singleton, operator_call_info_score,
-                                                                        processing_func_score, [result_predict, test_labels_result], {})
+                                                                        processing_func_score, [result_predict, test_labels_result])
             dag_node_score = DagNode(singleton.get_next_op_id(operator_call_info_score),
                                      BasicCodeLocation(caller_filename, lineno),
                                      operator_context_score,
@@ -2327,7 +2342,7 @@ class SklearnSGDClassifierPatching:
             operator_call_info_predict = OperatorCallInfo(operator_context_predict,
                                                           [estimator_dag_node, test_data_node])
             optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict,
-                                                                            original_predict, [self, test_data_result], {})
+                                                                            original_predict, [self, test_data_result])
             dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info_predict),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
@@ -2430,8 +2445,15 @@ class SklearnLogisticRegressionPatching:
             operator_context = OperatorContext(OperatorType.ESTIMATOR, function_info, self.mlinspect_non_data_func_args)
             operator_call_info = OperatorCallInfo(operator_context, [train_data_node, train_labels_node])
             # input_dfs = [data_backend_result.annotated_dfobject, label_backend_result.annotated_dfobject]
-            optimizer_info, _ = capture_optimizer_info(singleton, operator_call_info, original,
-                                                       [self, train_data_result, train_labels_result, *args[2:]], kwargs, self,
+
+            def initial_func(estimator_self, train_data, train_labels):
+                fitted_estimator = original(estimator_self, train_data, train_labels, *args[2:], **kwargs)
+                return fitted_estimator
+
+            initial_func = partial(initial_func, self)
+
+            optimizer_info, _ = capture_optimizer_info(singleton, operator_call_info, initial_func,
+                                                       [train_data_result, train_labels_result], self,
                                                        estimator_transformer_state=self)
             optimizer_info_with_search = OptimizerInfo(optimizer_info.runtime + param_search_runtime,
                                                        optimizer_info.shape, optimizer_info.memory)
@@ -2498,7 +2520,7 @@ class SklearnLogisticRegressionPatching:
                                                           [estimator_dag_node, test_data_node])
             optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict,
                                                                             original_predict,
-                                                                            [self, test_data_result], {})
+                                                                            [self, test_data_result])
             dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info_predict),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
@@ -2514,7 +2536,7 @@ class SklearnLogisticRegressionPatching:
                                                         [dag_node_predict, test_labels_node])
             optimizer_info_score, result_score = capture_optimizer_info(singleton, operator_call_info_score,
                                                                         processing_func_score,
-                                                                        [result_predict, test_labels_result], {})
+                                                                        [result_predict, test_labels_result])
             dag_node_score = DagNode(singleton.get_next_op_id(operator_call_info_score),
                                      BasicCodeLocation(caller_filename, lineno),
                                      operator_context_score,
@@ -2562,7 +2584,7 @@ class SklearnLogisticRegressionPatching:
             operator_call_info_predict = OperatorCallInfo(operator_context_predict,
                                                           [estimator_dag_node, test_data_node])
             optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict,
-                                                                            original_predict, [self, test_data_result], {})
+                                                                            original_predict, [self, test_data_result])
             dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info_predict),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
@@ -2677,11 +2699,18 @@ class SklearnKerasClassifierPatching:
             operator_call_info = OperatorCallInfo(operator_context, [train_data_dag_node, train_labels_dag_node])
             # input_dfs = [data_backend_result.annotated_dfobject, label_backend_result.annotated_dfobject]
             keras_batch_size = self.mlinspect_non_data_func_args.get("batch_size", 32)
+
+            def initial_func(estimator_self, train_data, train_labels):
+                fitted_estimator = original(estimator_self, train_data, train_labels, *args[2:], **kwargs)
+                return fitted_estimator
+
+            initial_func = partial(initial_func, self)
+
             call_info_singleton.scikeras_classifier_active = True
             optimizer_info, _ = capture_optimizer_info(singleton, operator_call_info,
-                                                       original,
-                                                       [self, train_data_result, train_labels_result, *args[2:]],
-                                                       kwargs, self, estimator_transformer_state=self,
+                                                       initial_func,
+                                                       [train_data_result, train_labels_result],
+                                                       self, estimator_transformer_state=self,
                                                        keras_batch_size=keras_batch_size)
             call_info_singleton.scikeras_classifier_active = False
             optimizer_info_with_search = OptimizerInfo(optimizer_info.runtime + param_search_runtime,
@@ -2754,7 +2783,7 @@ class SklearnKerasClassifierPatching:
                                                           [estimator_dag_node, test_data_node])
             optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict,
                                                                             uninstrumented_predict,
-                                                                            [self, test_data_result], {})
+                                                                            [self, test_data_result])
             call_info_singleton.scikeras_classifier_active = False
 
             dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info_predict),
@@ -2774,7 +2803,7 @@ class SklearnKerasClassifierPatching:
             call_info_singleton.scikeras_classifier_active = True
             optimizer_info_score, result_score = capture_optimizer_info(singleton, operator_call_info_score,
                                                                         processing_func_score,
-                                                                        [result_predict, test_labels_result, *args[2:]], kwargs)
+                                                                        [result_predict, test_labels_result])
             call_info_singleton.scikeras_classifier_active = False
 
             dag_node_score = DagNode(singleton.get_next_op_id(operator_call_info_score),
@@ -2828,7 +2857,7 @@ class SklearnKerasClassifierPatching:
             call_info_singleton.scikeras_classifier_active = True
             optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict,
                                                                             wrap_predict_func(original),
-                                                                            [self, test_data_result], {})
+                                                                            [self, test_data_result])
             call_info_singleton.scikeras_classifier_active = False
 
             dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info_predict),
@@ -2887,7 +2916,7 @@ class MetricsPatching:
             operator_call_info = OperatorCallInfo(operator_context,
                                                   [input_info_pred.dag_node, test_labels_node])
             call_info_singleton.score_active = True
-            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, original, [y_true, y_pred, *args], kwargs)
+            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, original, [y_true, y_pred])
             call_info_singleton.score_active = False
 
             def process_metric_frame(y_true, y_pred):
@@ -2980,8 +3009,15 @@ class SklearnDummyClassifierPatching:
             operator_call_info = OperatorCallInfo(operator_context,
                                                   [train_data_node, train_labels_node])
             # input_dfs = [data_backend_result.annotated_dfobject, label_backend_result.annotated_dfobject]
-            optimizer_info, _ = capture_optimizer_info(singleton, operator_call_info, original,
-                                                       [self, train_data_result, train_labels_result, *args[2:]], kwargs, self,
+
+            def initial_func(estimator_self, train_data, train_labels):
+                fitted_estimator = original(estimator_self, train_data, train_labels, *args[2:], **kwargs)
+                return fitted_estimator
+
+            initial_func = partial(initial_func, self)
+
+            optimizer_info, _ = capture_optimizer_info(singleton, operator_call_info, initial_func,
+                                                       [train_data_result, train_labels_result], self,
                                                        estimator_transformer_state=self)
             optimizer_info_with_search = OptimizerInfo(optimizer_info.runtime + param_search_runtime,
                                                        optimizer_info.shape, optimizer_info.memory)
@@ -3046,7 +3082,7 @@ class SklearnDummyClassifierPatching:
             operator_call_info_predict = OperatorCallInfo(operator_context_predict,
                                                           [estimator_dag_node, test_data_node])
             optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict,
-                                                                            original_predict, [self, test_data_result], {})
+                                                                            original_predict, [self, test_data_result])
             dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info_predict),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
@@ -3061,7 +3097,7 @@ class SklearnDummyClassifierPatching:
             operator_call_info_score = OperatorCallInfo(operator_context_score,
                                                         [dag_node_predict, test_labels_node])
             optimizer_info_score, result_score = capture_optimizer_info(singleton, operator_call_info_score,
-                                                                        processing_func_score, [result_predict, test_labels_result], {})
+                                                                        processing_func_score, [result_predict, test_labels_result])
             dag_node_score = DagNode(singleton.get_next_op_id(operator_call_info_score),
                                      BasicCodeLocation(caller_filename, lineno),
                                      operator_context_score,
@@ -3108,7 +3144,7 @@ class SklearnDummyClassifierPatching:
             operator_call_info_predict = OperatorCallInfo(operator_context_predict,
                                                           [estimator_dag_node, test_data_node])
             optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict,
-                                                                            original_predict, [self, test_data_result], {})
+                                                                            original_predict, [self, test_data_result])
             dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info_predict),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
@@ -3216,8 +3252,15 @@ class SklearnSVCPatching:
             operator_call_info = OperatorCallInfo(operator_context,
                                                   [train_data_node, train_labels_node])
             # input_dfs = [data_backend_result.annotated_dfobject, label_backend_result.annotated_dfobject]
-            optimizer_info, _ = capture_optimizer_info(singleton, operator_call_info, original,
-                                                       [self, train_data_result, train_labels_result, *args[2:]], kwargs, self,
+
+            def initial_func(estimator_self, train_data, train_labels):
+                fitted_estimator = original(estimator_self, train_data, train_labels, *args[2:], **kwargs)
+                return fitted_estimator
+
+            initial_func = partial(initial_func, self)
+
+            optimizer_info, _ = capture_optimizer_info(singleton, operator_call_info, initial_func,
+                                                       [train_data_result, train_labels_result], self,
                                                        estimator_transformer_state=self)
             optimizer_info_with_search = OptimizerInfo(optimizer_info.runtime + param_search_runtime,
                                                        optimizer_info.shape, optimizer_info.memory)
@@ -3282,7 +3325,7 @@ class SklearnSVCPatching:
             operator_call_info_predict = OperatorCallInfo(operator_context_predict,
                                                           [estimator_dag_node, test_data_node])
             optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict,
-                                                                            original_predict, [self, test_data_result], {})
+                                                                            original_predict, [self, test_data_result])
             dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info_predict),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
@@ -3299,7 +3342,7 @@ class SklearnSVCPatching:
                                                         [estimator_dag_node, test_data_node])
             optimizer_info_score, result_score = capture_optimizer_info(singleton, operator_call_info_score,
                                                                         processing_func_score,
-                                                                        [result_predict, test_labels_result], {})
+                                                                        [result_predict, test_labels_result])
             dag_node_score = DagNode(singleton.get_next_op_id(operator_call_info_score),
                                      BasicCodeLocation(caller_filename, lineno),
                                      operator_context_score,
@@ -3346,7 +3389,7 @@ class SklearnSVCPatching:
             operator_call_info_predict = OperatorCallInfo(operator_context_predict,
                                                           [estimator_dag_node, test_data_node])
             optimizer_info_predict, result_predict = capture_optimizer_info(singleton, operator_call_info_predict,
-                                                                            original_predict, [self, test_data_result], {})
+                                                                            original_predict, [self, test_data_result])
             dag_node_predict = DagNode(singleton.get_next_op_id(operator_call_info_predict),
                                        BasicCodeLocation(caller_filename, lineno),
                                        operator_context_predict,
