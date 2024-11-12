@@ -6,17 +6,14 @@ from inspect import cleandoc
 
 from testfixtures import compare
 
-from example_pipelines import ANHEDONIA_LLM_MODIFIED_PY, \
-    ANHEDONIA_LLM_PY, ADULT_COMPLEX_PY, ADULT_COMPLEX_MODIFIED_PY
 from mlidea import PipelineAnalyzer
 from mlidea.utils import get_project_root
 
 DATABASE_PATH_FUNC_TRANSFORMER = f"{str(get_project_root())}/test/offline/.function_transformer_cache.db"
 
-# TODO: Start with Anhedonia and projections that don't affect relevant columns
-#  Maybe we have something like that in Adult Complex
-
-# Differentiate between cases: operator replacement, operator deletion, operator addition, transformer change or not
+# TODO: Differentiate more between cases: operator replacement, operator deletion, operator addition, transformer
+#  change or not. However, for the end-to-end pipelines we already do this, but we need to do this in more detail
+#  when working on the IVM
 
 def test_changed_pipeline_code_regex_change_or(tmpdir):
     """
@@ -49,9 +46,9 @@ def test_changed_pipeline_code_regex_change_or(tmpdir):
     compare(expected={0, 1, 2, 3}, actual=all_nodes_before)
     compare(expected={0, 2, 4, 5}, actual=all_nodes_after)
 
-    # TODO: Use the new reuse info for testing
-    
-    # Now check if nodes were updated as they should be
+    reuse_info = after.dag_extraction_info.reuse_info
+    assert len(reuse_info.operator_reexecuted) == 1
+    assert len(reuse_info.operator_replacement) == 1
 
 
 def run_code_before_and_after(test_code_after, test_code_before, tmpdir):
