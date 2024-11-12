@@ -32,10 +32,9 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
                            current_dag_node: DagNode or None=None) \
         -> tuple[OptimizerInfo, any]:
     """Function to measure the runtime of instrumented user function calls and get output metadata"""
+    assert len(instrumented_function_call_kwargs) == 0
     if instrumented_function_call_args is None:
         instrumented_function_call_args = []
-    if instrumented_function_call_kwargs is None:
-        instrumented_function_call_kwargs = {}
     if instrumented_function_call is not None:
         original_func_call_with_args = partial(instrumented_function_call, *instrumented_function_call_args,
                                                **instrumented_function_call_kwargs)
