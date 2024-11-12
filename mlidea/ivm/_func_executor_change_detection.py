@@ -96,7 +96,7 @@ def determine_parent_change_type(new_dag, new_dag_parent_node, new_dag_parent_op
             OutputChangeType.TOO_MUCH_CHANGED)
 
 
-def determine_is_deletion(singleton, new_dag, new_dag_parent_node, old_dag):
+def determine_is_deletion(_, new_dag, new_dag_parent_node, old_dag):
     # We can check the old DAG: if new_dag_parent_node is in the old DAG, but has a parent that does
     #  not exist in the new DAG, but if the parent parent exists in the new DAG
     is_deletion = False

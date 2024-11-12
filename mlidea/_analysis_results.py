@@ -31,6 +31,7 @@ class RuntimeInfo:
 
 @dataclasses.dataclass
 class ReuseInfo:
+    # pylint: disable=too-many-instance-attributes
     op_id_to_dag_node: dict
     cached_intermediates: dict
     operator_call_info_to_dag_node: dict

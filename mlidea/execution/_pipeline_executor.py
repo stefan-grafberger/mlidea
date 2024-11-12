@@ -128,16 +128,7 @@ class PipelineExecutor:
 
         if extraction_info is not None:
             logger.info('Reusing DAG extraction results results from previously instrumented pipeline...')
-            self.analysis_results.runtime_info.original_pipeline_without_importing_and_monkeypatching = None
-            self.next_op_id = extraction_info.next_op_id
-            self.next_patch_id = 0
-            self.next_missing_op_id = extraction_info.next_missing_op_id
-            self.reuse_info.cached_intermediates = extraction_info.reuse_info.cached_intermediates
-            self.reuse_info.operator_call_info_to_dag_node = extraction_info.reuse_info.operator_call_info_to_dag_node.copy()
-            self.reuse_info.op_id_to_dag_node = extraction_info.reuse_info.op_id_to_dag_node.copy()
-            self.old_dag = extraction_info.original_dag.copy()
-            self.old_shadow_pipelines = copy.deepcopy(extraction_info.shadow_pipelines)
-            self.global_old_dag = networkx.compose_all([self.old_dag, *(self.old_shadow_pipelines or [])])
+            self.initialize_state_from_extraction_info(extraction_info)
 
         if notebook_path is None and python_code is None and python_path is None:
             self.analysis_results.original_dag = extraction_info.original_dag.copy()
@@ -171,6 +162,18 @@ class PipelineExecutor:
 
         logger.info('Done!')
         return self.analysis_results
+
+    def initialize_state_from_extraction_info(self, extraction_info):
+        self.analysis_results.runtime_info.original_pipeline_without_importing_and_monkeypatching = None
+        self.next_op_id = extraction_info.next_op_id
+        self.next_patch_id = 0
+        self.next_missing_op_id = extraction_info.next_missing_op_id
+        self.reuse_info.cached_intermediates = extraction_info.reuse_info.cached_intermediates
+        self.reuse_info.operator_call_info_to_dag_node = extraction_info.reuse_info.operator_call_info_to_dag_node.copy()
+        self.reuse_info.op_id_to_dag_node = extraction_info.reuse_info.op_id_to_dag_node.copy()
+        self.old_dag = extraction_info.original_dag.copy()
+        self.old_shadow_pipelines = copy.deepcopy(extraction_info.shadow_pipelines)
+        self.global_old_dag = networkx.compose_all([self.old_dag, *(self.old_shadow_pipelines or [])])
 
     def prepare_runtime_info(self, orig_instrumented_exec_start):
         orig_instrumented_exec_duration = (time.time() - orig_instrumented_exec_start -
