@@ -1,8 +1,6 @@
 """
 Monkey patching for pandas
 """
-from functools import partial
-
 import gorilla
 import fuzzy_pandas
 

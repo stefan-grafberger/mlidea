@@ -3,7 +3,6 @@ The place where the DAG execution happens
 """
 import dataclasses
 from copy import copy
-from functools import partial
 
 import networkx
 

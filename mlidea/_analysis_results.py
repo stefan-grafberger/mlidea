@@ -5,8 +5,6 @@ import dataclasses
 
 import networkx
 
-from mlidea.instrumentation._operator_call_info import OperatorCallInfo
-from mlidea.instrumentation._dag_node import DagNode
 from mlidea.execution._patches import PipelinePatch
 from mlidea.visualisation import save_fig_to_path
 

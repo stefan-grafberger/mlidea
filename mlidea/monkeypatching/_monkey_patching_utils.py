@@ -4,7 +4,6 @@ Functions for the implementation for the monkey patched functions
 import ast
 import dataclasses
 import sys
-from functools import partial
 
 import numpy
 from langchain_core.retrievers import BaseRetriever

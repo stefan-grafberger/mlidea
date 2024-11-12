@@ -1,8 +1,6 @@
 """
 Monkey patching for healthcare_utils
 """
-from functools import partial
-
 import gorilla
 
 from example_pipelines.healthcare import healthcare_utils

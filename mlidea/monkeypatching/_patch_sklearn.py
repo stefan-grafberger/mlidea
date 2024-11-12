@@ -2,7 +2,6 @@
 Monkey patching for sklearn
 """
 import copy
-import dis
 import inspect
 import warnings
 from collections.abc import Callable
@@ -25,11 +24,11 @@ from sklearn.pipeline import _fit_transform_one, _transform_one
 from sklearn.utils import Bunch
 from sklearn.utils.validation import _num_samples
 
-from mlidea.instrumentation._operator_call_info import OperatorCallInfo
-from mlidea.execution._func_executor import capture_optimizer_info, get_df_shape, get_df_memory
-from mlidea.instrumentation._operator_types import OperatorContext, FunctionInfo, OperatorType
-from mlidea.instrumentation._dag_node import DagNode, BasicCodeLocation, DagNodeDetails, CodeReference, OptimizerInfo
+from mlidea.execution._func_executor import capture_optimizer_info
 from mlidea.execution._pipeline_executor import singleton
+from mlidea.instrumentation._dag_node import DagNode, BasicCodeLocation, DagNodeDetails, CodeReference, OptimizerInfo
+from mlidea.instrumentation._operator_call_info import OperatorCallInfo
+from mlidea.instrumentation._operator_types import OperatorContext, FunctionInfo, OperatorType
 from mlidea.monkeypatching._mlinspect_ndarray import MlinspectNdarray, TrainTestSplitResult
 from mlidea.monkeypatching._monkey_patching_utils import add_dag_node, \
     execute_patched_func_indirect_allowed, get_input_info, execute_patched_func_no_op_id, \

@@ -580,7 +580,7 @@ class DataFramePatching:
             description = "dict conversion"
             processing_func = wrap_projection_func(lambda df: original(df, **func_args))  # pylint: disable=unnecessary-lambda
             optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, processing_func,
-                                                            [input_info.annotated_dfobject.result_data])
+                                                            [input_info.annotated_dfobject.result_data], {})
 
             if isinstance(result, dict) and isinstance(list(result.values())[0], dict):
                 columns = list(result.keys())
@@ -751,7 +751,7 @@ class SeriesPatching:
             def initial_func_prov():
                 initial_func()
                 generate_and_add_provenance_data_source(self, op_id=op_id)
-            optimizer_info, _ = capture_optimizer_info(singleton, operator_call_info, initial_func_prov, self, [], {})
+            optimizer_info, _ = capture_optimizer_info(singleton, operator_call_info, initial_func_prov, [], {}, self)
             result = self
 
             process_func = wrap_data_source_func(partial(pandas.Series, *args, **kwargs), op_id=op_id)
