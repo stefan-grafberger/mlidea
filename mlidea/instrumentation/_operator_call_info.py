@@ -59,6 +59,7 @@ class OutputChangeType(Enum):
     ROWS_ADDED = "Added rows"
     ROWS_REMOVED = "Removed rows"
     NOTHING_CHANGED = "No change"
+    UNKNOWN = "Unknown"
 
 
 @dataclasses.dataclass

@@ -300,7 +300,12 @@ class FairnessSlices(ShadowPipeline):
     def _get_fix_node(self, fix_strategy, new_dag, parents):
         non_data_kwargs = {'database_path': self.database_path, 'fix_strategy': fix_strategy}
         processing_func = partial(FairnessSlices.fix_data, **non_data_kwargs)
-        operator_context = OperatorContext(OperatorType.ESTIMATOR,
+        if fix_strategy in {FixType.TEXT_TRANSLATE, FixType.TEXT_SPELLCHECK}:
+            # TODO: For slow text processing functions, we need to be able to have IVM, estimators are not an option
+            operator_type = OperatorType.PROJECTION_MODIFY_SUBSET
+        else:
+            operator_type = OperatorType.TRANSFORMER_MODIFY_SUBSET
+        operator_context = OperatorContext(operator_type,
                                            FunctionInfo('mlidea.shadow_pipelines._slices.FairnessSlices',
                                                         'fix_data'),
                                            non_data_kwargs)

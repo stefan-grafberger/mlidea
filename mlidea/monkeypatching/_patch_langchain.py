@@ -362,6 +362,9 @@ class ChromaPatching:
 
             input_dag_nodes = [train_data_node, train_labels_node]
 
+            # FIXME: wrap the embedding func and store the cache in the analysisresults and in the singleton
+            #  embedding_func = CacheBackedEmbeddings.from_bytes_store(embedding_func, InMemoryByteStore())
+            assert False  # To not forget to implement this
             operator_context = OperatorContext(OperatorType.CONCATENATION, function_info, {'embedding': embedding})
             operator_call_info = OperatorCallInfo(operator_context, input_dag_nodes)
 

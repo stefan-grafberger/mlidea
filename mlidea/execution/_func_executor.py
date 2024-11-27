@@ -34,19 +34,19 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
     # pylint: disable=too-many-arguments
     if instrumented_function_call_args is None:
         instrumented_function_call_args = []
-    if instrumented_function_call is not None:
-        original_func_call_with_args = partial(instrumented_function_call, *instrumented_function_call_args)
-    else:
-        original_func_call_with_args = None
     execution_start = time.time()
     not_a_constructor = (obj_for_inplace_ops is None or estimator_transformer_state is not None
                          or operator_call_info.operator == OperatorType.PROJECTION_MODIFY)
     if singleton.enable_cache_reuse is True:
         result = try_ivm_reuse_using_cache(current_dag_node, estimator_transformer_state, extract_or_conditional,
-                                           not_a_constructor, operator_call_info, original_func_call_with_args,
-                                           singleton, stop_signal_received)
+                                           not_a_constructor, operator_call_info, instrumented_function_call,
+                                           instrumented_function_call_args, singleton, stop_signal_received)
 
     else:
+        if instrumented_function_call is not None:
+            original_func_call_with_args = partial(instrumented_function_call, *instrumented_function_call_args)
+        else:
+            original_func_call_with_args = None
         result = execute_function(estimator_transformer_state, original_func_call_with_args, stop_signal_received)
 
     optimizer_info = get_optimizer_info(estimator_transformer_state, execution_start, keras_batch_size,
@@ -55,7 +55,12 @@ def capture_optimizer_info(singleton, operator_call_info, instrumented_function_
 
 
 def try_ivm_reuse_using_cache(current_dag_node, estimator_transformer_state, extract_or_conditional, not_a_constructor,
-                              operator_call_info, original_func_call_with_args, singleton, stop_signal_received):
+                              operator_call_info, instrumented_function_call, instrumented_function_call_args,
+                              singleton, stop_signal_received):
+    if instrumented_function_call is not None:
+        original_func_call_with_args = partial(instrumented_function_call, *instrumented_function_call_args)
+    else:
+        original_func_call_with_args = None
     # Guaranteed reuse
     if (not_a_constructor and
             operator_call_info in singleton.reuse_info.operator_call_info_to_dag_node
@@ -90,8 +95,8 @@ def try_ivm_reuse_using_cache(current_dag_node, estimator_transformer_state, ext
     #  pandas groupby operation that gets executed before agg is called after. We also cannot reuse intermediates
     #  for that operation currently.
     elif singleton.old_dag is not None and operator_call_info is not None:
-        result = execute_with_partial_reuse(current_dag_node, estimator_transformer_state, original_func_call_with_args,
-                                            operator_call_info, singleton, stop_signal_received)
+        result = execute_with_partial_reuse(current_dag_node, estimator_transformer_state, instrumented_function_call,
+                                            instrumented_function_call_args, operator_call_info, singleton, stop_signal_received)
     # Fallback
     else:
         result = execute_function(estimator_transformer_state, original_func_call_with_args, stop_signal_received)

@@ -308,7 +308,12 @@ class DataErrorRobustness(ShadowPipeline):
     def _get_fix_node(self, data_type, new_dag, parents):
         non_data_kwargs = {'data_type': data_type}
         processing_func = partial(DataErrorRobustness.fix_data, **non_data_kwargs)
-        operator_context = OperatorContext(OperatorType.ESTIMATOR,
+        if data_type == DataType.TEXT:
+            # TODO: For slow text processing functions, we need to be able to have IVM, estimators are not an option
+            operator_type = OperatorType.PROJECTION_MODIFY_SUBSET
+        else:
+            operator_type = OperatorType.TRANSFORMER_MODIFY_SUBSET
+        operator_context = OperatorContext(operator_type,
                                            FunctionInfo('mlidea.shadow_pipelines._data_errors.DataErrorRobustness',
                                                         'fix_data'),
                                            non_data_kwargs)

@@ -59,6 +59,10 @@ class OperatorType(Enum):
     SUBSCRIPT = "Subscript"
     EXTRACT_RESULT = "Extract intermediate result"
     CONDITIONAL_STOP = "Check a condition"
+    # TODO: Could also model this directly with a filter+projection, but this might be slightly more convenient
+    PROJECTION_MODIFY_SUBSET = "Projection (Modify), but only change a subset"
+    # TODO: Could also model this directly with a filter+fit+transform, but this might be slightly more convenient
+    TRANSFORMER_MODIFY_SUBSET = "Transformer, but only change a subset"
 
 
 class ConditionalResult(Enum):
