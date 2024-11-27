@@ -128,123 +128,16 @@ def execute_with_partial_reuse(current_dag_node, estimator_transformer_state, in
                 'sklearn.preprocessing_function_transformer', 'FunctionTransformer'),
             FunctionInfo('example_pipelines.healthcare.healthcare_utils',
                                                                 'MyW2VTransformer')}:
-            # TODO: Compare old input with new input
-            if len(parent_nodes_from_previous_run) == 1:
-                parent_data_node = parent_nodes_from_previous_run[0]
-                data_arg = instrumented_function_call_args[0]
-            else:
-                parent_data_node = parent_nodes_from_previous_run[1]
-                data_arg = instrumented_function_call_args[1]
-            parent_data_input = singleton.reuse_info.cached_intermediates[parent_data_node]
-            # FIXME: What if they have a different length?
-            if ((not isinstance(parent_data_input, ConditionalResult) or
-                parent_data_input != ConditionalResult.STOP_EXECUTION)
-                    and len(parent_data_input) == len(data_arg)):
-                parent_diff_index = changed_data_diff_detection(parent_data_input, data_arg)
-                result = old_result.copy()
-                if len(parent_diff_index) != 0:
-                    diff_df = apply_diff_filter(data_arg, parent_diff_index)
-                    if len(parent_nodes_from_previous_run) == 1:
-                        updated_args = [diff_df]
-                    else:
-                        updated_args = [instrumented_function_call_args[0], diff_df]
-                    diff_func_call_with_args = partial(instrumented_function_call, *updated_args)
-                    diff_result = diff_func_call_with_args()
-                    result[parent_diff_index] = diff_result
-                if estimator_transformer_state is not None:
-                    result._mlinspect_annotation = estimator_transformer_state
-            else:
-                result = original_func_call_with_args()
-                if estimator_transformer_state is not None:
-                    result._mlinspect_annotation = estimator_transformer_state
+            result = function_transformer_ivm(estimator_transformer_state, instrumented_function_call,
+                                              instrumented_function_call_args, old_result, original_func_call_with_args,
+                                              parent_nodes_from_previous_run, singleton)
         elif ((not isinstance(parent_nodes_from_previous_run[-1], ConditionalResult) or
             parent_nodes_from_previous_run[-1] != ConditionalResult.STOP_EXECUTION) and stop_signal_received is False and
               operator_call_info.operator == OperatorType.PROJECTION_MODIFY_SUBSET):
-            # TODO: Compare old input with new input
-            parent_data_node = parent_nodes_from_previous_run[0]
-            parent_data_result = singleton.reuse_info.cached_intermediates[parent_data_node]
-            parent_data_indices_node = parent_nodes_from_previous_run[1]
-            parent_data_indices = singleton.reuse_info.cached_intermediates[parent_data_indices_node]
-            parent_filtered_input = apply_diff_filter(parent_data_result, parent_data_indices)
+            result = projection_modify_subset_ivm(instrumented_function_call, instrumented_function_call_args,
+                                                  old_result, original_func_call_with_args,
+                                                  parent_nodes_from_previous_run, singleton)
 
-            data_arg = instrumented_function_call_args[0]
-            data_arg_indices = instrumented_function_call_args[1]
-            data_arg_filtered_input = apply_diff_filter(data_arg, data_arg_indices)
-
-            # FIXME: What if they have a different length?
-            #  Use a duckdb join like in the shadow pipeline experiments to determine what to recompute and
-            #  construct the final result.
-
-            filtered_old_dag_node_output = apply_diff_filter(old_result, parent_data_indices)
-            already_fixed_output = filtered_old_dag_node_output.copy()
-
-            if isinstance(already_fixed_output, pandas.DataFrame):
-                was_series = False
-            elif isinstance(already_fixed_output, pandas.Series):
-                was_series = True
-                series_column_name = already_fixed_output.name
-                if series_column_name is None:
-                    series_column_name = "column"
-                already_fixed_output = pandas.DataFrame({series_column_name: already_fixed_output})
-
-                assert isinstance(data_arg_filtered_input, pandas.Series)
-                series_column_name = data_arg_filtered_input.name
-                data_arg_filtered_input = pandas.DataFrame({series_column_name: data_arg_filtered_input})
-            else:
-                raise NotImplementedError("TODO")
-
-            columns = list(already_fixed_output.columns)
-            assert len(columns) == 1
-            column = columns[0]
-            already_fixed_output["before_fix"] = parent_filtered_input
-
-            # This cache should be stored in a singleton. Also, it should be cleared once it becomes too big
-            #  maybe we can add a rounds id there and clear the oldest round once memory consumption becomes too big
-            new_indices_df = pandas.DataFrame({"test_id": data_arg_indices, "before_fix": data_arg_filtered_input[column]})
-
-            not_fixed_yet = duckdb.sql("""
-                    SELECT n.test_id
-                    FROM new_indices_df n ANTI JOIN already_fixed_output a ON n.before_fix = a.before_fix
-                """).df()
-            already_fixed = duckdb.sql(f"""
-                    SELECT n.test_id, a.{column}
-                    FROM new_indices_df n JOIN already_fixed_output a ON n.before_fix = a.before_fix
-                """).df()
-            if not_fixed_yet.shape[0] != 0:
-                updated_args = [data_arg, not_fixed_yet['test_id']]
-                diff_func_call_with_args = partial(instrumented_function_call, *updated_args)
-                updated_result = diff_func_call_with_args()
-            else:
-                updated_result = data_arg.copy()
-            updated_result = updated_result.reset_index(drop=True)
-            if updated_result.ndim == 2 and already_fixed.shape[0] != 0:
-                updated_result.iloc[already_fixed['test_id'].values, 0] = already_fixed[column].values
-            elif updated_result.ndim == 1 and already_fixed.shape[0] != 0:
-                updated_result.iloc[already_fixed['test_id'].values] = already_fixed[column].values
-            else:
-                raise NotImplementedError("Can this happen?")
-
-            result = updated_result
-            # # Use changed_indices_translated to update the old result
-            #
-            # if len(parent_filtered_input) == len(data_arg_filtered_input):
-            #     parent_diff_index = changed_data_diff_detection(parent_filtered_input, data_arg_filtered_input)
-            #     result = old_result.copy()
-            #     if len(parent_diff_index) != 0:
-            #         diff_df = apply_diff_filter(data_arg, parent_diff_index)
-            #         if len(parent_nodes_from_previous_run) == 1:
-            #             updated_args = [diff_df]
-            #         else:
-            #             updated_args = [instrumented_function_call_args[0], diff_df]
-            #         diff_func_call_with_args = partial(instrumented_function_call, *updated_args)
-            #         diff_result = diff_func_call_with_args()
-            #         result[parent_diff_index] = diff_result
-            #     if estimator_transformer_state is not None:
-            #         result._mlinspect_annotation = estimator_transformer_state
-            # else:
-            #     result = original_func_call_with_args()
-            #     if estimator_transformer_state is not None:
-            #         result._mlinspect_annotation = estimator_transformer_state
         elif stop_signal_received is False:
             result = original_func_call_with_args()
             if estimator_transformer_state is not None:
@@ -276,4 +169,109 @@ def execute_with_partial_reuse(current_dag_node, estimator_transformer_state, in
             #  DAG currently
             singleton.reuse_info.undetermined_new_nodes.add(operator_call_info)
 
+    return result
+
+
+def projection_modify_subset_ivm(instrumented_function_call, instrumented_function_call_args, old_result,
+                                 original_func_call_with_args, parent_nodes_from_previous_run, singleton):
+    # TODO: Compare old input with new input
+    parent_data_node = parent_nodes_from_previous_run[0]
+    parent_data_result = singleton.reuse_info.cached_intermediates[parent_data_node]
+    parent_data_indices_node = parent_nodes_from_previous_run[1]
+    parent_data_indices = singleton.reuse_info.cached_intermediates[parent_data_indices_node]
+    parent_filtered_input = apply_diff_filter(parent_data_result, parent_data_indices)
+    data_arg = instrumented_function_call_args[0]
+    data_arg_indices = instrumented_function_call_args[1]
+    data_arg_filtered_input = apply_diff_filter(data_arg, data_arg_indices)
+    # FIXME: What if they have a different length?
+    #  Use a duckdb join like in the shadow pipeline experiments to determine what to recompute and
+    #  construct the final result.
+    if not isinstance(old_result, ConditionalResult) or old_result != ConditionalResult.STOP_EXECUTION:
+        filtered_old_dag_node_output = apply_diff_filter(old_result, parent_data_indices)
+        already_fixed_output = filtered_old_dag_node_output.copy()
+        if isinstance(already_fixed_output, pandas.DataFrame):
+            was_series = False
+        elif isinstance(already_fixed_output, pandas.Series):
+            was_series = True
+            series_column_name = already_fixed_output.name
+            if series_column_name is None:
+                series_column_name = "column"
+            already_fixed_output = pandas.DataFrame({series_column_name: already_fixed_output})
+
+            assert isinstance(data_arg_filtered_input, pandas.Series)
+            series_column_name = data_arg_filtered_input.name
+            data_arg_filtered_input = pandas.DataFrame({series_column_name: data_arg_filtered_input})
+        else:
+            raise NotImplementedError("TODO")
+        columns = list(already_fixed_output.columns)
+        assert len(columns) == 1
+        column = columns[0]
+        already_fixed_output["before_fix"] = parent_filtered_input
+        # This cache should be stored in a singleton. Also, it should be cleared once it becomes too big
+        #  maybe we can add a rounds id there and clear the oldest round once memory consumption becomes too big
+        new_indices_df = pandas.DataFrame({"test_id": data_arg_indices, "before_fix": data_arg_filtered_input[column]})
+        not_fixed_yet = duckdb.sql("""
+                        SELECT n.test_id
+                        FROM new_indices_df n ANTI JOIN already_fixed_output a ON n.before_fix = a.before_fix
+                    """).df()
+        already_fixed = duckdb.sql(f"""
+                        SELECT n.test_id, a.{column}
+                        FROM new_indices_df n JOIN already_fixed_output a ON n.before_fix = a.before_fix
+                    """).df()
+        if not_fixed_yet.shape[0] != 0:
+            updated_args = [data_arg, not_fixed_yet['test_id']]
+            diff_func_call_with_args = partial(instrumented_function_call, *updated_args)
+            updated_result = diff_func_call_with_args()
+        else:
+            updated_result = data_arg.copy()
+        updated_result = updated_result.reset_index(drop=True)
+        if updated_result.ndim == 2 and already_fixed.shape[0] != 0:
+            updated_result.iloc[already_fixed['test_id'].values, 0] = already_fixed[column].values
+        elif updated_result.ndim == 1 and already_fixed.shape[0] != 0:
+            updated_result.iloc[already_fixed['test_id'].values] = already_fixed[column].values
+        elif already_fixed.shape[0] == 0:
+            pass
+        else:
+            raise NotImplementedError("Can this happen?")
+        result = updated_result
+    else:
+        result = original_func_call_with_args()
+    result._mlinspect_provenance = data_arg._mlinspect_provenance
+    return result
+
+
+def function_transformer_ivm(estimator_transformer_state, instrumented_function_call, instrumented_function_call_args,
+                             old_result, original_func_call_with_args, parent_nodes_from_previous_run, singleton):
+    # TODO: Compare old input with new input
+    if len(parent_nodes_from_previous_run) == 1:
+        parent_data_node = parent_nodes_from_previous_run[0]
+        data_arg = instrumented_function_call_args[0]
+    else:
+        parent_data_node = parent_nodes_from_previous_run[1]
+        data_arg = instrumented_function_call_args[1]
+    parent_data_input = singleton.reuse_info.cached_intermediates[parent_data_node]
+    # FIXME: What if they have a different length?
+    # FIXME: Also use a cache here maybe?
+    if ((not isinstance(parent_data_input, ConditionalResult) or
+         parent_data_input != ConditionalResult.STOP_EXECUTION)
+            and len(parent_data_input) == len(data_arg)):
+        parent_diff_index = changed_data_diff_detection(parent_data_input, data_arg)
+        result = old_result.copy()
+        if len(parent_diff_index) != 0:
+            diff_df = apply_diff_filter(data_arg, parent_diff_index)
+            if len(parent_nodes_from_previous_run) == 1:
+                updated_args = [diff_df]
+            else:
+                updated_args = [instrumented_function_call_args[0], diff_df]
+            diff_func_call_with_args = partial(instrumented_function_call, *updated_args)
+            diff_result = diff_func_call_with_args()
+            result[parent_diff_index] = diff_result
+        if estimator_transformer_state is not None:
+            result._mlinspect_annotation = estimator_transformer_state
+    else:
+        # FIXME: len(parent_data_input) != len(data_arg))
+        result = original_func_call_with_args()
+        if estimator_transformer_state is not None:
+            result._mlinspect_annotation = estimator_transformer_state
+    result._mlinspect_provenance = data_arg._mlinspect_provenance
     return result
