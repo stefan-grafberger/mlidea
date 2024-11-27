@@ -10,6 +10,8 @@ from typing import cast
 import gorilla
 import numpy
 import pandas
+from langchain.embeddings import CacheBackedEmbeddings
+from langchain.storage import InMemoryByteStore
 from langchain_community import vectorstores as community_vectorstores
 from langchain_community.embeddings import huggingface
 from langchain_community.vectorstores.chroma import Chroma
@@ -362,18 +364,23 @@ class ChromaPatching:
 
             input_dag_nodes = [train_data_node, train_labels_node]
 
-            # FIXME: wrap the embedding func and store the cache in the analysisresults and in the singleton
-            #  embedding_func = CacheBackedEmbeddings.from_bytes_store(embedding_func, InMemoryByteStore())
-            assert False  # To not forget to implement this
             operator_context = OperatorContext(OperatorType.CONCATENATION, function_info, {'embedding': embedding})
             operator_call_info = OperatorCallInfo(operator_context, input_dag_nodes)
+
+            # We want to always cache embeddings, even if they are used on updated inputs
+            embedding_cache_lookup_key = OperatorCallInfo(operator_context, [])
+            if embedding_cache_lookup_key in singleton.reuse_info.cached_embedding_func:
+                cached_embedding = singleton.reuse_info.cached_embedding_func[embedding_cache_lookup_key]
+            else:
+                cached_embedding = CacheBackedEmbeddings.from_bytes_store(embedding, InMemoryByteStore())
+                singleton.reuse_info.cached_embedding_func[embedding_cache_lookup_key] = cached_embedding
 
             # input_annotated_dfs = [input_info.annotated_dfobject for input_info in input_infos]
             # No input_infos copy needed because it's only a selection and the rows not being removed don't change
             def processing_func(*input_dfs):
                 assert isinstance(input_dfs[0], list) and isinstance(input_dfs[0][0], str)
                 assert isinstance(input_dfs[1], list) and isinstance(input_dfs[1][0], dict)
-                new_result = MlideaChromaVectorStoreRetrieverPlaceHolder(input_dfs[0], input_dfs[1], embedding)
+                new_result = MlideaChromaVectorStoreRetrieverPlaceHolder(input_dfs[0], input_dfs[1], cached_embedding)
                 return new_result
 
             optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, processing_func,

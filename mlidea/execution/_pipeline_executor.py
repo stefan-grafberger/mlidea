@@ -63,7 +63,7 @@ class PipelineExecutor:
                                        RuntimeInfo(0, 0, 0, 0, None, None, 0, 0, 0, 0, 0, 0, 0),
                                        DagExtractionInfo(networkx.DiGraph(), [], {}, 0, 0,
                                                          ReuseInfo({}, {}, {}, set(), set(), set(), set(), set(), set(),
-                                                                   {}, {}, set())), None)
+                                                                   {}, {}, set(), {}, {})), None)
     monkey_patch_duration = 0
     skip_optimizer = False
     force_optimization_rules = None
@@ -79,7 +79,7 @@ class PipelineExecutor:
     global_old_dag = None
     global_new_dag = networkx.DiGraph()
     # Put this into a new data class
-    reuse_info = ReuseInfo({}, {}, {}, set(), set(), set(), set(), set(), set(), {}, {}, set())
+    reuse_info = ReuseInfo({}, {}, {}, set(), set(), set(), set(), set(), set(), {}, {}, set(), {}, {})
 
     def run(self, *,
             notebook_path: str or None = None,
@@ -171,6 +171,9 @@ class PipelineExecutor:
         self.reuse_info.cached_intermediates = extraction_info.reuse_info.cached_intermediates
         self.reuse_info.operator_call_info_to_dag_node = extraction_info.reuse_info.operator_call_info_to_dag_node.copy()
         self.reuse_info.op_id_to_dag_node = extraction_info.reuse_info.op_id_to_dag_node.copy()
+        self.reuse_info.cached_intermediates_row_level_all_execs = (
+            extraction_info.reuse_info.cached_intermediates_row_level_all_execs.copy())
+        self.reuse_info.cached_embedding_func = extraction_info.reuse_info.cached_embedding_func.copy()
         self.old_dag = extraction_info.original_dag.copy()
         self.old_shadow_pipelines = copy.deepcopy(extraction_info.shadow_pipelines)
         self.global_old_dag = networkx.compose_all([self.old_dag, *(self.old_shadow_pipelines or [])])
@@ -349,7 +352,7 @@ class PipelineExecutor:
                                                 RuntimeInfo(0, 0, 0, 0, None, None, 0, 0, 0, 0, 0, 0, 0),
                                                 DagExtractionInfo(networkx.DiGraph(), [], {}, 0, 0,
                                                                   ReuseInfo({}, {}, {}, set(), set(), set(), set(), set(),
-                                                                            set(),{}, {}, set())), None)
+                                                                            set(),{}, {}, set(), {}, {})), None)
         self.analyses = []
         self.shadow_pipelines = []
         self.original_pipeline_labels_to_extracted_plan_results = {}
@@ -369,7 +372,7 @@ class PipelineExecutor:
         self.enable_cache_reuse = True
         self.global_old_dag = None
         self.global_new_dag = networkx.DiGraph()
-        self.reuse_info = ReuseInfo({}, {}, {}, set(), set(), set(), set(), set(), set(), {}, {}, set())
+        self.reuse_info = ReuseInfo({}, {}, {}, set(), set(), set(), set(), set(), set(), {}, {}, set(), {}, {})
 
     @staticmethod
     def instrument_pipeline(parsed_ast, track_code_references):

@@ -174,25 +174,29 @@ def execute_with_partial_reuse(current_dag_node, estimator_transformer_state, in
 
 def projection_modify_subset_ivm(instrumented_function_call, instrumented_function_call_args, old_result,
                                  original_func_call_with_args, parent_nodes_from_previous_run, singleton):
-    # TODO: Compare old input with new input
-    parent_data_node = parent_nodes_from_previous_run[0]
-    parent_data_result = singleton.reuse_info.cached_intermediates[parent_data_node]
-    parent_data_indices_node = parent_nodes_from_previous_run[1]
-    parent_data_indices = singleton.reuse_info.cached_intermediates[parent_data_indices_node]
-    parent_filtered_input = apply_diff_filter(parent_data_result, parent_data_indices)
-    data_arg = instrumented_function_call_args[0]
-    data_arg_indices = instrumented_function_call_args[1]
-    data_arg_filtered_input = apply_diff_filter(data_arg, data_arg_indices)
     # FIXME: What if they have a different length?
     #  Use a duckdb join like in the shadow pipeline experiments to determine what to recompute and
     #  construct the final result.
+    data_arg = instrumented_function_call_args[0]
+    data_arg_indices = instrumented_function_call_args[1]
     if not isinstance(old_result, ConditionalResult) or old_result != ConditionalResult.STOP_EXECUTION:
+        # TODO: Compare old input with new input
+        parent_data_node = parent_nodes_from_previous_run[0]
+        parent_data_result = singleton.reuse_info.cached_intermediates[parent_data_node]
+        parent_data_indices_node = parent_nodes_from_previous_run[1]
+        parent_data_indices = singleton.reuse_info.cached_intermediates[parent_data_indices_node]
+        parent_filtered_input = apply_diff_filter(parent_data_result, parent_data_indices)
+        data_arg_filtered_input = apply_diff_filter(data_arg, data_arg_indices)
         filtered_old_dag_node_output = apply_diff_filter(old_result, parent_data_indices)
         already_fixed_output = filtered_old_dag_node_output.copy()
         if isinstance(already_fixed_output, pandas.DataFrame):
+            was_df = True
             was_series = False
+            was_numpy = False
         elif isinstance(already_fixed_output, pandas.Series):
+            was_df = False
             was_series = True
+            was_numpy = False
             series_column_name = already_fixed_output.name
             if series_column_name is None:
                 series_column_name = "column"
@@ -200,6 +204,13 @@ def projection_modify_subset_ivm(instrumented_function_call, instrumented_functi
 
             assert isinstance(data_arg_filtered_input, pandas.Series)
             series_column_name = data_arg_filtered_input.name
+            data_arg_filtered_input = pandas.DataFrame({series_column_name: data_arg_filtered_input})
+        elif isinstance(already_fixed_output, (numpy.ndarray, list)):
+            was_df = False
+            was_series = False
+            was_numpy = True
+            series_column_name = "column"
+            already_fixed_output = pandas.DataFrame({series_column_name: already_fixed_output})
             data_arg_filtered_input = pandas.DataFrame({series_column_name: data_arg_filtered_input})
         else:
             raise NotImplementedError("TODO")
@@ -224,11 +235,17 @@ def projection_modify_subset_ivm(instrumented_function_call, instrumented_functi
             updated_result = diff_func_call_with_args()
         else:
             updated_result = data_arg.copy()
-        updated_result = updated_result.reset_index(drop=True)
-        if updated_result.ndim == 2 and already_fixed.shape[0] != 0:
+        if isinstance(updated_result, (pandas.DataFrame, pandas.Series)):
+            updated_result = updated_result.reset_index(drop=True)
+
+        if was_df and already_fixed.shape[0] != 0:
             updated_result.iloc[already_fixed['test_id'].values, 0] = already_fixed[column].values
-        elif updated_result.ndim == 1 and already_fixed.shape[0] != 0:
+        elif was_series and already_fixed.shape[0] != 0:
             updated_result.iloc[already_fixed['test_id'].values] = already_fixed[column].values
+        elif was_numpy and already_fixed.shape[0] != 0:
+            if isinstance(updated_result, list):
+                updated_result = wrap_in_mlinspect_array_if_necessary(numpy.ravel(updated_result))
+            updated_result[already_fixed['test_id'].values] = already_fixed[column].values
         elif already_fixed.shape[0] == 0:
             pass
         else:

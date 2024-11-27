@@ -33,7 +33,7 @@ class RuntimeInfo:
 class ReuseInfo:
     # pylint: disable=too-many-instance-attributes
     op_id_to_dag_node: dict
-    cached_intermediates: dict
+    cached_intermediates: dict  # TODO: Clear this cache once it gets too full
     operator_call_info_to_dag_node: dict
     undetermined_new_nodes: set
     operator_addition: set
@@ -44,6 +44,8 @@ class ReuseInfo:
     unprocessed_call_info_transitive_change_only: dict
     new_node_to_old_node: dict
     operator_too_many_changes: set
+    cached_intermediates_row_level_all_execs: dict  # TODO: Clear this cache once it gets too full
+    cached_embedding_func: dict  # TODO: Clear this cache once it gets too full
 
 
 @dataclasses.dataclass
