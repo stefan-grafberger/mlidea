@@ -137,7 +137,7 @@ def execute_with_partial_reuse(current_dag_node, estimator_transformer_state, in
             result = projection_modify_subset_ivm(instrumented_function_call, instrumented_function_call_args,
                                                   old_result, original_func_call_with_args,
                                                   parent_nodes_from_previous_run, singleton)
-
+        # FIXME: Rag Join and LLM Calls
         elif stop_signal_received is False:
             result = original_func_call_with_args()
             if estimator_transformer_state is not None:
