@@ -4,6 +4,7 @@ Functionality to capture optimisation-relevant stats for instrumented operators
 
 import networkx
 
+from mlidea.ivm._utils import changed_data_diff_detection
 from mlidea.instrumentation._dag_node import OperatorContext
 from mlidea.instrumentation._operator_call_info import OperatorCallInfo, OperatorOutputChange, OutputChangeType
 from mlidea.instrumentation._operator_types import OperatorType
@@ -70,24 +71,44 @@ def determine_parent_change_type(new_dag, new_dag_parent_node, new_dag_parent_op
     else:
         is_addition, node_being_added_to = False, None
     if not is_replacement and not is_addition:
-        is_deletion, deleted_node_child = determine_is_deletion(singleton, new_dag, new_dag_parent_node, old_dag)
+        is_deletion, deleted_node_child, deleted_node = determine_is_deletion(singleton, new_dag, new_dag_parent_node,
+                                                                              old_dag)
     else:
         is_deletion, deleted_node_child = False, None
 
     if is_replacement:
         singleton.reuse_info.operator_replacement.add(new_dag_parent_node)
-        change_diff = OperatorOutputChange(
-            OutputChangeType.TOO_MUCH_CHANGED)  # FIXME: We also need to compute the actual changes!
+        if new_dag_parent_node.operator_info.operator in {OperatorType.SUBSCRIPT, OperatorType.PROJECTION_MODIFY,
+                                                          OperatorType.PREDICT}:
+            old_value = singleton.reuse_info.cached_intermediates[node_being_replaced]
+            new_value = singleton.reuse_info.cached_intermediates[new_dag_parent_node]
+            changed_rows = changed_data_diff_detection(old_value, new_value)
+            change_diff = OperatorOutputChange(OutputChangeType.ROWS_UPDATED, rows_updated=changed_rows)
+        elif new_dag_parent_node.operator_info.operator in {OperatorType.TRANSFORMER}:
+            change_diff = OperatorOutputChange(OutputChangeType.COLUMNS_CHANGED,
+                                               columns_changed=new_dag_parent_node.details.columns)
+        else:
+            change_diff = OperatorOutputChange(
+                OutputChangeType.TOO_MUCH_CHANGED)  # FIXME: We also need to compute the actual changes!
+        # FIXME: Do we maybe always want to maintain both which rows and which columns changed? or not?
         singleton.reuse_info.new_node_to_old_node[new_dag_parent_node] = node_being_replaced, change_diff
     elif is_addition:
         singleton.reuse_info.operator_addition.add(new_dag_parent_node)
         change_diff = OperatorOutputChange(
             OutputChangeType.TOO_MUCH_CHANGED)  # FIXME: We also need to compute the actual changes!
+
         singleton.reuse_info.new_node_to_old_node[new_dag_parent_node] = node_being_added_to, change_diff
     elif is_deletion:
         singleton.reuse_info.operator_deletion.add(new_dag_parent_node)
-        change_diff = OperatorOutputChange(
-            OutputChangeType.TOO_MUCH_CHANGED)  # FIXME: We also need to compute the actual changes!
+        if deleted_node.operator_info.operator in {OperatorType.SELECTION}:
+            # FIXME: How can we do this?
+            old_value = singleton.reuse_info.cached_intermediates[deleted_node]
+            new_value = singleton.reuse_info.cached_intermediates[deleted_node_child]
+            rows_added = None  # FIXME: How can we do this? Also, maybe we need another reference point!
+            change_diff = OperatorOutputChange(OutputChangeType.ROWS_ADDED, rows_added=rows_added)
+        else:
+            change_diff = OperatorOutputChange(
+                OutputChangeType.TOO_MUCH_CHANGED)  # FIXME: We also need to compute the actual changes!
         singleton.reuse_info.new_node_to_old_node[new_dag_parent_node] = deleted_node_child, change_diff
     else:
         singleton.reuse_info.operator_too_many_changes.add(new_dag_parent_node)
@@ -101,6 +122,7 @@ def determine_is_deletion(_, new_dag, new_dag_parent_node, old_dag):
     #  not exist in the new DAG, but if the parent parent exists in the new DAG
     is_deletion = False
     deleted_node_child = None
+    deleted_node = None
     # FIXME: Think about using replacement map here
     # Step 1: Confirm the node exists in both DAGs
     # candidates for current node, ignoring the node id
@@ -132,7 +154,8 @@ def determine_is_deletion(_, new_dag, new_dag_parent_node, old_dag):
                         # deleted_node = parent
                         # deleted_node_parent = grandparent
                         deleted_node_child = candidate
-    return is_deletion, deleted_node_child
+                        deleted_node = old_parent
+    return is_deletion, deleted_node_child, deleted_node
 
 
 def determine_is_addition(singleton, new_dag, new_dag_parent_node, operator_call_info, parent_index):

@@ -54,7 +54,7 @@ class OutputChangeType(Enum):
     The different operator types in our DAG
     """
     TOO_MUCH_CHANGED = "Too much changed"
-    COLUMN_CHANGED = "Changed column"
+    COLUMNS_CHANGED = "Changed columns"
     ROWS_UPDATED = "Updated rows"
     ROWS_ADDED = "Added rows"
     ROWS_REMOVED = "Removed rows"
@@ -65,7 +65,7 @@ class OutputChangeType(Enum):
 @dataclasses.dataclass
 class OperatorOutputChange:
     change_type: OutputChangeType
-    column_changed: str or None = None
+    columns_changed: list[str] or None = None
     rows_updated: list[int] or None = None
     rows_added: list[int] or None = None
     rows_removed: list[int] or None = None
