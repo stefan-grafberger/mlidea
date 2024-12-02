@@ -17,6 +17,12 @@ from mlidea.monkeypatching._mlinspect_ndarray import MlinspectNdarray, Mlinspect
 from mlidea.utils._utils import get_sorted_parent_nodes
 
 
+def update_prediction_diff(old_predictions, prediction_diff, prediction_index):
+    updated_predictions = numpy.array(old_predictions.copy())
+    updated_predictions[prediction_index] = prediction_diff
+    return updated_predictions
+
+
 def _get_rag_join_results_to_rerun(rag_join_result, change_indices):
     retrieval_index = rag_join_result[6]
     changed_df = pandas.DataFrame({'train_id': change_indices})  # pylint: disable=unused-variable
@@ -148,6 +154,8 @@ def execute_with_partial_reuse(current_dag_node, estimator_transformer_state, in
         original_func_call_with_args = None
 
     parent_nodes_from_previous_run = determine_parents_compared_to_previous_dag(operator_call_info, singleton)
+    parent_node_result_from_previous_run = [singleton.reuse_info.cached_intermediates[node]
+                                            for node in parent_nodes_from_previous_run]
     updated_operator_call_info = OperatorCallInfo(OperatorContext(operator_call_info.operator,
                                                                   operator_call_info.function_info,
                                                                   operator_call_info.non_data_kwargs),
@@ -175,28 +183,28 @@ def execute_with_partial_reuse(current_dag_node, estimator_transformer_state, in
             result = function_transformer_ivm(estimator_transformer_state, instrumented_function_call,
                                               instrumented_function_call_args, old_result, original_func_call_with_args,
                                               parent_nodes_from_previous_run, singleton)
-        elif ((not isinstance(parent_nodes_from_previous_run[-1], ConditionalResult) or
-            parent_nodes_from_previous_run[-1] != ConditionalResult.STOP_EXECUTION) and stop_signal_received is False and
+        elif ((not isinstance(parent_node_result_from_previous_run[-1], ConditionalResult) or
+            parent_node_result_from_previous_run[-1] != ConditionalResult.STOP_EXECUTION) and stop_signal_received is False and
               operator_call_info.operator == OperatorType.PROJECTION_MODIFY_SUBSET):
             result = projection_modify_subset_ivm(instrumented_function_call, instrumented_function_call_args,
                                                   old_result, original_func_call_with_args,
                                                   parent_nodes_from_previous_run, singleton)
-        elif ((not isinstance(parent_nodes_from_previous_run[-1], ConditionalResult) or
-               parent_nodes_from_previous_run[
+        elif ((not isinstance(parent_node_result_from_previous_run[-1], ConditionalResult) or
+               parent_node_result_from_previous_run[
                    -1] != ConditionalResult.STOP_EXECUTION) and stop_signal_received is False and
               operator_call_info.operator == OperatorType.RAG_JOIN and operator_call_info.function_info ==
               FunctionInfo('langchain_community.vectorstores.Chroma', 'from_texts')):
             result = rag_join_ivm(instrumented_function_call_args, old_result, old_dag_node, current_dag_node,
                                   original_func_call_with_args, new_parent_nodes, parent_nodes_from_previous_run,
-                                  singleton)
-        elif ((not isinstance(parent_nodes_from_previous_run[-1], ConditionalResult) or
-               parent_nodes_from_previous_run[
+                                  singleton, operator_call_info, updated_operator_call_info)
+        elif ((not isinstance(parent_node_result_from_previous_run[-1], ConditionalResult) or
+               parent_node_result_from_previous_run[
                    -1] != ConditionalResult.STOP_EXECUTION) and stop_signal_received is False and
               operator_call_info.operator == OperatorType.PREDICT and operator_call_info.function_info ==
               FunctionInfo('langchain_core.runnables.base', 'batch')):
-            result = llm_predict_ivm(instrumented_function_call_args, old_result, old_dag_node, current_dag_node,
-                                     original_func_call_with_args, new_parent_nodes, parent_nodes_from_previous_run,
-                                     singleton)
+            result = llm_predict_ivm(instrumented_function_call, instrumented_function_call_args, old_result,
+                                     old_dag_node, current_dag_node, original_func_call_with_args, new_parent_nodes,
+                                     parent_nodes_from_previous_run, singleton)
         elif stop_signal_received is False:
             result = original_func_call_with_args()
             if estimator_transformer_state is not None:
@@ -208,8 +216,10 @@ def execute_with_partial_reuse(current_dag_node, estimator_transformer_state, in
         #  mark them as transitive here
         if updated_operator_call_info.operator != OperatorType.EXTRACT_RESULT:
             # FIXME: At this point, we should know what changed
-            singleton.reuse_info.unprocessed_call_info_transitive_change_only[operator_call_info] = (
-                updated_operator_call_info, OperatorOutputChange(OutputChangeType.TOO_MUCH_CHANGED))
+            #  If it is in the map, we already know what changed
+            if operator_call_info not in singleton.reuse_info.unprocessed_call_info_transitive_change_only:
+                singleton.reuse_info.unprocessed_call_info_transitive_change_only[operator_call_info] = (
+                    updated_operator_call_info, OperatorOutputChange(OutputChangeType.UNKNOWN))
         else:
             old_dag_node = singleton.reuse_info.operator_call_info_to_dag_node[updated_operator_call_info]
             singleton.reuse_info.operator_transitive.add(current_dag_node)
@@ -232,8 +242,8 @@ def execute_with_partial_reuse(current_dag_node, estimator_transformer_state, in
 
 
 def rag_join_ivm(instrumented_function_call_args,
-                 old_result, current_dag_node, old_dag_node, original_func_call_with_args, new_parent_nodes,
-                 parent_nodes_from_previous_run, singleton):
+                 old_result, old_dag_node, current_dag_node, original_func_call_with_args, new_parent_nodes,
+                 parent_nodes_from_previous_run, singleton, new_operator_call_info, old_operator_call_info):
     # TODO: Compare old input with new input
     train_side_node_new = new_parent_nodes[0]
     train_side_node_old = parent_nodes_from_previous_run[0]
@@ -288,9 +298,9 @@ def rag_join_ivm(instrumented_function_call_args,
         # We redo the lookups even if there is only a label change for simplicity with langchain, but since the
         #  embeddings are cached the costs for this should be negligible
         parent_diff_index = _get_rag_join_results_to_rerun(old_result, corpus_changed_diff_index)
-        singleton.reuse_info.new_node_to_old_node[current_dag_node] = (
-            old_dag_node, OperatorOutputChange(OutputChangeType.ROWS_UPDATED, rows_updated=corpus_changed_diff_index))
-        old_dag_node
+        singleton.reuse_info.unprocessed_call_info_transitive_change_only[new_operator_call_info] = (
+            old_operator_call_info,
+            OperatorOutputChange(OutputChangeType.ROWS_UPDATED, rows_updated=parent_diff_index))
 
         result = rag_join_update(old_result, inference_side_rows_new, vectorstore, parent_diff_index)
         # We do not need to revert the changes here since the original pipeline is always changed after this
@@ -301,8 +311,8 @@ def rag_join_ivm(instrumented_function_call_args,
 
             vectorstore = old_result[5]
             result = rag_join_update(old_result, inference_side_rows_new, vectorstore, parent_diff_index)
-            singleton.reuse_info.new_node_to_old_node[current_dag_node] = (
-                old_dag_node,
+            singleton.reuse_info.unprocessed_call_info_transitive_change_only[new_operator_call_info] = (
+                old_operator_call_info,
                 OperatorOutputChange(OutputChangeType.ROWS_UPDATED, rows_updated=parent_diff_index))
         else:
             result = original_func_call_with_args()
@@ -313,15 +323,36 @@ def rag_join_ivm(instrumented_function_call_args,
     return result
 
 
-def llm_predict_ivm(instrumented_function_call_args,
+def llm_predict_ivm(instrumented_function_call, instrumented_function_call_args,
                     old_result, current_dag_node, old_dag_node, original_func_call_with_args, new_parent_nodes,
                     parent_nodes_from_previous_run, singleton):
     # FIXME: What if they have a different length?
     #  Use a duckdb join like in the shadow pipeline experiments to determine what to recompute and
     #  construct the final result.
-
-
     input_arg = instrumented_function_call_args[0]
+    old_predict_input_node = parent_nodes_from_previous_run[0]
+    new_predict_input_node = new_parent_nodes[0]
+    _, predict_input_diff = singleton.reuse_info.new_node_to_old_node[new_predict_input_node]
+    old_predict_input_object = singleton.reuse_info.cached_intermediates[old_predict_input_node]
+    old_predict_input_data = old_predict_input_object[3]
+    new_predict_input_data = instrumented_function_call_args[0][3]
+    if (predict_input_diff.change_type == OutputChangeType.ROWS_UPDATED and len(old_predict_input_data) ==
+            len(new_predict_input_data)):
+        rows_modified = predict_input_diff.rows_updated
+        filtered_predict_input = apply_diff_filter(instrumented_function_call_args[0], rows_modified)
+        diff_predict_result = instrumented_function_call(filtered_predict_input)
+        result = update_prediction_diff(old_result, diff_predict_result, rows_modified)
+        result = wrap_in_mlinspect_array_if_necessary(result)
+    else:
+        result = original_func_call_with_args()
+    # FIXME: Also use caching in-between iterations additionally
+
+    # FIXME: Need to check why this is happening and why the provenance gets lost without this
+    if hasattr(new_predict_input_data, "_mlinspect_provenance"):
+        result._mlinspect_provenance = new_predict_input_data._mlinspect_provenance
+    else:
+        result._mlinspect_provenance = input_arg[4]
+    # FIXME: Cache LLM results across LLM execs?
     # data_arg_indices = instrumented_function_call_args[1]
     # if not isinstance(old_result, ConditionalResult) or old_result != ConditionalResult.STOP_EXECUTION:
     #     # TODO: Compare old input with new input
@@ -396,9 +427,6 @@ def llm_predict_ivm(instrumented_function_call_args,
     #         raise NotImplementedError("Can this happen?")
     #     result = updated_result
     # else:
-    result = original_func_call_with_args()
-    # Already set correctly for the original LLM predict function, but needs to be set when called on a diff
-    result._mlinspect_provenance = input_arg[4]
     return result
 
 
