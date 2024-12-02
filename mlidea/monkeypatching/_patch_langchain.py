@@ -28,11 +28,12 @@ from langchain_core.runnables.utils import (
     Input, Output,
 )
 
-from mlidea.instrumentation._operator_call_info import OperatorCallInfo
-from mlidea import DagNode, BasicCodeLocation, DagNodeDetails, FunctionInfo, OperatorContext, OperatorType, \
-    CodeReference
-from mlidea.execution._pipeline_executor import singleton
+from mlidea.instrumentation._operator_types import FunctionInfo, OperatorType
 from mlidea.execution._func_executor import capture_optimizer_info
+from mlidea.execution._pipeline_executor import singleton
+from mlidea.instrumentation._dag_node import DagNode, BasicCodeLocation, DagNodeDetails, OperatorContext, \
+    CodeReference
+from mlidea.instrumentation._operator_call_info import OperatorCallInfo
 from mlidea.monkeypatching._mlinspect_ndarray import MlideaChromaVectorStoreRetrieverPlaceHolder, MlinspectList
 from mlidea.monkeypatching._monkey_patching_utils import get_optional_code_info_or_none, \
     FunctionCallResult, add_dag_node, get_input_info, \
@@ -219,6 +220,8 @@ class RunnableSequencePatching:
         return found_retriever
 
     @staticmethod
+    @gorilla.name('execute_rag_join_diff')
+    @gorilla.settings(allow_hit=True)
     def execute_rag_join_diff(retriever_steps, inputs, filled_vectorstore):
         _, _, retriever_sub_step, _ = retriever_steps
         retrieval_results = inputs

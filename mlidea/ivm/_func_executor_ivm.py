@@ -7,12 +7,47 @@ from functools import partial
 import duckdb
 import numpy
 import pandas
+from langchain_core.runnables import RunnableSequence
 
 from mlidea.ivm._func_executor_change_detection import determine_parents_compared_to_previous_dag
 from mlidea.instrumentation._dag_node import OperatorContext
 from mlidea.instrumentation._operator_call_info import OperatorCallInfo, OperatorOutputChange, OutputChangeType
 from mlidea.instrumentation._operator_types import OperatorType, ConditionalResult, FunctionInfo
 from mlidea.monkeypatching._mlinspect_ndarray import MlinspectNdarray, MlinspectList, MlinspectDict, MlinspectTuple
+from utils._utils import get_sorted_parent_nodes
+
+
+def _get_rag_join_results_to_rerun(rag_join_result, change_indices):
+    retrieval_index = rag_join_result[6]
+    changed_df = pandas.DataFrame({'train_id': change_indices})  # pylint: disable=unused-variable
+    pandas_retrieval_index_df = pandas.DataFrame(retrieval_index,
+                                                 columns=['train_retrieved_1', 'train_retrieved_2',
+                                                          'train_retrieved_3', 'train_retrieved_4'])
+    pandas_retrieval_index_df['prediction_id'] = list(range(len(rag_join_result[2])))
+    all_predictions_to_rerun = duckdb.query("""
+                SELECT DISTINCT prediction_id
+                FROM changed_df c JOIN pandas_retrieval_index_df p 
+                ON c.train_id = train_retrieved_1 
+                OR c.train_id = train_retrieved_2 
+                OR c.train_id = train_retrieved_3 
+                OR c.train_id = train_retrieved_4 
+            """).fetchnumpy()['prediction_id']
+
+    return all_predictions_to_rerun
+
+
+def rag_join_update(rag_join_result, inputs):
+    vectorstore = rag_join_result[5]
+
+    diff_rag_result, diff_retrieval_index = RunnableSequence.execute_rag_join_diff(
+        rag_join_result[7], list(inputs), vectorstore)
+    new_rag_join_text_result = list(diff_rag_result)
+
+    # TODO: Should we propagate provenance here? Might be important for explanations later
+    new_rag_join_result = (rag_join_result[0], rag_join_result[1], new_rag_join_text_result, list(inputs),
+                           None, rag_join_result[5], diff_retrieval_index, rag_join_result[7])
+    return new_rag_join_result
+
 
 
 def fix_data_diff_detection_mask_only(input_df, corrupted_result):
@@ -109,6 +144,7 @@ def execute_with_partial_reuse(current_dag_node, estimator_transformer_state, in
                                                                   operator_call_info.function_info,
                                                                   operator_call_info.non_data_kwargs),
                                                   parent_nodes_from_previous_run)
+    new_parent_nodes = [singleton.get_dag_node_for_id(node_id) for node_id in operator_call_info.parent_node_ids]
     if updated_operator_call_info in singleton.reuse_info.operator_call_info_to_dag_node:
         # Incrementally update the old result
         # First load the old result
@@ -137,6 +173,13 @@ def execute_with_partial_reuse(current_dag_node, estimator_transformer_state, in
             result = projection_modify_subset_ivm(instrumented_function_call, instrumented_function_call_args,
                                                   old_result, original_func_call_with_args,
                                                   parent_nodes_from_previous_run, singleton)
+        elif ((not isinstance(parent_nodes_from_previous_run[-1], ConditionalResult) or
+               parent_nodes_from_previous_run[
+                   -1] != ConditionalResult.STOP_EXECUTION) and stop_signal_received is False and
+              operator_call_info.operator == OperatorType.RAG_JOIN):
+            result = rag_join_ivm(instrumented_function_call,
+                                  instrumented_function_call_args, old_result, original_func_call_with_args,
+                                  new_parent_nodes, parent_nodes_from_previous_run, singleton)
         # FIXME: Rag Join and LLM Calls
         elif stop_signal_received is False:
             result = original_func_call_with_args()
@@ -169,6 +212,60 @@ def execute_with_partial_reuse(current_dag_node, estimator_transformer_state, in
             #  DAG currently
             singleton.reuse_info.undetermined_new_nodes.add(operator_call_info)
 
+    return result
+
+
+def rag_join_ivm(instrumented_function_call, instrumented_function_call_args,
+                 old_result, original_func_call_with_args, new_parent_nodes, parent_nodes_from_previous_run,
+                 singleton):
+    # TODO: Compare old input with new input
+    train_side_node_new = new_parent_nodes[0]
+    train_side_node_old = parent_nodes_from_previous_run[0]
+    inference_side_new = new_parent_nodes[1]
+    inference_side_old = parent_nodes_from_previous_run[1]
+    train_side_changed = train_side_node_new != train_side_node_old
+    inference_side_changed = inference_side_new != inference_side_old
+
+    train_side_corpus_new = instrumented_function_call_args[0]
+    train_side_corpus_old = singleton.reuse_info.cached_intermediates[parent_nodes_from_previous_run[0]]
+    inference_side_rows_new = instrumented_function_call_args[1]
+    inference_side_rows_old = singleton.reuse_info.cached_intermediates[parent_nodes_from_previous_run[1]]
+    if train_side_changed:
+        old_dag = singleton.global_old_dag
+        new_dag = singleton.global_new_dag
+        concat_parent_X_new, concat_parent_y_new = get_sorted_parent_nodes(new_dag, train_side_node_new)
+        concat_parent_X_old, concat_parent_y_old = get_sorted_parent_nodes(old_dag, train_side_node_old)
+        X_changed = concat_parent_X_new != concat_parent_X_old
+        y_changed = concat_parent_y_new != concat_parent_y_old
+        diff_mask_combined = numpy.zeros(len(train_side_corpus_new.retrieval_corpus_X), dtype=bool)
+        if X_changed:
+            diff_mask_X = fix_data_diff_detection_mask_only(
+                train_side_corpus_new.retrieval_corpus_X, train_side_corpus_old.retrieval_corpus_X)
+            diff_mask_combined = diff_mask_combined | diff_mask_X
+        if y_changed:
+            assert y_changed
+            diff_mask_y = fix_data_diff_detection_mask_only(
+                train_side_corpus_new.retrieval_corpus_y, train_side_corpus_old.retrieval_corpus_y)
+            diff_mask_combined = diff_mask_combined | diff_mask_y
+        corpus_changed_diff_index = fix_data_mask_to_indices(diff_mask_combined)
+        # We redo the lookups even if there is only a label change for simplicity with langchain, but since the
+        #  embeddings are cached the costs for this should be negligible
+        parent_diff_index = _get_rag_join_results_to_rerun(old_result, corpus_changed_diff_index)
+        parent_diff = apply_diff_filter(inference_side_rows_new, parent_diff_index)
+        result = rag_join_update(old_result, parent_diff)
+    else:
+        assert inference_side_changed
+        if len(inference_side_rows_new) == len(inference_side_rows_old):
+            parent_diff_index = changed_data_diff_detection(inference_side_rows_new, inference_side_rows_old)
+            parent_diff = apply_diff_filter(inference_side_rows_new, parent_diff_index)
+            result = rag_join_update(old_result, parent_diff)
+        else:
+            result = original_func_call_with_args()
+
+    # FIXME: Tell LLM Predict which rows need to be rerun
+    #  We can use the change maps here that we don't use as much as we should yet
+
+    # FIXME: See _label_errors._label_flip_processing_func_llm for more things that need to be done
     return result
 
 
