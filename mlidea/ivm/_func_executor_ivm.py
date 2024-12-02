@@ -36,16 +36,24 @@ def _get_rag_join_results_to_rerun(rag_join_result, change_indices):
     return all_predictions_to_rerun
 
 
-def rag_join_update(rag_join_result, inputs):
-    vectorstore = rag_join_result[5]
-
-    diff_rag_result, diff_retrieval_index = RunnableSequence.execute_rag_join_diff(
-        rag_join_result[7], list(inputs), vectorstore)
-    new_rag_join_text_result = list(diff_rag_result)
-
+def rag_join_update(rag_join_result, inputs, vectorstore, all_predictions_to_rerun):
     # TODO: Should we propagate provenance here? Might be important for explanations later
-    new_rag_join_result = (rag_join_result[0], rag_join_result[1], new_rag_join_text_result, list(inputs),
-                           None, rag_join_result[5], diff_retrieval_index, rag_join_result[7])
+
+    # Rerun the RAG join on the diff
+    diff_inputs = list(numpy.array(inputs)[all_predictions_to_rerun])
+    diff_rag_result, diff_retrieval_index = RunnableSequence.execute_rag_join_diff(
+        rag_join_result[7], diff_inputs, vectorstore)
+
+    # Prepare the usual RAG join output
+    new_rag_join_text_result = numpy.array(rag_join_result[2])
+    new_rag_join_text_result[all_predictions_to_rerun] = diff_rag_result
+    new_rag_join_text_result_list = list(new_rag_join_text_result)
+
+    new_retrieval_index = rag_join_result[6].copy()
+    new_retrieval_index[all_predictions_to_rerun, :] = diff_retrieval_index
+
+    new_rag_join_result = (rag_join_result[0], rag_join_result[1], new_rag_join_text_result_list,
+                           rag_join_result[3], None, rag_join_result[5], new_retrieval_index, rag_join_result[7])
     return new_rag_join_result
 
 
@@ -176,7 +184,8 @@ def execute_with_partial_reuse(current_dag_node, estimator_transformer_state, in
         elif ((not isinstance(parent_nodes_from_previous_run[-1], ConditionalResult) or
                parent_nodes_from_previous_run[
                    -1] != ConditionalResult.STOP_EXECUTION) and stop_signal_received is False and
-              operator_call_info.operator == OperatorType.RAG_JOIN):
+              operator_call_info.operator == OperatorType.RAG_JOIN and operator_call_info.function_info ==
+              FunctionInfo('langchain_community.vectorstores.Chroma', 'from_texts')):
             result = rag_join_ivm(instrumented_function_call,
                                   instrumented_function_call_args, old_result, original_func_call_with_args,
                                   new_parent_nodes, parent_nodes_from_previous_run, singleton)
@@ -238,34 +247,56 @@ def rag_join_ivm(instrumented_function_call, instrumented_function_call_args,
         X_changed = concat_parent_X_new != concat_parent_X_old
         y_changed = concat_parent_y_new != concat_parent_y_old
         diff_mask_combined = numpy.zeros(len(train_side_corpus_new.retrieval_corpus_X), dtype=bool)
+        vectorstore = old_result[5]
         if X_changed:
             diff_mask_X = fix_data_diff_detection_mask_only(
                 train_side_corpus_new.retrieval_corpus_X, train_side_corpus_old.retrieval_corpus_X)
             diff_mask_combined = diff_mask_combined | diff_mask_X
+
+            diff_indices_X = fix_data_mask_to_indices(diff_mask_X)
+
+            # Update the labels in the vectorstore
+            if len(diff_indices_X) > 0:
+                diff_X = apply_diff_filter(train_side_corpus_new.retrieval_corpus_y, diff_indices_X)
+                vectorstore_ids = [str(index) for index in diff_indices_X]
+                old_entries = vectorstore.get(ids=vectorstore_ids, include=["embeddings", "metadatas"])
+                vectorstore._collection.update(vectorstore_ids, old_entries['embeddings'], old_entries['metadatas'],
+                                               list(diff_X))
         if y_changed:
             assert y_changed
             diff_mask_y = fix_data_diff_detection_mask_only(
                 train_side_corpus_new.retrieval_corpus_y, train_side_corpus_old.retrieval_corpus_y)
             diff_mask_combined = diff_mask_combined | diff_mask_y
+            diff_indices_y = fix_data_mask_to_indices(diff_mask_y)
+
+            # Update the labels in the vectorstore
+            if len(diff_indices_y) > 0:
+                diff_y = apply_diff_filter(train_side_corpus_new.retrieval_corpus_y, diff_indices_y)
+                vectorstore_ids = [str(index) for index in diff_indices_y]
+                old_entries = vectorstore.get(ids=vectorstore_ids, include=["embeddings", "documents"])
+                vectorstore._collection.update(vectorstore_ids, old_entries['embeddings'], list(diff_y),
+                                               old_entries['documents'])
+
         corpus_changed_diff_index = fix_data_mask_to_indices(diff_mask_combined)
         # We redo the lookups even if there is only a label change for simplicity with langchain, but since the
         #  embeddings are cached the costs for this should be negligible
         parent_diff_index = _get_rag_join_results_to_rerun(old_result, corpus_changed_diff_index)
-        parent_diff = apply_diff_filter(inference_side_rows_new, parent_diff_index)
-        result = rag_join_update(old_result, parent_diff)
+
+        result = rag_join_update(old_result, inference_side_rows_new, vectorstore, parent_diff_index)
+        # We do not need to revert the changes here since the original pipeline is always changed after this
     else:
         assert inference_side_changed
         if len(inference_side_rows_new) == len(inference_side_rows_old):
             parent_diff_index = changed_data_diff_detection(inference_side_rows_new, inference_side_rows_old)
-            parent_diff = apply_diff_filter(inference_side_rows_new, parent_diff_index)
-            result = rag_join_update(old_result, parent_diff)
+
+            vectorstore = old_result[5]
+            result = rag_join_update(old_result, inference_side_rows_new, vectorstore, parent_diff_index)
         else:
             result = original_func_call_with_args()
 
     # FIXME: Tell LLM Predict which rows need to be rerun
     #  We can use the change maps here that we don't use as much as we should yet
 
-    # FIXME: See _label_errors._label_flip_processing_func_llm for more things that need to be done
     return result
 
 
