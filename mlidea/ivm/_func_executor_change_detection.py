@@ -71,10 +71,10 @@ def determine_parent_change_type(new_dag, new_dag_parent_node, new_dag_parent_op
     else:
         is_addition, node_being_added_to = False, None
     if not is_replacement and not is_addition:
-        is_deletion, deleted_node_child, deleted_node = determine_is_deletion(singleton, new_dag, new_dag_parent_node,
-                                                                              old_dag)
+        is_deletion, deleted_node_child, deleted_node = determine_is_deletion(
+            singleton, new_dag, new_dag_parent_node, old_dag)
     else:
-        is_deletion, deleted_node_child = False, None
+        is_deletion, deleted_node_child, deleted_node = False, None, None
 
     if is_replacement:
         singleton.reuse_info.operator_replacement.add(new_dag_parent_node)
@@ -102,10 +102,26 @@ def determine_parent_change_type(new_dag, new_dag_parent_node, new_dag_parent_op
         singleton.reuse_info.operator_deletion.add(new_dag_parent_node)
         if deleted_node.operator_info.operator in {OperatorType.SELECTION}:
             # FIXME: How can we do this?
-            old_value = singleton.reuse_info.cached_intermediates[deleted_node]
+            old_value = singleton.reuse_info.cached_intermediates[new_dag_parent_node]
             new_value = singleton.reuse_info.cached_intermediates[deleted_node_child]
-            rows_added = None  # FIXME: How can we do this? Also, maybe we need another reference point!
-            change_diff = OperatorOutputChange(OutputChangeType.ROWS_ADDED, rows_added=rows_added)
+
+            # FIXME: sampling for train test split is problematic here....
+            # old_value_train = singleton.reuse_info.cached_intermediates[new_dag_parent_node].train
+            # new_value_train = singleton.reuse_info.cached_intermediates[deleted_node_child].train
+            # old_value_test = singleton.reuse_info.cached_intermediates[new_dag_parent_node].test
+            # new_value_test = singleton.reuse_info.cached_intermediates[deleted_node_child].test
+            #
+            # # Find the indices of rows filtered out
+            # filtered_out_indices_train = old_value_train.index.difference(new_value_train.index)
+            # # Use the indices to extract the filtered-out rows
+            # filtered_out = old_value_train.loc[filtered_out_indices_train]
+            # # FIXME: Reverse check shows that there both sides have rows not in the other side!
+            # filtered_out_indices_train_reverse = new_value_train.index.difference(old_value_train.index)
+            # # Use the indices to extract the filtered-out rows
+            # filtered_out_reverse = new_value_train.loc[filtered_out_indices_train_reverse]
+            # rows_added = None  # FIXME: How can we do this? Also, maybe we need another reference point!
+            # change_diff = OperatorOutputChange(OutputChangeType.ROWS_ADDED, rows_added=rows_added)
+            change_diff = OperatorOutputChange(OutputChangeType.TOO_MUCH_CHANGED)
         else:
             change_diff = OperatorOutputChange(
                 OutputChangeType.TOO_MUCH_CHANGED)  # FIXME: We also need to compute the actual changes!
