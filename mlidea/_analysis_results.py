@@ -57,6 +57,7 @@ class DagExtractionInfo:
     next_op_id: int
     next_missing_op_id: int
     reuse_info: ReuseInfo
+    captured_orig_pipeline_stdout: str or None
 
 
 @dataclasses.dataclass

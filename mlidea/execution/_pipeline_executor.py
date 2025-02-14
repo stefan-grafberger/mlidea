@@ -63,7 +63,7 @@ class PipelineExecutor:
                                        RuntimeInfo(0, 0, 0, 0, None, None, 0, 0, 0, 0, 0, 0, 0),
                                        DagExtractionInfo(networkx.DiGraph(), [], {}, 0, 0,
                                                          ReuseInfo({}, {}, {}, set(), set(), set(), set(), set(), set(),
-                                                                   {}, {}, set(), {}, {})), None)
+                                                                   {}, {}, set(), {}, {}), None), None)
     monkey_patch_duration = 0
     skip_optimizer = False
     force_optimization_rules = None
@@ -80,6 +80,7 @@ class PipelineExecutor:
     global_new_dag = networkx.DiGraph()
     # Put this into a new data class
     reuse_info = ReuseInfo({}, {}, {}, set(), set(), set(), set(), set(), set(), {}, {}, set(), {}, {})
+    captured_output = None
 
     def run(self, *,
             notebook_path: str or None = None,
@@ -142,8 +143,8 @@ class PipelineExecutor:
             with redirect_stdout(stdout_output):
                 self.run_instrumented_pipeline(notebook_path, python_code, python_path)
             # TODO: Do we ever need the captured output from the original pipeline version?
-            #  Maybe this gets relevant once we add the DAG as input to mlwhat in case there are multiple executions
-            # captured_output = stdout_output.getvalue()
+            #  Maybe this gets relevant once we add the DAG as input to mlidea in case there are multiple executions
+            self.captured_output = stdout_output.getvalue()
             self.prepare_runtime_info(orig_instrumented_exec_start)
             # FIXME: Training Data Matrix shape
             pipeline_exec_time = self.analysis_results.runtime_info.original_pipeline_without_importing_and_monkeypatching
@@ -158,7 +159,7 @@ class PipelineExecutor:
             self.analysis_results.original_dag.copy(),
             copy.deepcopy(list(self.analysis_results.shadow_pipeline_to_dags.values())),
             self.original_pipeline_labels_to_extracted_plan_results.copy(),
-            self.next_op_id, self.next_missing_op_id, self.reuse_info)
+            self.next_op_id, self.next_missing_op_id, self.reuse_info, self.captured_output)
 
         logger.info('Done!')
         return self.analysis_results
@@ -352,7 +353,7 @@ class PipelineExecutor:
                                                 RuntimeInfo(0, 0, 0, 0, None, None, 0, 0, 0, 0, 0, 0, 0),
                                                 DagExtractionInfo(networkx.DiGraph(), [], {}, 0, 0,
                                                                   ReuseInfo({}, {}, {}, set(), set(), set(), set(), set(),
-                                                                            set(),{}, {}, set(), {}, {})), None)
+                                                                            set(),{}, {}, set(), {}, {}), None), None)
         self.analyses = []
         self.shadow_pipelines = []
         self.original_pipeline_labels_to_extracted_plan_results = {}
@@ -373,6 +374,7 @@ class PipelineExecutor:
         self.global_old_dag = None
         self.global_new_dag = networkx.DiGraph()
         self.reuse_info = ReuseInfo({}, {}, {}, set(), set(), set(), set(), set(), set(), {}, {}, set(), {}, {})
+        self.captured_output = None
 
     @staticmethod
     def instrument_pipeline(parsed_ast, track_code_references):
