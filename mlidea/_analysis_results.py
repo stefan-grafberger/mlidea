@@ -4,11 +4,10 @@ Data class used as result of the PipelineExecutor
 import dataclasses
 
 import networkx
-from matplotlib.patches import Shadow
 
 from mlidea.execution._patches import PipelinePatch
 from mlidea.visualisation import save_fig_to_path
-from shadow_pipelines._shadow_pipeline import ShadowPipeline
+from mlidea.shadow_pipelines._shadow_pipeline import ShadowPipeline
 
 
 @dataclasses.dataclass
