@@ -1,3 +1,4 @@
+import asyncio
 import warnings
 from copy import copy
 from enum import Enum
@@ -13,6 +14,7 @@ from deep_translator import GoogleTranslator
 from fairlearn.metrics import MetricFrame
 from sklearn.linear_model import SGDClassifier
 from sklearn.preprocessing import FunctionTransformer
+from googletrans import Translator
 
 from mlidea.instrumentation._dag_node import DagNode, OperatorContext, DagNodeDetails, BasicCodeLocation
 from mlidea.instrumentation._operator_call_info import OperatorCallInfo
@@ -370,7 +372,8 @@ def get_transformer_parents_with_data_types(dag):
 
 
 def get_translate_transformer(column, database_path):
-    translator = GoogleTranslator(source='auto', target='en')
+    # translator = GoogleTranslator(source='auto', target='en')
+    translator = Translator()
 
     # translator = MyMemoryTranslator(source='auto', target='en-US')
     # Could also use HuggingFace, but then it would be even slower probably
@@ -378,9 +381,9 @@ def get_translate_transformer(column, database_path):
     def translate(df, bound_column):
         # df['tweet'] = df['tweet'].map(lambda txt: translator.translate(txt))
         if isinstance(df, pandas.DataFrame):
-            df[bound_column] = translator.translate_batch(df[bound_column].to_list())
+            df[bound_column] =[result.text for result in asyncio.run(translator.translate(df[bound_column].to_list()))]
         else:
-            df = translator.translate_batch(df)
+            df = [result.text for result in asyncio.run(translator.translate(df))]
         # TODO: Is this fast enough?
         return df
 
