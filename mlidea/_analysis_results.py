@@ -4,9 +4,11 @@ Data class used as result of the PipelineExecutor
 import dataclasses
 
 import networkx
+from matplotlib.patches import Shadow
 
 from mlidea.execution._patches import PipelinePatch
 from mlidea.visualisation import save_fig_to_path
+from shadow_pipelines._shadow_pipeline import ShadowPipeline
 
 
 @dataclasses.dataclass
@@ -28,6 +30,9 @@ class RuntimeInfo:
     what_if_query_optimization_duration: int
     what_if_execution: int
     what_if_execution_combined_model_training: int
+    shadow_pipeline_execution: dict[ShadowPipeline, int]
+    shadow_pipeline_generation: dict[ShadowPipeline, int]
+    shadow_pipeline_execution_combined_model_training: dict[ShadowPipeline, int]
 
 @dataclasses.dataclass
 class ReuseInfo:

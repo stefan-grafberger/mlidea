@@ -60,7 +60,7 @@ class PipelineExecutor:
     original_pipeline_labels_to_extracted_plan_results = {}
     labels_to_extracted_plan_results = {}
     analysis_results = AnalysisResults({}, {}, networkx.DiGraph(), [], {}, networkx.DiGraph(),
-                                       RuntimeInfo(0, 0, 0, 0, None, None, 0, 0, 0, 0, 0, 0, 0),
+                                       RuntimeInfo(0, 0, 0, 0, None, None, 0, 0, 0, 0, 0, 0, 0, {}, {}, {}),
                                        DagExtractionInfo(networkx.DiGraph(), [], {}, 0, 0,
                                                          ReuseInfo({}, {}, {}, set(), set(), set(), set(), set(), set(),
                                                                    {}, {}, set(), {}, {}), None), None)
@@ -204,20 +204,38 @@ class PipelineExecutor:
     def gen_and_exec_shadow_pipelines(self):
         # Required for the execution engine for the IVM to detect changes
         for shadow_pipeline in self.shadow_pipelines:
+            logger.info(f'Start plan generation for shadow pipeline {type(shadow_pipeline).__name__}...')
+            execution_start = time.time()
+
             original_dag_copy = copy.deepcopy(self.analysis_results.original_dag)
             shadow_dag = shadow_pipeline.generate_shadow_pipeline_dag(original_dag_copy)
             self.global_new_dag = networkx.compose_all([self.global_new_dag, shadow_dag])
+            execution_duration = time.time() - execution_start
+            logger.info(f'---RUNTIME: Generation took {execution_duration * 1000} ms')
+            self.analysis_results.runtime_info.shadow_pipeline_generation[shadow_pipeline] = execution_duration * 1000
+
+            logger.info(f'Start plan execution for shadow pipeline {type(shadow_pipeline).__name__}...')
+            execution_start = time.time()
             DagExecutor(self).execute(shadow_dag, self.use_dfs_exec_strategy)
             filtered_shadow_dag = filter_shadow_dag(original_dag_copy, shadow_dag)
 
             # Update the runtime info
+            shadow_pipeline_estimator_runtimes = 0
             for node in filtered_shadow_dag.nodes:
                 if node in self.operators_to_runtime_during_analysis:
                     node.details.optimizer_info = self.operators_to_runtime_during_analysis[node]
+                    if node.operator_info.operator == OperatorType.ESTIMATOR:
+                        shadow_pipeline_estimator_runtimes += node.details.optimizer_info.runtime
                 else:
                     print(node)
 
             self.analysis_results.shadow_pipeline_to_dags[shadow_pipeline] = filtered_shadow_dag
+            execution_duration = time.time() - execution_start
+            logger.info(f'---RUNTIME: Execution took {execution_duration * 1000} ms')
+            self.analysis_results.runtime_info.shadow_pipeline_execution[shadow_pipeline] = execution_duration * 1000
+
+            self.analysis_results.runtime_info.shadow_pipeline_execution_combined_model_training[shadow_pipeline] = (
+                shadow_pipeline_estimator_runtimes)
         for shadow_pipeline in self.shadow_pipelines:
             report = shadow_pipeline.generate_final_report(self.labels_to_extracted_plan_results)
             self.analysis_results.shadow_pipelines_to_result_reports[shadow_pipeline] = report
@@ -350,7 +368,7 @@ class PipelineExecutor:
         self.next_missing_op_id = -1
         self.track_code_references = True
         self.analysis_results = AnalysisResults({}, {}, networkx.DiGraph(), [], {}, networkx.DiGraph(),
-                                                RuntimeInfo(0, 0, 0, 0, None, None, 0, 0, 0, 0, 0, 0, 0),
+                                                RuntimeInfo(0, 0, 0, 0, None, None, 0, 0, 0, 0, 0, 0, 0, {}, {}, {}),
                                                 DagExtractionInfo(networkx.DiGraph(), [], {}, 0, 0,
                                                                   ReuseInfo({}, {}, {}, set(), set(), set(), set(), set(),
                                                                             set(),{}, {}, set(), {}, {}), None), None)
