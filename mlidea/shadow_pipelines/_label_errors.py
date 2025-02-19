@@ -156,9 +156,12 @@ class LabelErrors(ShadowPipeline):
         summary += f"The original result was {orig_result}.\n"
         proxy_result = []
         if self._proxy_model is True:
+            # LLM pipelines do not support a proxy so the proxy values may be absent
             for score_index in range(self.score_operator_count):
-                proxy_result.append(extracted_plan_results[f"label-errors-proxy-{score_index}"])
-            summary += f"The proxy result was {proxy_result}.\n"
+                if f"label-errors-proxy-{score_index}" in extracted_plan_results:
+                    proxy_result.append(extracted_plan_results[f"label-errors-proxy-{score_index}"])
+            if len(proxy_result) != 0:
+                summary += f"The proxy result was {proxy_result}.\n"
         shapley_values = extracted_plan_results["label-errors-shapley-values"]
         if extracted_plan_results["label-errors-shapley-values-non-empty"] is False:
             summary += "No likely mislabeled rows were found with the given label error config!\nNothing to do for now."
