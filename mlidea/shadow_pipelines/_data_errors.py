@@ -1,3 +1,4 @@
+import dataclasses
 from functools import partial
 
 import networkx
@@ -23,6 +24,36 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     add_new_score_and_score_extraction_nodes, assert_standard_llm_shape, assert_standard_ml_shape, get_top_n_df_rows, \
     df_or_array_non_empty, df_or_array_non_empty_func_info, add_parent_node_edges, get_rag_join_update_node, \
     get_basic_code_location_for_current_line
+
+
+@dataclasses.dataclass
+class PotentialSuggestion:
+    improves_score: bool
+    suggestion: str or None
+    suggestion_metric_results: any
+    suggestion_max_score_improvement: float or None
+    suggestion_df: any or None
+
+
+@dataclasses.dataclass
+class ScreenedIssue:
+    description: str
+    issue_found: bool
+    issue_metrics_result: any
+    issue_max_score_decrease: float
+    issue_df: any or None
+    suggestion_found: bool
+    issue_suggestions: list[PotentialSuggestion]
+
+
+@dataclasses.dataclass
+class DataErrorsReport:
+    """
+    The class the PipelineExecutor returns when doing runtime estimation only
+    """
+    orig_metric_results: any
+    screened_issues: list[ScreenedIssue]
+    summary: str
 
 
 class DataErrorRobustness(ShadowPipeline):
@@ -114,36 +145,42 @@ class DataErrorRobustness(ShadowPipeline):
         orig_result = []
         for score_index in range(self.score_operator_count):
             orig_result.append(extracted_plan_results[f"orig-{score_index}"])
-        report = ""
+        summary = ""
         corrupted_data_types = []
         data_types_w_repairs = []
         corruption_score_decreases = []
         fix_score_increases = []
+        screened_issues = []
         for transformer_index, data_type_name in enumerate(self._transformer_inputs_to_check):
-            report += self._add_data_type_results_to_report(corrupted_data_types, corruption_score_decreases,
-                                                            data_type_name, data_types_w_repairs,
-                                                            extracted_plan_results,
-                                                            fix_score_increases, orig_result, transformer_index)
+            issue_summary, screened_issue = self._add_data_type_results_to_report(
+                corrupted_data_types, corruption_score_decreases, data_type_name, data_types_w_repairs,
+                extracted_plan_results, fix_score_increases, orig_result, transformer_index)
+            summary += issue_summary
+            if screened_issue is not None:
+                screened_issues.append(screened_issue)
         if len(corrupted_data_types) > 0:
-            report += (f"\n\nOverall, your pipeline does not seem very robust to the corruptions "
+            summary += (f"\n\nOverall, your pipeline does not seem very robust to the corruptions "
                        f"{corrupted_data_types} that were tried (performance drops as extreme as "
                        f"{min(corruption_score_decreases)})!")
             if len(data_types_w_repairs) > 0:
-                report += (f" However, for the cases {data_types_w_repairs}, data errors already found "
+                summary += (f" However, for the cases {data_types_w_repairs}, data errors already found "
                            f"a potential way to address them (that improve the performance on corrupted data by up to "
                            f"{max(fix_score_increases)})! (However, you might want to do more detailed experiments "
                            f"yourself, but the suggestions by Data Errors might be a good starting point).")
             else:
-                report += (" While Data Errors was not able to find a promising way to make your pipeline more "
+                summary += (" While Data Errors was not able to find a promising way to make your pipeline more "
                            "robust, you might want to investigate this issue yourself.")
+
+        report = DataErrorsReport(orig_result, screened_issues, summary)
         return report
 
     def _add_data_type_results_to_report(self, corrupted_data_types, corruption_score_decreases, data_type_name,
                                          data_types_w_repairs, extracted_plan_results, fix_score_increases, orig_result,
                                          transformer_index):
-        report = f"Issue {transformer_index}: {data_type_name}\n-\n"
+        summary = f"Issue {transformer_index}: {data_type_name}\n-\n"
         if extracted_plan_results[f"data-errors-corruption-made-changes-{transformer_index}"] is False:
-            report += "The corruption function did not make any changes."
+            summary += "The corruption function did not make any changes."
+            screened_issue = None
         else:
             corruption_diff_df = extracted_plan_results[
                 f"data-errors-corruption-diff-{transformer_index}"]
@@ -154,20 +191,21 @@ class DataErrorRobustness(ShadowPipeline):
                     extracted_plan_results[f"data-errors-corrupt-{transformer_index}-{score_index}"])
             max_score_decrease = get_relative_score_change(max_not_min=False, *orig_result, *corrupt_result)
             corruption_score_decreases.append(max_score_decrease)
-            report += (
+            summary += (
                 f"The original result was {orig_result}. After corrupting {self._corruption_fraction} of rows, "
                 f"the pipeline metric was {corrupt_result} (a relative change of {max_score_decrease} in the "
                 f"most extreme scenario).\n")
             if max_score_decrease <= self._corruption_significant_relative_threshold:
-                report += "This indicates robustness problems you might want to take a look at!\n"
+                summary += "This indicates robustness problems you might want to take a look at!\n"
                 corrupted_data_types.append(data_type_name)
             else:
-                report += ("This shows that your pipeline is relatively robust agaisnt the tested data quality "
+                summary += ("This shows that your pipeline is relatively robust agaisnt the tested data quality "
                            "problems. However, this doesn't mean that it is robust against other data quality "
                            "problems!\n")
-            report += f"A sample of the corrupted rows: \n{str(corruption_diff_df_sample)}\n"
+            summary += f"A sample of the corrupted rows: \n{str(corruption_diff_df_sample)}\n"
 
-            if extracted_plan_results[f"data-errors-corruption-significant-{transformer_index}"] is True:
+            issue_significant = extracted_plan_results[f"data-errors-corruption-significant-{transformer_index}"]
+            if issue_significant is True:
                 corruption_diff_fix_df = extracted_plan_results[
                     f"data-errors-corruption-diff-fix-{transformer_index}"]
                 corruption_diff_fix_df_sample = get_top_n_df_rows(corruption_diff_fix_df, 20)
@@ -176,30 +214,39 @@ class DataErrorRobustness(ShadowPipeline):
                     score_after_fixing.append(
                         extracted_plan_results[f"data-errors-corrupt-fix-{transformer_index}-{score_index}"])
             else:
-                report += (
+                summary += (
                     "Fortunately, corruption function was not able to significantly affect the performance beyond "
                     "the configured acceptable threshold.\n")
+            suggestions_tried = []
             if (extracted_plan_results[f"data-errors-corruption-significant-{transformer_index}"] is True and
                     extracted_plan_results[
                         f"data-errors-corruption-diff-fix-not-empty-{transformer_index}"] is True):
                 max_score_increase = get_relative_score_change(*corrupt_result, *score_after_fixing)
-                report += (f"After adding a fix method, the pipeline metric was "
+                summary += (f"After adding a fix method, the pipeline metric was "
                            f"{score_after_fixing} (a relative change of {max_score_increase}).\n")
-                if max_score_increase > 1.:
-                    report += ("This shows that the repair strategy Data Errors tried could help with making your "
+                improves_score = max_score_increase > 1.
+                if improves_score:
+                    summary += ("This shows that the repair strategy Data Errors tried could help with making your "
                                "pipeline more robust (although other repair strategies Data Errors did not try "
                                "might be even better).\n")
                     data_types_w_repairs.append(data_type_name)
                     fix_score_increases.append(max_score_increase)
                 else:
-                    report += ("This shows that the repair strategy Data Errors tried could not help with making "
+                    summary += ("This shows that the repair strategy Data Errors tried could not help with making "
                                "your pipeline more robust. However, you might still want to fix the robustness "
                                "problems Data Errors found.\n")
-                report += f"A sample of the fixed rows:\n{str(corruption_diff_fix_df_sample)}\n"
+                summary += f"A sample of the fixed rows:\n{str(corruption_diff_fix_df_sample)}\n"
+                suggestions_tried.append(PotentialSuggestion(improves_score, data_type_name, score_after_fixing,
+                                                             max_score_increase, corruption_diff_fix_df_sample))
             elif extracted_plan_results[f"data-errors-corruption-significant-{transformer_index}"] is True:
-                report += "Unfortunately, the fix method was not able to automatically address the corrupted rows."
-        report += "\n"
-        return report
+                summary += "Unfortunately, the fix method was not able to automatically address the corrupted rows."
+
+            suggestion_found = len([suggestion for suggestion in suggestions_tried if suggestion.improves_score]) > 0
+            screened_issue = ScreenedIssue(f"Issue {transformer_index}: {data_type_name}",
+                                           issue_significant, corrupt_result, max_score_decrease,
+                                           corruption_diff_df_sample, suggestion_found, suggestions_tried)
+        summary += "\n"
+        return summary, screened_issue
 
     def _add_fix_computation_ml(self, conditional_corruption_significant_node, corrupted_predictions_node,
                                 corruption_diff_node, corruption_node, dag, data_parent, data_type, data_type_index,

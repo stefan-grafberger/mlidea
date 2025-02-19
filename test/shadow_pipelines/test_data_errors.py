@@ -41,7 +41,7 @@ def test_data_errors_mini_example_with_transformer_processing_multiple_columns_n
         .add_shadow_pipeline(data_errors) \
         .execute()
 
-    report = analysis_result.shadow_pipelines_to_result_reports[data_errors]
+    report = analysis_result.shadow_pipelines_to_result_reports[data_errors].summary
     assert "the pipeline metric was" in report
     assert "Fortunately, " in report
 
@@ -81,7 +81,7 @@ def test_data_errors_mini_example_with_transformer_processing_multiple_columns_g
         .add_shadow_pipeline(data_errors) \
         .execute()
 
-    report = analysis_result.shadow_pipelines_to_result_reports[data_errors]
+    report = analysis_result.shadow_pipelines_to_result_reports[data_errors].summary
     assert "the pipeline metric was" in report
     assert "Fortunately, " not in report
 
@@ -100,7 +100,7 @@ def test_data_errors_mini_example_llm_rag(tmpdir):
         .add_shadow_pipeline(data_errors) \
         .execute()
 
-    report = analysis_result.shadow_pipelines_to_result_reports[data_errors]
+    report = analysis_result.shadow_pipelines_to_result_reports[data_errors].summary
     assert "Issue " in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
@@ -116,7 +116,7 @@ def test_data_errors_compas(tmpdir):
         .add_shadow_pipeline(data_errors) \
         .execute()
 
-    report = analysis_result.shadow_pipelines_to_result_reports[data_errors]
+    report = analysis_result.shadow_pipelines_to_result_reports[data_errors].summary
     assert "the pipeline metric was" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
@@ -132,7 +132,7 @@ def test_data_errors_anhedonia_ml(tmpdir):
         .add_shadow_pipeline(data_errors) \
         .execute()
 
-    report = analysis_result.shadow_pipelines_to_result_reports[data_errors]
+    report = analysis_result.shadow_pipelines_to_result_reports[data_errors].summary
     assert "the pipeline metric was" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
@@ -148,7 +148,7 @@ def test_data_errors_anhedonia_llm(tmpdir):
         .add_shadow_pipeline(data_errors) \
         .execute()
 
-    report = analysis_result.shadow_pipelines_to_result_reports[data_errors]
+    report = analysis_result.shadow_pipelines_to_result_reports[data_errors].summary
     assert "the pipeline metric was" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
@@ -164,7 +164,7 @@ def test_data_errors_adult_complex(tmpdir):
         .add_shadow_pipeline(data_errors) \
         .execute()
 
-    report = analysis_result.shadow_pipelines_to_result_reports[data_errors]
+    report = analysis_result.shadow_pipelines_to_result_reports[data_errors].summary
     assert "the pipeline metric was" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
@@ -181,7 +181,7 @@ def test_data_errors_healthcare(tmpdir):
         .add_shadow_pipeline(data_errors) \
         .execute()
 
-    report = analysis_result.shadow_pipelines_to_result_reports[data_errors]
+    report = analysis_result.shadow_pipelines_to_result_reports[data_errors].summary
     assert "the pipeline metric was" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
@@ -198,7 +198,7 @@ def test_data_errors_healthcare_fraction(tmpdir):
         .add_shadow_pipeline(data_errors) \
         .execute()
 
-    report = analysis_result.shadow_pipelines_to_result_reports[data_errors]
+    report = analysis_result.shadow_pipelines_to_result_reports[data_errors].summary
     assert "the pipeline metric was" in report
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
