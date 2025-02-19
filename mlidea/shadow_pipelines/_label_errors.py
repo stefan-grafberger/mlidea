@@ -22,14 +22,21 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
 
 
 @dataclasses.dataclass
+class PotentialSuggestion:
+    improves_score: bool
+    suggestion: str or None
+    suggestion_metric_results: any
+    suggestion_max_score_improvement: float or None
+    suggestion_df: any or None
+
+
+@dataclasses.dataclass
 class ScreenedIssue:
     description: str
     issue_found: bool
     issue_df: any or None
     suggestion_found: bool
-    suggestion: str or None
-    suggestion_max_score_improvement: float or None
-    suggestion_df: any or None
+    issue_suggestions: list[PotentialSuggestion]
 
 
 @dataclasses.dataclass
@@ -176,16 +183,17 @@ class LabelErrors(ShadowPipeline):
                 summary += (f"\n\nThe score increased by relabeling {self._cleaning_batch_size} rows by "
                            f"{max_score_improvement}. You probably want to take a look at "
                            f"the row labels again!")
-                screened_issues = [ScreenedIssue("Likely label errors", True, shapley_values, True,
-                                                 f"Relabeling {self._cleaning_batch_size} rows rows",
-                                                 max_score_improvement, None)]
+                screened_issues = [ScreenedIssue("Likely label errors", True, shapley_values, True, [
+                    PotentialSuggestion(True, f"Relabeling {self._cleaning_batch_size} rows rows",
+                                        flip_result, max_score_improvement, None)])]
             else:
                 summary += (f"\n\nWhile there are rows with potentially problematic shapley values that you could "
                            f"take a look at, automatically flipping the top {self._cleaning_batch_size} most likely "
                            f"incorrect labels did not lead to an improvement (the max relative score "
                            f"was {max_score_improvement}).")
-                screened_issues = [ScreenedIssue("Likely label errors", True, shapley_values, False,
-                                                 None, None, None)]
+                screened_issues = [ScreenedIssue("Likely label errors", True, shapley_values, False, [
+                    PotentialSuggestion(False, f"Relabeling {self._cleaning_batch_size} rows rows", flip_result,
+                                        max_score_improvement, None)])]
             if self._proxy_model is True:
                 summary += (" (However, that relative score difference is only calculated using the proxy model, so "
                            "the score changes with the proxy model are not guaranteed to be similar to score changes "
