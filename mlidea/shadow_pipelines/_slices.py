@@ -430,6 +430,8 @@ class FairnessSlices(ShadowPipeline):
         report = f"-\nRepair strategy {fix_strategy_index}: {fix_strategy_name}\n-\n"
         if extracted_plan_results[f"fairness-slices-fixing-made-changes-{fix_strategy_index}"] is False:
             report += "The fixing function did not make any changes.\n"
+            suggestion = PotentialSuggestion(False, f"{fix_strategy_name}", orig_result, 1.0,
+                                             None, None)
         else:
             fix_diff_df = extracted_plan_results[
                 f"fairness-slice-fixing-diff-{fix_strategy_index}"]
