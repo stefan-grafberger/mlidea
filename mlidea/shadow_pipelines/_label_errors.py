@@ -1,3 +1,4 @@
+import dataclasses
 from functools import partial
 
 import duckdb
@@ -18,6 +19,29 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     get_diff_filter_node, merge_prediction_diff_with_old_predictions, add_new_score_and_score_extraction_nodes, \
     assert_standard_llm_shape, assert_standard_ml_shape, get_proxy_model_node, df_or_array_non_empty, \
     df_or_array_non_empty_func_info, add_parent_node_edges, get_basic_code_location_for_current_line
+
+
+@dataclasses.dataclass
+class ScreenedIssue:
+    description: str
+    issue_found: bool
+    issue_df: any or None
+    suggestion_found: bool
+    suggestion: str or None
+    suggestion_max_score_improvement: float or None
+    suggestion_df: any or None
+
+
+@dataclasses.dataclass
+class LabelErrorsReport:
+    """
+    The class the PipelineExecutor returns when doing runtime estimation only
+    """
+    orig_metric_results: any
+    orig_proxy_results: any
+    screened_issues: list[ScreenedIssue]
+    summary: str
+
 
 
 class LabelErrors(ShadowPipeline):
@@ -120,46 +144,53 @@ class LabelErrors(ShadowPipeline):
         return new_dag
 
     def generate_final_report(self, extracted_plan_results: dict[str, any]) -> any:
-        report = ""
+        summary = ""
         orig_result = []
         for score_index in range(self.score_operator_count):
             orig_result.append(extracted_plan_results[f"orig-{score_index}"])
-        report += f"The original result was {orig_result}.\n"
+        summary += f"The original result was {orig_result}.\n"
         proxy_result = []
         if self._proxy_model is True:
             for score_index in range(self.score_operator_count):
                 proxy_result.append(extracted_plan_results[f"label-errors-proxy-{score_index}"])
-            report += f"The proxy result was {proxy_result}.\n"
+            summary += f"The proxy result was {proxy_result}.\n"
         shapley_values = extracted_plan_results["label-errors-shapley-values"]
         if extracted_plan_results["label-errors-shapley-values-non-empty"] is False:
-            report += "No likely mislabeled rows were found with the given label error config!\nNothing to do for now."
+            summary += "No likely mislabeled rows were found with the given label error config!\nNothing to do for now."
+            screened_issues = [ScreenedIssue("Likely label errors", False, shapley_values, False, None, None, None)]
         else:
             flip_result = []
             for score_index in range(self.score_operator_count):
                 flip_result.append(extracted_plan_results[f"label-errors-flip-retrain-{score_index}"])
-            report += (f"After flipping the top {self._cleaning_batch_size} most "
+            summary += (f"After flipping the top {self._cleaning_batch_size} most "
                        f"likely incorrect row labels, the pipeline metric was {flip_result}")
             if self._proxy_model is True:
-                report += " (with the proxy model)"
-            report += (f".\nThe shapley values of the "
+                summary += " (with the proxy model)"
+            summary += (f".\nThe shapley values of the "
                        f"most likely mislabeled rows:\n{str(shapley_values)}")
             if self._proxy_model is True:
                 max_score_improvement = get_relative_score_change(*proxy_result, *flip_result)
             else:
                 max_score_improvement = get_relative_score_change(*orig_result, *flip_result)
             if max_score_improvement > 1.:
-                report += (f"\n\nThe score increased by relabeling {self._cleaning_batch_size} rows by "
+                summary += (f"\n\nThe score increased by relabeling {self._cleaning_batch_size} rows by "
                            f"{max_score_improvement}. You probably want to take a look at "
                            f"the row labels again!")
+                screened_issues = [ScreenedIssue("Likely label errors", True, shapley_values, True,
+                                                 f"Relabeling {self._cleaning_batch_size} rows rows",
+                                                 max_score_improvement, None)]
             else:
-                report += (f"\n\nWhile there are rows with potentially problematic shapley values that you could "
+                summary += (f"\n\nWhile there are rows with potentially problematic shapley values that you could "
                            f"take a look at, automatically flipping the top {self._cleaning_batch_size} most likely "
                            f"incorrect labels did not lead to an improvement (the max relative score "
                            f"was {max_score_improvement}).")
+                screened_issues = [ScreenedIssue("Likely label errors", True, shapley_values, False,
+                                                 None, None, None)]
             if self._proxy_model is True:
-                report += (" (However, that relative score difference is only calculated using the proxy model, so "
+                summary += (" (However, that relative score difference is only calculated using the proxy model, so "
                            "the score changes with the proxy model are not guaranteed to be similar to score changes "
                            "for your actual model.)")
+        report = LabelErrorsReport(orig_result, proxy_result, screened_issues, summary)
         return report
 
     def _add_label_flip_computation_ml(self, likely_mislabeled_rows_condition_node, model_operators, new_dag,

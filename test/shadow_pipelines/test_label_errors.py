@@ -43,7 +43,7 @@ def test_label_errors_mini_example_with_transformer_processing_multiple_columns(
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    assert "the pipeline metric was" in report
+    assert "the pipeline metric was" in report.summary
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -61,7 +61,7 @@ def test_label_errors_mini_example_llm_rag(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    assert "the pipeline metric was" in report
+    assert "the pipeline metric was" in report.summary
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -77,7 +77,7 @@ def test_label_errors_compas(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    assert "the pipeline metric was" in report
+    assert "the pipeline metric was" in report.summary
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -93,7 +93,7 @@ def test_label_errors_anhedonia_ml(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    assert "the pipeline metric was" in report
+    assert "the pipeline metric was" in report.summary
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -109,7 +109,7 @@ def test_label_errors_anhedonia_llm(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    assert "the pipeline metric was" in report
+    assert "the pipeline metric was" in report.summary
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -125,7 +125,7 @@ def test_label_errors_adult_complex(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    assert "the pipeline metric was" in report
+    assert "the pipeline metric was" in report.summary
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -142,7 +142,7 @@ def test_label_errors_healthcare(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    assert "the pipeline metric was" in report
+    assert "the pipeline metric was" in report.summary
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -159,7 +159,7 @@ def test_label_errors_healthcare_fraction(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    assert "the pipeline metric was" in report
+    assert "the pipeline metric was" in report.summary
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -198,7 +198,7 @@ def test_label_errors_mini_example_with_transformer_processing_multiple_columns_
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    assert "the pipeline metric was" in report
+    assert "the pipeline metric was" in report.summary
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -228,7 +228,7 @@ def test_label_errors_compas_proxy(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    assert "the pipeline metric was" in report
+    assert "the pipeline metric was" in report.summary
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -244,7 +244,7 @@ def test_label_errors_anhedonia_ml_proxy(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    assert "the pipeline metric was" in report
+    assert "the pipeline metric was" in report.summary
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -260,7 +260,7 @@ def test_label_errors_adult_complex_proxy(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    assert "the pipeline metric was" in report
+    assert "the pipeline metric was" in report.summary
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -277,7 +277,7 @@ def test_label_errors_healthcare_proxy(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    assert "the pipeline metric was" in report
+    assert "the pipeline metric was" in report.summary
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -295,7 +295,7 @@ def test_label_errors_healthcare_fraction_proxy(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    assert "the pipeline metric was" in report
+    assert "the pipeline metric was" in report.summary
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -311,7 +311,7 @@ def test_label_errors_anhedonia_llm_only_negative(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    assert "No likely mislabeled rows were found with the given label error config" in report
+    assert "No likely mislabeled rows were found with the given label error config" in report.summary
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -327,7 +327,7 @@ def test_label_errors_compas_only_negative(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    assert "No likely mislabeled rows were found with the given label error config" in report
+    assert "No likely mislabeled rows were found with the given label error config" in report.summary
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -345,6 +345,6 @@ def test_label_errors_mini_example_llm_rag_only_negative(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
-    assert "the pipeline metric was" in report
+    assert "the pipeline metric was" in report.summary
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
