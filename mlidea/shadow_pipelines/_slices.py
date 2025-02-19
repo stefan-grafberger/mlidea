@@ -421,7 +421,7 @@ class FairnessSlices(ShadowPipeline):
                            f" cannot find any promising repair strategy automatically. However, you could try finding"
                            f" one on your own.")
             report = FairnessSlicesReport(orig_result, [ScreenedIssue(
-                "Find underperforming slices", True, readable_slice_result, fix_found, suggestions)], summary)
+                "Underperforming slices", True, readable_slice_result, fix_found, suggestions)], summary)
 
         return report
 
