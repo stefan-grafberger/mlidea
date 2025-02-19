@@ -120,8 +120,6 @@ class LabelErrors(ShadowPipeline):
         return new_dag
 
     def _get_llm_rag_dag(self, dag):
-        if self._proxy_model is True:
-            raise ValueError("Proxy model is not supported for LLM pipelines!")
         new_dag = dag.copy()
         assert_standard_llm_shape(dag, "Label Errors")
 
