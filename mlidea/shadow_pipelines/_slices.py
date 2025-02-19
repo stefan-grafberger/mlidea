@@ -389,7 +389,7 @@ class FairnessSlices(ShadowPipeline):
         elif extracted_plan_results["fairness-slices-slice-line-problematic-slice-found"] is False:
             summary += ("No problematic slice could be found by Fairness Slices. However, this does not mean that "
                        "there are no fairness problems, Fairness Slices only could not find any with the given config.")
-            report = FairnessSlicesReport(orig_result, [ScreenedIssue("Find underperforming slices", False,
+            report = FairnessSlicesReport(orig_result, [ScreenedIssue("Underperforming slices", False,
                                                                       None, False, [])], summary)
         else:
             slice_line_result = extracted_plan_results["fairness-slices-slice-line-result"]
