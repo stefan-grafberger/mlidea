@@ -46,7 +46,7 @@ def test_slices_mini_example_with_transformer_processing_multiple_columns(tmpdir
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "No problematic slice could be found" in report
+    assert "No problematic slice could be found" in report.summary
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -86,7 +86,7 @@ def test_slices_mini_example_with_transformer_processing_multiple_columns_no_sen
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "no sensitive column could be found" in report
+    assert "no sensitive column could be found" in report.summary
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -104,7 +104,7 @@ def test_slices_mini_example_side_info_llm_rag(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "No problematic slice could be found" in report
+    assert "No problematic slice could be found" in report.summary
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -120,7 +120,7 @@ def test_slices_compas(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "The problematic slice that was found is" in report
+    assert "The problematic slice that was found is" in report.summary
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -136,7 +136,7 @@ def test_slices_anhedonia_ml(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "The problematic slice that was found is [lang=bengali" in report
+    assert "The problematic slice that was found is [lang=bengali" in report.summary
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -152,7 +152,7 @@ def test_slices_anhedonia_llm(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "The problematic slice that was found is [lang=" in report
+    assert "The problematic slice that was found is [lang=" in report.summary
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -168,7 +168,7 @@ def test_slices_adult_complex(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "The problematic slice that was found is" in report
+    assert "The problematic slice that was found is" in report.summary
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -185,6 +185,6 @@ def test_slices_healthcare(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "The problematic slice that was found is" in report
+    assert "The problematic slice that was found is" in report.summary
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)

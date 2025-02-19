@@ -1,3 +1,4 @@
+import dataclasses
 from collections import defaultdict
 from enum import Enum
 from functools import partial
@@ -26,6 +27,35 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     add_new_score_and_score_extraction_nodes, assert_standard_llm_shape, assert_standard_ml_shape, \
     prov_join_node_with_data_sources, df_or_array_non_empty, df_or_array_non_empty_func_info, add_parent_node_edges, \
     get_rag_join_update_node, get_basic_code_location_for_current_line
+
+
+@dataclasses.dataclass
+class PotentialSuggestion:
+    improves_score: bool
+    suggestion: str or None
+    suggestion_metric_results: any
+    suggestion_max_score_improvement: float or None
+    suggestion_df_before: any or None
+    suggestion_df_after: any or None
+
+
+@dataclasses.dataclass
+class ScreenedIssue:
+    description: str
+    issue_found: bool
+    problematic_slice: any or None
+    suggestion_found: bool
+    issue_suggestions: list[PotentialSuggestion]
+
+
+@dataclasses.dataclass
+class FairnessSlicesReport:
+    """
+    The class the PipelineExecutor returns when doing runtime estimation only
+    """
+    orig_metric_results: any
+    screened_issues: list[ScreenedIssue]
+    summary: str
 
 
 class FixType(Enum):
@@ -348,16 +378,19 @@ class FairnessSlices(ShadowPipeline):
         return new_slice_finder_node
 
     def generate_final_report(self, extracted_plan_results: dict[str, any]) -> any:
-        report = ""
+        summary = ""
         orig_result = []
         for score_index in range(self.score_operator_count):
             orig_result.append(extracted_plan_results[f"orig-{score_index}"])
-        report += f"The original result was {orig_result}.\n"
+        summary += f"The original result was {orig_result}.\n"
         if self.sensitive_column_count == 0:
-            report += "Slice finding could not be applied since no sensitive column could be found!"
+            summary += "Slice finding could not be applied since no sensitive column could be found!"
+            report = FairnessSlicesReport(orig_result, [], summary)
         elif extracted_plan_results["fairness-slices-slice-line-problematic-slice-found"] is False:
-            report += ("No problematic slice could be found by Fairness Slices. However, this does not mean that "
+            summary += ("No problematic slice could be found by Fairness Slices. However, this does not mean that "
                        "there are no fairness problems, Fairness Slices only could not find any with the given config.")
+            report = FairnessSlicesReport(orig_result, [ScreenedIssue("Find underperforming slices", False,
+                                                                      None, False, [])], summary)
         else:
             slice_line_result = extracted_plan_results["fairness-slices-slice-line-result"]
             column_with_slice_value = []
@@ -365,24 +398,31 @@ class FairnessSlices(ShadowPipeline):
                 column_with_slice_value.append(f"{sensitive_column}={column_value}")
             readable_slice_result = ", ".join(column_with_slice_value)
             readable_slice_result = f"[{readable_slice_result}]"
-            report += f"The problematic slice that was found is {readable_slice_result}.\n"
+            summary += f"The problematic slice that was found is {readable_slice_result}.\n"
 
             promising_fix_strategies = []
             performance_increases = []
+            suggestions = []
             for fix_strategy_index, fix_strategy_name in enumerate(self.fix_strategy_names):
-                report += self.generate_report_for_fix_strategy(extracted_plan_results, fix_strategy_index,
-                                                                fix_strategy_name, orig_result, performance_increases,
-                                                                promising_fix_strategies)
-            if len(promising_fix_strategies) != 0:
-                report += (f"\n\nFairness Slices found the problematic slice {column_with_slice_value}. "
+                summary_strategy, suggestion = self.generate_report_for_fix_strategy(
+                    extracted_plan_results, fix_strategy_index, fix_strategy_name, orig_result, performance_increases,
+                    promising_fix_strategies)
+                summary += summary_strategy
+                suggestions.append(suggestion)
+            fix_found = len(promising_fix_strategies) != 0
+            if fix_found:
+                summary += (f"\n\nFairness Slices found the problematic slice {column_with_slice_value}. "
                            f"It seems that the fix strategies {promising_fix_strategies} that Fairness Slices"
                            f" tried to improve the predictions for the problematic slice "
                            f"can lead to performance improvements by up to {max(performance_increases)}. "
                            f"You could take a look at these.")
             else:
-                report += (f"While the slice {column_with_slice_value} seems to be problematic, Fairness Slices"
+                summary += (f"While the slice {column_with_slice_value} seems to be problematic, Fairness Slices"
                            f" cannot find any promising repair strategy automatically. However, you could try finding"
                            f" one on your own.")
+            report = FairnessSlicesReport(orig_result, [ScreenedIssue(
+                "Find underperforming slices", True, readable_slice_result, fix_found, suggestions)], summary)
+
         return report
 
     def generate_report_for_fix_strategy(self, extracted_plan_results, fix_strategy_index, fix_strategy_name,
@@ -425,7 +465,8 @@ class FairnessSlices(ShadowPipeline):
                 f"the pipeline metric was {fix_result} (A change of {max_score_improvement}). "
                 f"A sample of the modified rows:\n{str(fix_diff_df_sample)}.\n\n"
                 f"Before, these rows had the following values:\n{str(unmodified_diff_sample)}.\n")
-            if max_score_improvement > 1.:
+            is_improvement = max_score_improvement > 1.
+            if is_improvement:
                 promising_fix_strategies.append(fix_strategy_name)
                 report += (
                     f" It seems like changing the preprocessing of this datatype with a repair strategy like "
@@ -436,7 +477,9 @@ class FairnessSlices(ShadowPipeline):
                     f"the pipeline performance. However, this does not mean that changing the preprocessing "
                     f"cannot help, it only means that Fairness Slices cannot find a promising "
                     f"repair strategy automatically.\n")
-        return report
+            suggestion = PotentialSuggestion(is_improvement, fix_strategy_name, fix_result, max_score_improvement,
+                                             unmodified_diff_sample, fix_diff_df_sample)
+        return report, suggestion
 
     @staticmethod
     def fix_data(input_df, only_fix_indices=None, fix_strategy=None, database_path=None):

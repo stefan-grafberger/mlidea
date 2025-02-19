@@ -159,9 +159,9 @@ def test_multiple_shadow_pipelines(tmpdir):
     report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
     report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
     report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "the pipeline metric was" in report_label_errors
-    assert "the pipeline metric was" in report_data_errors
-    assert "The original result" in report_fairness_slices
+    assert "the pipeline metric was" in report_label_errors.summary
+    assert "the pipeline metric was" in report_data_errors.summary
+    assert "The original result" in report_fairness_slices.summary
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
@@ -215,9 +215,9 @@ def test_changed_pipeline_code_shadow_pipelines_adult_complex_caching_disabled(t
     report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
     report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
     report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "the pipeline metric was" in report_label_errors
-    assert "the pipeline metric was" in report_data_errors
-    assert "The original result" in report_fairness_slices
+    assert "the pipeline metric was" in report_label_errors.summary
+    assert "the pipeline metric was" in report_data_errors.summary
+    assert "The original result" in report_fairness_slices.summary
 
     analysis_result = PipelineAnalyzer \
         .on_changed_pipeline_from_py_file(analysis_result.dag_extraction_info, ADULT_COMPLEX_MODIFIED_PY) \
@@ -229,9 +229,9 @@ def test_changed_pipeline_code_shadow_pipelines_adult_complex_caching_disabled(t
     report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
     report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
     report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "the pipeline metric was" in report_label_errors
-    assert "the pipeline metric was" in report_data_errors
-    assert "The original result" in report_fairness_slices
+    assert "the pipeline metric was" in report_label_errors.summary
+    assert "the pipeline metric was" in report_data_errors.summary
+    assert "The original result" in report_fairness_slices.summary
 
 
 def test_change_reuse_df_update(tmpdir):
@@ -302,7 +302,7 @@ def test_change_reuse_df_update(tmpdir):
         .add_shadow_pipeline(slices) \
         .execute()
     report = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "No problematic slice could be found" in report
+    assert "No problematic slice could be found" in report.summary
     analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-new"))
     analysis_result.save_shadow_pipeline_dags_to_path(os.path.join(str(tmpdir), "shadow-new"))
 

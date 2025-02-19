@@ -38,9 +38,9 @@ def test_changed_pipeline_code_shadow_pipelines_adult_complex(tmpdir):
     report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
     report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
     report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "the pipeline metric was" in report_label_errors
-    assert "the pipeline metric was" in report_data_errors
-    assert "The original result" in report_fairness_slices
+    assert "the pipeline metric was" in report_label_errors.summary
+    assert "the pipeline metric was" in report_data_errors.summary
+    assert "The original result" in report_fairness_slices.summary
 
     analysis_result = PipelineAnalyzer \
         .on_changed_pipeline_from_py_file(analysis_result.dag_extraction_info, ADULT_COMPLEX_MODIFIED_PY) \
@@ -52,9 +52,9 @@ def test_changed_pipeline_code_shadow_pipelines_adult_complex(tmpdir):
     report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
     report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
     report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "the pipeline metric was" in report_label_errors
-    assert "the pipeline metric was" in report_data_errors
-    assert "The original result" in report_fairness_slices
+    assert "the pipeline metric was" in report_label_errors.summary
+    assert "the pipeline metric was" in report_data_errors.summary
+    assert "The original result" in report_fairness_slices.summary
 
     reuse_info = analysis_result.dag_extraction_info.reuse_info
     assert len(reuse_info.operator_reexecuted) == 1
@@ -81,9 +81,9 @@ def test_changed_pipeline_code_shadow_pipelines_anhedonia_llm(tmpdir):
     report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
     report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
     report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "the pipeline metric was" in report_label_errors
-    assert "the pipeline metric was" in report_data_errors
-    assert "The original result" in report_fairness_slices
+    assert "the pipeline metric was" in report_label_errors.summary
+    assert "the pipeline metric was" in report_data_errors.summary
+    assert "The original result" in report_fairness_slices.summary
 
     analysis_result = PipelineAnalyzer \
         .on_changed_pipeline_from_py_file(analysis_result.dag_extraction_info, ANHEDONIA_LLM_MODIFIED_PY) \
@@ -95,9 +95,9 @@ def test_changed_pipeline_code_shadow_pipelines_anhedonia_llm(tmpdir):
     report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
     report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
     report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "the pipeline metric was" in report_label_errors
-    assert "the pipeline metric was" in report_data_errors
-    assert "The original result" in report_fairness_slices
+    assert "the pipeline metric was" in report_label_errors.summary
+    assert "the pipeline metric was" in report_data_errors.summary
+    assert "The original result" in report_fairness_slices.summary
 
     reuse_info = analysis_result.dag_extraction_info.reuse_info
     assert len(reuse_info.operator_reexecuted) == 1
@@ -124,9 +124,9 @@ def test_changed_pipeline_code_shadow_pipelines_anhedonia_ml(tmpdir):
     report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
     report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
     report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "the pipeline metric was" in report_label_errors
-    assert "the pipeline metric was" in report_data_errors
-    assert "The original result" in report_fairness_slices
+    assert "the pipeline metric was" in report_label_errors.summary
+    assert "the pipeline metric was" in report_data_errors.summary
+    assert "The original result" in report_fairness_slices.summary
 
     analysis_result = PipelineAnalyzer \
         .on_changed_pipeline_from_py_file(analysis_result.dag_extraction_info, ANHEDONIA_ML_MODIFIED_PY) \
@@ -138,9 +138,9 @@ def test_changed_pipeline_code_shadow_pipelines_anhedonia_ml(tmpdir):
     report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
     report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
     report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "the pipeline metric was" in report_label_errors
-    assert "the pipeline metric was" in report_data_errors
-    assert "The original result" in report_fairness_slices
+    assert "the pipeline metric was" in report_label_errors.summary
+    assert "the pipeline metric was" in report_data_errors.summary
+    assert "The original result" in report_fairness_slices.summary
 
     reuse_info = analysis_result.dag_extraction_info.reuse_info
     assert len(reuse_info.operator_reexecuted) == 1
@@ -168,9 +168,9 @@ def test_changed_pipeline_code_shadow_pipelines_healthcare(tmpdir):
     report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
     report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
     report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "the pipeline metric was" in report_label_errors
-    assert "the pipeline metric was" in report_data_errors
-    assert "The original result" in report_fairness_slices
+    assert "the pipeline metric was" in report_label_errors.summary
+    assert "the pipeline metric was" in report_data_errors.summary
+    assert "The original result" in report_fairness_slices.summary
 
     analysis_result = PipelineAnalyzer \
         .on_changed_pipeline_from_py_file(analysis_result.dag_extraction_info, HEALTHCARE_MODIFIED_PY) \
@@ -183,9 +183,9 @@ def test_changed_pipeline_code_shadow_pipelines_healthcare(tmpdir):
     report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
     report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
     report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "the pipeline metric was" in report_label_errors
-    assert "the pipeline metric was" in report_data_errors
-    assert "The original result" in report_fairness_slices
+    assert "the pipeline metric was" in report_label_errors.summary
+    assert "the pipeline metric was" in report_data_errors.summary
+    assert "The original result" in report_fairness_slices.summary
 
     reuse_info = analysis_result.dag_extraction_info.reuse_info
     # 2 Replacements in the original DAG for robust scaler fit_transform and transform
@@ -216,9 +216,9 @@ def test_deleted_op_pipeline_code_shadow_pipelines_healthcare(tmpdir):
     report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
     report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
     report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "the pipeline metric was" in report_label_errors
-    assert "the pipeline metric was" in report_data_errors
-    assert "The original result" in report_fairness_slices
+    assert "the pipeline metric was" in report_label_errors.summary
+    assert "the pipeline metric was" in report_data_errors.summary
+    assert "The original result" in report_fairness_slices.summary
 
     analysis_result = PipelineAnalyzer \
         .on_changed_pipeline_from_py_file(analysis_result.dag_extraction_info, HEALTHCARE_DELETED_PY) \
@@ -231,9 +231,9 @@ def test_deleted_op_pipeline_code_shadow_pipelines_healthcare(tmpdir):
     report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
     report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
     report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "the pipeline metric was" in report_label_errors
-    assert "the pipeline metric was" in report_data_errors
-    assert "The original result" in report_fairness_slices
+    assert "the pipeline metric was" in report_label_errors.summary
+    assert "the pipeline metric was" in report_data_errors.summary
+    assert "The original result" in report_fairness_slices.summary
 
     reuse_info = analysis_result.dag_extraction_info.reuse_info
     # 2 Replacements in the original DAG for robust scaler fit_transform and transform
@@ -264,9 +264,9 @@ def test_added_op_pipeline_code_shadow_pipelines_healthcare(tmpdir):
     report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
     report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
     report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "the pipeline metric was" in report_label_errors
-    assert "the pipeline metric was" in report_data_errors
-    assert "The original result" in report_fairness_slices
+    assert "the pipeline metric was" in report_label_errors.summary
+    assert "the pipeline metric was" in report_data_errors.summary
+    assert "The original result" in report_fairness_slices.summary
 
     analysis_result = PipelineAnalyzer \
         .on_changed_pipeline_from_py_file(analysis_result.dag_extraction_info, HEALTHCARE_ADDED_PY) \
@@ -279,9 +279,9 @@ def test_added_op_pipeline_code_shadow_pipelines_healthcare(tmpdir):
     report_label_errors = analysis_result.shadow_pipelines_to_result_reports[label_errors]
     report_data_errors = analysis_result.shadow_pipelines_to_result_reports[data_errors]
     report_fairness_slices = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "the pipeline metric was" in report_label_errors
-    assert "the pipeline metric was" in report_data_errors
-    assert "The original result" in report_fairness_slices
+    assert "the pipeline metric was" in report_label_errors.summary
+    assert "the pipeline metric was" in report_data_errors.summary
+    assert "The original result" in report_fairness_slices.summary
 
     reuse_info = analysis_result.dag_extraction_info.reuse_info
     # 2 Reexecuted operators, the fillna and the setitem fillna. Only the setitem fillna is marked as an addition
@@ -325,7 +325,7 @@ def test_dataframe_update(tmpdir):
         .execute()
 
     report = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "No problematic slice could be found" in report
+    assert "No problematic slice could be found" in report.summary
     analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-old"))
     analysis_result.save_shadow_pipeline_dags_to_path(os.path.join(str(tmpdir), "shadow-old"))
 
@@ -358,7 +358,7 @@ def test_dataframe_update(tmpdir):
         .add_shadow_pipeline(slices) \
         .execute()
     report = analysis_result.shadow_pipelines_to_result_reports[slices]
-    assert "No problematic slice could be found" in report
+    assert "No problematic slice could be found" in report.summary
     analysis_result.save_original_dag_to_path(os.path.join(str(tmpdir), "orig-new"))
     analysis_result.save_shadow_pipeline_dags_to_path(os.path.join(str(tmpdir), "shadow-new"))
 
