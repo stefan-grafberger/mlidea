@@ -176,7 +176,7 @@ class LabelErrors(ShadowPipeline):
                 summary += " (with the proxy model)"
             summary += (f".\nThe shapley values of the "
                        f"most likely mislabeled rows:\n{str(shapley_values)}")
-            if self._proxy_model is True:
+            if self._proxy_model is True and len(proxy_result) != 0:
                 max_score_improvement = get_relative_score_change(*proxy_result, *flip_result)
             else:
                 max_score_improvement = get_relative_score_change(*orig_result, *flip_result)
