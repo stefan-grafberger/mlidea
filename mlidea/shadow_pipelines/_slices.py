@@ -114,6 +114,10 @@ FIX_STRATEGY_TO_CODE = {
         df[columns_to_clean] = imputer.fit_transform(df[columns_to_clean).ravel()
     """),
     FixType.TEXT_TRANSLATE.value: cleandoc("""
+        import nest_asyncio
+        nest_asyncio.apply()
+        from googletrans import Translator
+        
         translator = Translator()
 
         def translate(df, column_to_translate):
@@ -127,6 +131,8 @@ FIX_STRATEGY_TO_CODE = {
         # caching_translate_transformer = CachedTextTransformer(translate_transformer, database_path=database_path)
     """),
     FixType.TEXT_SPELLCHECK.value: cleandoc("""
+        from autocorrect import Speller
+        
         spell = Speller()
 
         def fix_typos(column_to_fix, bound_spell, df):
