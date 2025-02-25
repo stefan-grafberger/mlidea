@@ -2,6 +2,7 @@ import dataclasses
 from collections import defaultdict
 from enum import Enum
 from functools import partial
+from inspect import cleandoc
 
 import networkx
 import numpy
@@ -37,6 +38,7 @@ class PotentialSuggestion:
     suggestion_max_score_improvement: float or None
     suggestion_df_before: any or None
     suggestion_df_after: any or None
+    source_code_to_integrate: str or None
 
 
 @dataclasses.dataclass
@@ -72,6 +74,67 @@ DATA_TYPE_TO_FIX_STRATEGY = {
     DataType.TEXT: [FixType.TEXT_TRANSLATE, FixType.TEXT_SPELLCHECK],
     DataType.NUM: [FixType.NUM],
     DataType.CAT: [FixType.CAT]
+}
+
+FIX_STRATEGY_TO_CODE = {
+    FixType.NUM.value: cleandoc("""
+        def detect_outlier_interquartile_range(x, k=1.5, fitted_detector=None):
+            if fitted_detector is None:
+                q25, q75 = numpy.percentile(x, 25), numpy.percentile(x, 75)
+                iqr = q75 - q25
+                cut_off = iqr * k
+                lower, upper = q25 - cut_off, q75 + cut_off
+            else:
+                lower, upper = fitted_detector
+            return lambda y: (y > upper) | (y < lower), (lower, upper)
+        
+        is_int = df[column_to_clean].dtype == int
+        
+        _, fitted_detector = detect_outlier_interquartile_range(df[[column_to_clean]], k=0.25)
+
+        imputer = SimpleImputer(strategy='mean', copy=True)
+        imputer.fit(df[[column_to_clean]])
+        
+        outlier_indicator, _ = detect_outlier_interquartile_range(df[[column_to_clean]], fitted_detector=fitted_detector)
+        detector_mask = df[[column_to_clean]].apply(outlier_indicator).to_numpy()
+        if numpy.any(detector_mask):
+            df.iloc[detector_mask, [column_to_clean]] = numpy.nan
+            df.iloc[detector_mask, [column_to_clean]] = imputer.transform(df.iloc[detector_mask, [column_to_clean]])
+        if is_int:
+            df[column_to_clean] = df[column_to_clean].astype(int)
+    """),
+    FixType.CAT.value: cleandoc("""
+        one_hot = OneHotEncoder(sparse_output=False, handle_unknown='ignore').fit_transform(df)
+        isolation_forest = IsolationForest(contamination=0.5, random_state=42)
+        isolation_forest.fit(one_hot)
+        outlier_indicator = isolation_forest.predict(one_hot) == -1
+        
+        df[outlier_indicator, :] = -1
+        imputer = SimpleImputer(strategy="most_frequent", copy=True, missing_values=-1)
+        df[columns_to_clean] = imputer.fit_transform(df[columns_to_clean).ravel()
+    """),
+    FixType.TEXT_TRANSLATE.value: cleandoc("""
+        translator = Translator()
+
+        def translate(df, column_to_translate):
+            if isinstance(df, pandas.DataFrame):
+                df[bound_column] =[result.text for result in asyncio.run(translator.translate(df[bound_column].to_list()))]
+            else:
+                df = [result.text for result in asyncio.run(translator.translate(df))]
+            return df
+    
+        translate_transformer = FunctionTransformer(partial(translate, column_to_translate=column))
+        # caching_translate_transformer = CachedTextTransformer(translate_transformer, database_path=database_path)
+    """),
+    FixType.TEXT_SPELLCHECK.value: cleandoc("""
+        spell = Speller()
+
+        def fix_typos(column_to_fix, bound_spell, df):
+            df[bound_column] = df[column_to_fix].map(bound_spell)
+            return df
+    
+        typo_fixer = FunctionTransformer(partial(fix_typos, column_to_fix, spell))
+    """)
 }
 
 
@@ -431,7 +494,7 @@ class FairnessSlices(ShadowPipeline):
         if extracted_plan_results[f"fairness-slices-fixing-made-changes-{fix_strategy_index}"] is False:
             report += "The fixing function did not make any changes.\n"
             suggestion = PotentialSuggestion(False, f"{fix_strategy_name}", orig_result, 1.0,
-                                             None, None)
+                                             None, None, None)
         else:
             fix_diff_df = extracted_plan_results[
                 f"fairness-slice-fixing-diff-{fix_strategy_index}"]
@@ -479,8 +542,9 @@ class FairnessSlices(ShadowPipeline):
                     f"the pipeline performance. However, this does not mean that changing the preprocessing "
                     f"cannot help, it only means that Fairness Slices cannot find a promising "
                     f"repair strategy automatically.\n")
+            source_code = FIX_STRATEGY_TO_CODE[fix_strategy_name]
             suggestion = PotentialSuggestion(is_improvement, fix_strategy_name, fix_result, max_score_improvement,
-                                             unmodified_diff_sample, fix_diff_df_sample)
+                                             unmodified_diff_sample, fix_diff_df_sample, source_code)
         return report, suggestion
 
     @staticmethod

@@ -185,7 +185,7 @@ class LabelErrors(ShadowPipeline):
                            f"{max_score_improvement}. You probably want to take a look at "
                            f"the row labels again!")
                 screened_issues = [ScreenedIssue("Likely label errors", True, shapley_values, True, [
-                    PotentialSuggestion(True, f"Relabeling {self._cleaning_batch_size} rows rows",
+                    PotentialSuggestion(True, f"Relabeling {self._cleaning_batch_size} rows",
                                         flip_result, max_score_improvement, None)])]
             else:
                 summary += (f"\n\nWhile there are rows with potentially problematic shapley values that you could "
@@ -193,7 +193,7 @@ class LabelErrors(ShadowPipeline):
                            f"incorrect labels did not lead to an improvement (the max relative score "
                            f"was {max_score_improvement}).")
                 screened_issues = [ScreenedIssue("Likely label errors", True, shapley_values, False, [
-                    PotentialSuggestion(False, f"Relabeling {self._cleaning_batch_size} rows rows", flip_result,
+                    PotentialSuggestion(False, f"Relabeling {self._cleaning_batch_size} rows", flip_result,
                                         max_score_improvement, None)])]
             if self._proxy_model is True:
                 summary += (" (However, that relative score difference is only calculated using the proxy model, so "
