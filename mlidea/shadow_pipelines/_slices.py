@@ -118,18 +118,18 @@ FIX_STRATEGY_TO_CODE = {
         nest_asyncio.apply()
         from googletrans import Translator
         from functools import partial
+        from sklearn.pipeline import Pipeline
         
         translator = Translator()
 
-        def translate(df, column_to_translate):
-            if isinstance(df, pandas.DataFrame):
-                df[bound_column] =[result.text for result in asyncio.run(translator.translate(df[bound_column].to_list()))]
+        def translate(series):
+            if isinstance(series, pd.Series):
+                series = [result.text for result in asyncio.run(translator.translate(series.to_list()))]
             else:
-                df = [result.text for result in asyncio.run(translator.translate(df))]
-            return df
+                series = [result.text for result in asyncio.run(translator.translate(series))]
+            return series
     
         translate_transformer = FunctionTransformer(partial(translate, column_to_translate=column))
-        # caching_translate_transformer = CachedTextTransformer(translate_transformer, database_path=database_path)
     """),
     FixType.TEXT_SPELLCHECK.value: cleandoc("""
         from autocorrect import Speller
@@ -137,11 +137,11 @@ FIX_STRATEGY_TO_CODE = {
         
         spell = Speller()
 
-        def fix_typos(column_to_fix, bound_spell, df):
-            df[bound_column] = df[column_to_fix].map(bound_spell)
-            return df
+        def fix_typos(series):
+            series = series.map(spell)
+            return series
     
-        typo_fixer = FunctionTransformer(partial(fix_typos, column_to_fix, spell))
+        typo_fixer = FunctionTransformer(spell)
     """)
 }
 
