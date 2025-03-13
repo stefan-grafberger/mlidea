@@ -130,6 +130,11 @@ FIX_STRATEGY_TO_CODE = {
             return series
     
         translate_transformer = FunctionTransformer(partial(translate, column_to_translate=column))
+        pipeline_transformer = Pipeline([
+            ('translate', translate_transformer),
+            ('...previous transformer...', ...previous transformer...)
+        ])
+        # The previous transformer can now be replaced with the new pipeline_transformer
     """),
     FixType.TEXT_SPELLCHECK.value: cleandoc("""
         from autocorrect import Speller
