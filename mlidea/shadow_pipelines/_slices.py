@@ -117,6 +117,7 @@ FIX_STRATEGY_TO_CODE = {
         import nest_asyncio
         nest_asyncio.apply()
         from googletrans import Translator
+        from functools import partial
         
         translator = Translator()
 
@@ -132,6 +133,7 @@ FIX_STRATEGY_TO_CODE = {
     """),
     FixType.TEXT_SPELLCHECK.value: cleandoc("""
         from autocorrect import Speller
+        from functools import partial
         
         spell = Speller()
 

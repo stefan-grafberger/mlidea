@@ -91,6 +91,43 @@ def test_read_parquet():
     assert numpy.allclose(df_result._mlinspect_provenance["0_0"], numpy.array(range(900)))
 
 
+def test_concat():
+    """
+    Tests whether the monkey patching of ('pandas.io.parsers', 'read_parquet') works
+    """
+    test_code = cleandoc("""
+        import os
+        import pandas as pd
+        from mlidea.utils import get_project_root
+        import numpy
+        train_file = os.path.join(str(get_project_root()), "example_pipelines", "anhedonia_ml", "data", "users.pqt")
+        raw_data_1 = pd.read_parquet(train_file)
+        train_file = os.path.join(str(get_project_root()), "example_pipelines", "adult_complex", "adult_train.csv")
+        raw_data_2 = pd.read_csv(train_file, na_values='?', index_col=0)
+        raw_data = pd.concat([raw_data_1, raw_data_2], ignore_index=True)
+        assert len(raw_data) == 900 + 22792
+        assert numpy.allclose(raw_data._mlinspect_provenance["0_0"], 
+            numpy.pad(raw_data_1._mlinspect_provenance["0_0"], (0, 22792)))
+        assert numpy.allclose(raw_data._mlinspect_provenance["1_0"],
+            numpy.pad(raw_data_2._mlinspect_provenance["1_0"], (900, 0)))
+        """)
+
+    inspector_result = _pipeline_executor.singleton.run(python_code=test_code, track_code_references=True)
+
+    read_parquet_node = list(inspector_result.original_dag.nodes)[0]
+    read_csv_node = list(inspector_result.original_dag.nodes)[1]
+    concat_node = list(inspector_result.original_dag.nodes)[2]
+
+    read_parquet_res = read_parquet_node.processing_func()
+    read_csv_res = read_csv_node.processing_func()
+    concat_res = concat_node.processing_func(read_parquet_res, read_csv_res)
+    assert len(concat_res) == 900 + 22792
+    assert numpy.allclose(concat_res._mlinspect_provenance["0_0"],
+                          numpy.pad(read_parquet_res._mlinspect_provenance["0_0"], (0, 22792)))
+    assert numpy.allclose(concat_res._mlinspect_provenance["1_0"],
+                          numpy.pad(read_csv_res._mlinspect_provenance["1_0"], (900, 0)))
+
+
 def test_from_records():
     """
     Tests whether the monkey patching of ('pandas.io.parsers', 'read_csv') works

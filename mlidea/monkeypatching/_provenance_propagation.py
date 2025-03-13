@@ -66,6 +66,36 @@ def wrap_projection_func(source_func):
 
     return partial(propagate_provenance, source_func)
 
+
+def wrap_concat_rows_func(source_func):
+    def propagate_provenance(source_func, *inputs):
+        if singleton.prov_enabled is True:
+                # This is special handling for the sklearn ColumnTransformer hstack
+            result_prov = {}
+            total_len = 0
+            for input in inputs:
+                if len(input._mlinspect_provenance.items()) != 1:
+                    raise NotImplementedError("TODO")
+                total_len += len(list(input._mlinspect_provenance.values())[0])
+            current_len = 0
+            for input in inputs:
+                prov_key, prov_value = list(input._mlinspect_provenance.items())[0]
+                if prov_key in result_prov:
+                    raise NotImplementedError("TODO")
+                new_len = len(list(input._mlinspect_provenance.values())[0])
+                result_prov[prov_key] = numpy.pad(prov_value, (current_len, total_len - current_len - new_len))
+                current_len += new_len
+
+        df_obj = source_func(*inputs)
+        df_obj = wrap_in_mlinspect_array_if_necessary(df_obj)
+        if singleton.prov_enabled is True:
+            if not hasattr(df_obj, "_mlinspect_provenance") or df_obj._mlinspect_provenance is None:
+                df_obj._mlinspect_provenance = {}
+            df_obj._mlinspect_provenance = result_prov
+        return df_obj
+
+    return partial(propagate_provenance, source_func)
+
 def wrap_predict_func(source_func):
     def propagate_provenance(source_func, *inputs):
         if singleton.prov_enabled is True:

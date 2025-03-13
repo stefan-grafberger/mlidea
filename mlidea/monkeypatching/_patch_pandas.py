@@ -22,7 +22,8 @@ from mlidea.monkeypatching._monkey_patching_utils import get_input_info, add_dag
     InputInfo
 from mlidea.monkeypatching._patch_sklearn import call_info_singleton
 from mlidea.monkeypatching._provenance_propagation import wrap_data_source_func, \
-    generate_and_add_provenance_data_source, wrap_projection_func, wrap_filter_func, wrap_join_func
+    generate_and_add_provenance_data_source, wrap_projection_func, wrap_filter_func, wrap_join_func, \
+    wrap_concat_rows_func
 
 
 @gorilla.patches(pandas)
@@ -89,6 +90,46 @@ class PandasPatching:
                                processing_func)
             function_call_result = FunctionCallResult(result)
             add_dag_node(dag_node, [], function_call_result)
+            new_result = function_call_result.function_result
+            return new_result
+
+        return execute_patched_func_no_op_id(original, execute_inspections, *args, **kwargs)
+
+    @gorilla.name('concat')
+    @gorilla.settings(allow_hit=True)
+    def patched_concat(*args, **kwargs):
+        """ Patch for ('pandas.core.reshape', 'concat') """
+        original = gorilla.get_original_attribute(pandas, 'concat')
+
+        function_info = FunctionInfo('pandas.core.reshape', 'concat')
+
+        def execute_inspections(_, caller_filename, lineno, optional_code_reference, optional_source_code):
+            input_infos = [get_input_info(input_df_obj, caller_filename, lineno, function_info,
+                                          optional_code_reference, optional_source_code)
+                           for input_df_obj in args[0]]
+            non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs, except_indices=[0])
+            operator_context = OperatorContext(OperatorType.CONCATENATION, function_info, non_data_kwargs)
+            operator_call_info = OperatorCallInfo(operator_context, input_infos)
+
+            # input_annotated_dfs = [input_info.annotated_dfobject for input_info in input_infos]
+            # No input_infos copy needed because it's only a selection and the rows not being removed don't change
+
+
+            # Treating this as projection here is only okay because this is a ColumnTransformer concat
+            processing_func = wrap_concat_rows_func(lambda *dfs: original(dfs, *args[1:], **kwargs))
+
+            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, processing_func, args[0])
+
+            dag_node = DagNode(singleton.get_next_op_id(operator_call_info),
+                               BasicCodeLocation(caller_filename, lineno),
+                               operator_context,
+                               DagNodeDetails(None, ['array'], optimizer_info),
+                               get_optional_code_info_or_none(optional_code_reference,
+                                                              optional_source_code),
+                               processing_func)
+            input_dag_nodes = [input_info.dag_node for input_info in input_infos]
+            function_call_result = FunctionCallResult(result)
+            add_dag_node(dag_node, input_dag_nodes, function_call_result)
             new_result = function_call_result.function_result
             return new_result
 
