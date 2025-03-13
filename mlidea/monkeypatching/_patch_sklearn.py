@@ -1794,7 +1794,9 @@ class SklearnFunctionTransformerPatching:
             transform_func = non_data_func_args.pop('func')
             if transform_func is not None:
                 non_data_func_args['free_values'] = str([cell.cell_contents for cell in transform_func.__closure__]
-                                                        if transform_func.__closure__ else [])
+                                                        if (hasattr(transform_func, '__closure__') and
+                                                            transform_func.__closure__
+                                                            ) else [])
                 non_data_func_args['source_code'] = inspect.getsource(transform_func)
             operator_context = OperatorContext(OperatorType.TRANSFORMER, function_info,
                                                non_data_func_args)
