@@ -128,53 +128,57 @@ def rag_join_ivm(instrumented_function_call_args,
     inference_side_rows_new = instrumented_function_call_args[1]
     inference_side_rows_old = singleton.reuse_info.cached_intermediates[parent_nodes_from_previous_run[1]]
     if train_side_changed:
-        old_dag = singleton.global_old_dag
-        new_dag = singleton.global_new_dag
-        concat_parent_X_new, concat_parent_y_new = get_sorted_parent_nodes(new_dag, train_side_node_new)
-        concat_parent_X_old, concat_parent_y_old = get_sorted_parent_nodes(old_dag, train_side_node_old)
-        X_changed = concat_parent_X_new != concat_parent_X_old
-        y_changed = concat_parent_y_new != concat_parent_y_old
-        diff_mask_combined = numpy.zeros(len(train_side_corpus_new.retrieval_corpus_X), dtype=bool)
-        vectorstore = old_result[5]
-        if X_changed:
-            diff_mask_X = fix_data_diff_detection_mask_only(
-                train_side_corpus_new.retrieval_corpus_X, train_side_corpus_old.retrieval_corpus_X)
-            diff_mask_combined = diff_mask_combined | diff_mask_X
+        if len(train_side_corpus_new.retrieval_corpus_X) == len(train_side_corpus_old.retrieval_corpus_X):
+            old_dag = singleton.global_old_dag
+            new_dag = singleton.global_new_dag
+            concat_parent_X_new, concat_parent_y_new = get_sorted_parent_nodes(new_dag, train_side_node_new)
+            concat_parent_X_old, concat_parent_y_old = get_sorted_parent_nodes(old_dag, train_side_node_old)
+            X_changed = concat_parent_X_new != concat_parent_X_old
+            y_changed = concat_parent_y_new != concat_parent_y_old
+            diff_mask_combined = numpy.zeros(len(train_side_corpus_new.retrieval_corpus_X), dtype=bool)
+            vectorstore = old_result[5]
+            if X_changed:
 
-            diff_indices_X = fix_data_mask_to_indices(diff_mask_X)
+                diff_mask_X = fix_data_diff_detection_mask_only(
+                    train_side_corpus_new.retrieval_corpus_X, train_side_corpus_old.retrieval_corpus_X)
+                diff_mask_combined = diff_mask_combined | diff_mask_X
 
-            # Update the labels in the vectorstore
-            if len(diff_indices_X) > 0:
-                diff_X = apply_diff_filter(train_side_corpus_new.retrieval_corpus_y, diff_indices_X)
-                vectorstore_ids = [str(index) for index in diff_indices_X]
-                old_entries = vectorstore.get(ids=vectorstore_ids, include=["embeddings", "metadatas"])
-                vectorstore._collection.update(vectorstore_ids, old_entries['embeddings'], old_entries['metadatas'],
-                                               list(diff_X))
-        if y_changed:
-            assert y_changed
-            diff_mask_y = fix_data_diff_detection_mask_only(
-                train_side_corpus_new.retrieval_corpus_y, train_side_corpus_old.retrieval_corpus_y)
-            diff_mask_combined = diff_mask_combined | diff_mask_y
-            diff_indices_y = fix_data_mask_to_indices(diff_mask_y)
+                diff_indices_X = fix_data_mask_to_indices(diff_mask_X)
 
-            # Update the labels in the vectorstore
-            if len(diff_indices_y) > 0:
-                diff_y = apply_diff_filter(train_side_corpus_new.retrieval_corpus_y, diff_indices_y)
-                vectorstore_ids = [str(index) for index in diff_indices_y]
-                old_entries = vectorstore.get(ids=vectorstore_ids, include=["embeddings", "documents"])
-                vectorstore._collection.update(vectorstore_ids, old_entries['embeddings'], list(diff_y),
-                                               old_entries['documents'])
+                # Update the labels in the vectorstore
+                if len(diff_indices_X) > 0:
+                    diff_X = apply_diff_filter(train_side_corpus_new.retrieval_corpus_y, diff_indices_X)
+                    vectorstore_ids = [str(index) for index in diff_indices_X]
+                    old_entries = vectorstore.get(ids=vectorstore_ids, include=["embeddings", "metadatas"])
+                    vectorstore._collection.update(vectorstore_ids, old_entries['embeddings'], old_entries['metadatas'],
+                                                   list(diff_X))
+            if y_changed:
+                assert y_changed
+                diff_mask_y = fix_data_diff_detection_mask_only(
+                    train_side_corpus_new.retrieval_corpus_y, train_side_corpus_old.retrieval_corpus_y)
+                diff_mask_combined = diff_mask_combined | diff_mask_y
+                diff_indices_y = fix_data_mask_to_indices(diff_mask_y)
 
-        corpus_changed_diff_index = fix_data_mask_to_indices(diff_mask_combined)
-        # We redo the lookups even if there is only a label change for simplicity with langchain, but since the
-        #  embeddings are cached the costs for this should be negligible
-        parent_diff_index = _get_rag_join_results_to_rerun(old_result, corpus_changed_diff_index)
-        singleton.reuse_info.unprocessed_call_info_transitive_change_only[new_operator_call_info] = (
-            old_operator_call_info,
-            OperatorOutputChange(OutputChangeType.ROWS_UPDATED, rows_updated=parent_diff_index))
+                # Update the labels in the vectorstore
+                if len(diff_indices_y) > 0:
+                    diff_y = apply_diff_filter(train_side_corpus_new.retrieval_corpus_y, diff_indices_y)
+                    vectorstore_ids = [str(index) for index in diff_indices_y]
+                    old_entries = vectorstore.get(ids=vectorstore_ids, include=["embeddings", "documents"])
+                    vectorstore._collection.update(vectorstore_ids, old_entries['embeddings'], list(diff_y),
+                                                   old_entries['documents'])
 
-        result = rag_join_update(old_result, inference_side_rows_new, vectorstore, parent_diff_index)
-        # We do not need to revert the changes here since the original pipeline is always changed after this
+            corpus_changed_diff_index = fix_data_mask_to_indices(diff_mask_combined)
+            # We redo the lookups even if there is only a label change for simplicity with langchain, but since the
+            #  embeddings are cached the costs for this should be negligible
+            parent_diff_index = _get_rag_join_results_to_rerun(old_result, corpus_changed_diff_index)
+            singleton.reuse_info.unprocessed_call_info_transitive_change_only[new_operator_call_info] = (
+                old_operator_call_info,
+                OperatorOutputChange(OutputChangeType.ROWS_UPDATED, rows_updated=parent_diff_index))
+
+            result = rag_join_update(old_result, inference_side_rows_new, vectorstore, parent_diff_index)
+            # We do not need to revert the changes here since the original pipeline is always changed after this
+        else:
+            result = original_func_call_with_args()
     else:
         assert inference_side_changed
         if len(inference_side_rows_new) == len(inference_side_rows_old):
