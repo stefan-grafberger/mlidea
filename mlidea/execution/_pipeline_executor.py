@@ -209,14 +209,24 @@ class PipelineExecutor:
             execution_start = time.time()
 
             # Required for langchain ChatOpenAI
+            from langchain_openai import ChatOpenAI
             import copyreg
             def reduce_chat_openai(obj):
                 kwargs = {
                     "model_name": obj.model_name,
-                    "temperature": obj.temperature
+                    "temperature": obj.temperature,
                 }
-                return ChatOpenAI, (), kwargs
+                return ChatOpenAI, (), kwargs  # Use an empty tuple for positional args, pass kwargs separately
+
+            def custom_setstate(self, state):
+                self.__dict__.clear()  # Clear the current object state if needed
+                model_name = state.get("model_name", "")
+                temperature = state.get("temperature", 0)
+                new_obj = ChatOpenAI(model_name=model_name, temperature=temperature)
+                self.__dict__.update(new_obj.__dict__)
+
             copyreg.pickle(ChatOpenAI, reduce_chat_openai)
+            ChatOpenAI.__setstate__ = custom_setstate
             # End Required for langchain ChatOpenAI
 
             original_dag_copy = copy.deepcopy(self.analysis_results.original_dag)
