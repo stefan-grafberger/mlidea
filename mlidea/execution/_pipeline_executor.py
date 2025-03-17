@@ -15,6 +15,7 @@ import gorilla
 import nbformat
 import networkx
 from astmonkey.transformers import ParentChildNodeTransformer
+from langchain_openai import ChatOpenAI
 from nbconvert import PythonExporter
 
 from mlidea.instrumentation._call_capture_transformer import CallCaptureTransformer
@@ -209,10 +210,10 @@ class PipelineExecutor:
 
             # Required for langchain ChatOpenAI
             import copyreg
-            import threading
-            def reduce_rlock(rlock):
-                return threading.RLock, ()
-            copyreg.pickle(type(threading.RLock()), reduce_rlock)
+            def reduce_chat_openai(obj):
+                # Return the constructor and the tuple of arguments needed to reinitialize the object.
+                return ChatOpenAI, (obj.model_name, obj.temperature)
+            copyreg.pickle(ChatOpenAI, reduce_chat_openai)
             # End Required for langchain ChatOpenAI
 
             original_dag_copy = copy.deepcopy(self.analysis_results.original_dag)
