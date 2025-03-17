@@ -129,7 +129,7 @@ FIX_STRATEGY_TO_CODE = {
                 series = [result.text for result in asyncio.run(translator.translate(series))]
             return series
     
-        translate_transformer = FunctionTransformer(partial(translate, column_to_translate=column))
+        translate_transformer = FunctionTransformer(translate)
         pipeline_transformer = Pipeline([
             ('translate', translate_transformer),
             ('...previous transformer...', ...previous transformer...)
@@ -147,6 +147,11 @@ FIX_STRATEGY_TO_CODE = {
             return series
     
         typo_fixer = FunctionTransformer(spell)
+        pipeline_transformer = Pipeline([
+            ('translate', translate_transformer),
+            ('...previous transformer...', ...previous transformer...)
+        ])
+        # The previous transformer can now be replaced with the new pipeline_transformer
     """)
 }
 

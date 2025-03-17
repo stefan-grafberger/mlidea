@@ -76,7 +76,7 @@ def get_langchain_rag_binary_classification(classes, retriever):
     # Make sure this pipeline is executable in Github Actions, but also uses a real LLM locally if needed
     # if os.getenv("GITHUB_ACTIONS") != "true":
     # FIXME: Quick and ugly way to develop w/o unneeded LLM calls
-    if False and os.getenv("GITHUB_ACTIONS") != "true":  # pylint: disable=condition-evals-to-constant
+    if os.getenv("GITHUB_ACTIONS") != "not_required_because_of_sqlite_caching" and os.getenv("GITHUB_ACTIONS") != "true":  # pylint: disable=condition-evals-to-constant
         llm = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0)
     else:
         llm = FakeListChatModel(responses=[f"{{\"label\": \"{classes[0]}\"}}""", f"{{\"label\": \"{classes[1]}\"}}"""])
