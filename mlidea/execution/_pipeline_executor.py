@@ -207,6 +207,14 @@ class PipelineExecutor:
             logger.info(f'Start plan generation for shadow pipeline {type(shadow_pipeline).__name__}...')
             execution_start = time.time()
 
+            # Required for langchain ChatOpenAI
+            import copyreg
+            import threading
+            def reduce_rlock(rlock):
+                return threading.RLock, ()
+            copyreg.pickle(type(threading.RLock()), reduce_rlock)
+            # End Required for langchain ChatOpenAI
+
             original_dag_copy = copy.deepcopy(self.analysis_results.original_dag)
             shadow_dag = shadow_pipeline.generate_shadow_pipeline_dag(original_dag_copy)
             self.global_new_dag = networkx.compose_all([self.global_new_dag, shadow_dag])
