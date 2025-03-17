@@ -211,8 +211,11 @@ class PipelineExecutor:
             # Required for langchain ChatOpenAI
             import copyreg
             def reduce_chat_openai(obj):
-                # Return the constructor and the tuple of arguments needed to reinitialize the object.
-                return ChatOpenAI, (obj.model_name, obj.temperature)
+                kwargs = {
+                    "model_name": obj.model_name,
+                    "temperature": obj.temperature
+                }
+                return ChatOpenAI, (), kwargs
             copyreg.pickle(ChatOpenAI, reduce_chat_openai)
             # End Required for langchain ChatOpenAI
 
