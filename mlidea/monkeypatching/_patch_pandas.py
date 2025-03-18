@@ -24,7 +24,7 @@ from mlidea.monkeypatching._patch_sklearn import call_info_singleton
 from mlidea.monkeypatching._provenance_propagation import wrap_data_source_func, \
     generate_and_add_provenance_data_source, wrap_projection_func, wrap_filter_func, wrap_join_func, \
     wrap_concat_rows_func
-from monkeypatching._mlinspect_ndarray import MlinspectList
+from mlidea.monkeypatching._mlinspect_ndarray import MlinspectList
 
 
 @gorilla.patches(pandas)
