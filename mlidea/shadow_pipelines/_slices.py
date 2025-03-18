@@ -130,10 +130,11 @@ FIX_STRATEGY_TO_CODE = {
             return series
     
         translate_transformer = FunctionTransformer(translate)
-        pipeline_transformer = Pipeline([
-            ('translate', translate_transformer),
-            ('...previous transformer...', ...previous transformer...)
-        ])
+        # If the pipeline is a ML pipelien that uses a ColumnTransformer:
+        # pipeline_transformer = Pipeline([
+        #     ('translate', translate_transformer),
+        #     ('...previous transformer...', ...previous transformer...)
+        # ])
         # The previous transformer can now be replaced with the new pipeline_transformer
     """),
     FixType.TEXT_SPELLCHECK.value: cleandoc("""
@@ -147,10 +148,11 @@ FIX_STRATEGY_TO_CODE = {
             return series
     
         typo_fixer = FunctionTransformer(spell)
-        pipeline_transformer = Pipeline([
-            ('translate', translate_transformer),
-            ('...previous transformer...', ...previous transformer...)
-        ])
+        # If the pipeline is a ML pipeline that uses a ColumnTransformer:
+        # pipeline_transformer = Pipeline([
+        #     ('translate', typo_fixer),
+        #     ('...previous transformer...', ...previous transformer...)
+        # ])
         # The previous transformer can now be replaced with the new pipeline_transformer
     """)
 }
