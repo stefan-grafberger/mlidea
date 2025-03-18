@@ -930,26 +930,29 @@ class SeriesPatching:
         def execute_inspections(_, caller_filename, lineno, optional_code_reference, optional_source_code):
             """ Execute inspections, add DAG node """
             # pylint: disable=no-member
-            function_info = FunctionInfo('pandas.core.series.Series', 'to_list')
-            input_info = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
-                                        optional_source_code)
-            operator_context = OperatorContext(OperatorType.PROJECTION, function_info, func_args)
-            operator_call_info = OperatorCallInfo(operator_context, [input_info])
-            op_id = singleton.get_next_op_id(operator_call_info)
-            description = "list conversion"
-            processing_func = wrap_projection_func(lambda df: original(df, *args, **kwargs))
-            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, processing_func,
-                                                            [input_info.annotated_dfobject.result_data])
-            columns = input_info.dag_node.details.columns
-            dag_node = DagNode(op_id,
-                               BasicCodeLocation(caller_filename, lineno),
-                               operator_context,
-                               DagNodeDetails(description, columns, optimizer_info),
-                               get_optional_code_info_or_none(optional_code_reference, optional_source_code),
-                               processing_func)
-            function_call_result = FunctionCallResult(result)
-            add_dag_node(dag_node, [input_info.dag_node], function_call_result)
-            new_result = function_call_result.function_result
+            if singleton.disable_monkey_patching is False:
+                function_info = FunctionInfo('pandas.core.series.Series', 'to_list')
+                input_info = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
+                                            optional_source_code)
+                operator_context = OperatorContext(OperatorType.PROJECTION, function_info, func_args)
+                operator_call_info = OperatorCallInfo(operator_context, [input_info])
+                op_id = singleton.get_next_op_id(operator_call_info)
+                description = "list conversion"
+                processing_func = wrap_projection_func(lambda df: original(df, *args, **kwargs))
+                optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, processing_func,
+                                                                [input_info.annotated_dfobject.result_data])
+                columns = input_info.dag_node.details.columns
+                dag_node = DagNode(op_id,
+                                   BasicCodeLocation(caller_filename, lineno),
+                                   operator_context,
+                                   DagNodeDetails(description, columns, optimizer_info),
+                                   get_optional_code_info_or_none(optional_code_reference, optional_source_code),
+                                   processing_func)
+                function_call_result = FunctionCallResult(result)
+                add_dag_node(dag_node, [input_info.dag_node], function_call_result)
+                new_result = function_call_result.function_result
+            else:
+                new_result = original(self, **func_args)
             return new_result
 
         return execute_patched_func_no_op_id(original, execute_inspections, self, **func_args)
