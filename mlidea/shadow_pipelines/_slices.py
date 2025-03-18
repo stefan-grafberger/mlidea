@@ -114,6 +114,7 @@ FIX_STRATEGY_TO_CODE = {
         df[columns_to_clean] = imputer.fit_transform(df[columns_to_clean).ravel()
     """),
     FixType.TEXT_TRANSLATE.value: cleandoc("""
+        import asyncio
         import nest_asyncio
         nest_asyncio.apply()
         from googletrans import Translator
@@ -130,7 +131,7 @@ FIX_STRATEGY_TO_CODE = {
             return series
     
         translate_transformer = FunctionTransformer(translate)
-        # If the pipeline is a ML pipelien that uses a ColumnTransformer:
+        # If the pipeline is a ML pipeline that uses a ColumnTransformer:
         # pipeline_transformer = Pipeline([
         #     ('translate', translate_transformer),
         #     ('...previous transformer...', ...previous transformer...)
