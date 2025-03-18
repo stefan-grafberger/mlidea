@@ -52,7 +52,8 @@ class DagNodeDetails:
     Additional info about the DAG node
     """
     description: str or None = None
-    columns: list[str] or None = None
+    # TODO: Not completely sure why this cannot be compared
+    columns: list[str] or None = dataclasses.field(compare=False, default=None)
     optimizer_info: OptimizerInfo or None = dataclasses.field(compare=False, default=None)
 
 
