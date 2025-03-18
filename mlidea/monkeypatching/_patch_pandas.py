@@ -24,6 +24,7 @@ from mlidea.monkeypatching._patch_sklearn import call_info_singleton
 from mlidea.monkeypatching._provenance_propagation import wrap_data_source_func, \
     generate_and_add_provenance_data_source, wrap_projection_func, wrap_filter_func, wrap_join_func, \
     wrap_concat_rows_func
+from monkeypatching._mlinspect_ndarray import MlinspectList
 
 
 @gorilla.patches(pandas)
@@ -422,7 +423,7 @@ class DataFramePatching:
             input_info_self = get_input_info(self, caller_filename, lineno, function_info, optional_code_reference,
                                              optional_source_code)
             dag_node_parents = [input_info_self.dag_node]
-            if isinstance(args[1], pandas.Series):
+            if isinstance(args[1], (pandas.Series, MlinspectList)):
                 non_data_kwargs = get_simple_non_data_kwargs(*args, **kwargs, except_indices=[1])
                 operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY, function_info, non_data_kwargs)
                 input_info_other = get_input_info(args[1], caller_filename, lineno, function_info,
