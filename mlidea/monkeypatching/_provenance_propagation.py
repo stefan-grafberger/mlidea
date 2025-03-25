@@ -2,6 +2,7 @@ from functools import partial
 
 import numpy
 import pandas
+from scipy.sparse import csr_matrix
 
 from mlidea.execution._pipeline_executor import singleton
 from mlidea.execution._func_executor import get_df_shape
@@ -129,6 +130,9 @@ def wrap_filter_func(source_func):
             elif isinstance(df_input, list):
                 df_input = pandas.DataFrame(df_input)
                 was_list = True
+            elif isinstance(df_input, csr_matrix):
+                df_input = pandas.DataFrame(list(df_input.toarray()))
+                was_numpy = True
             for prov_key, prov_value in provenance.items():
                 assert isinstance(df_input, pandas.DataFrame)
                 df_input[prov_key] = prov_value
