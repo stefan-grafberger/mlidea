@@ -28,7 +28,8 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     add_new_score_and_score_extraction_nodes, assert_standard_llm_shape, assert_standard_ml_shape, \
     prov_join_node_with_data_sources, df_or_array_non_empty, df_or_array_non_empty_func_info, add_parent_node_edges, \
     get_rag_join_update_node, get_basic_code_location_for_current_line, add_new_score_and_score_extraction_nodes_slice, \
-    get_top_n_filter_node, get_concat_node, get_X_y_pred_y_true_concat_node
+    get_top_n_filter_node, get_X_y_pred_y_true_concat_node, \
+    get_X_before_X_after_y_pred_before_y_pred_after_y_true_concat_node
 
 
 @dataclasses.dataclass
@@ -37,8 +38,7 @@ class PotentialSuggestion:
     suggestion: str or None
     suggestion_metric_results: any
     suggestion_max_score_improvement: float or None
-    suggestion_df_before: any or None
-    suggestion_df_after: any or None
+    suggestion_explanation_df: any or None
     source_code_to_integrate: str or None
 
 
@@ -237,7 +237,7 @@ class FairnessSlices(ShadowPipeline):
         conditional_slices_found_node = FairnessSlices._get_slice_found_conditional_node(new_dag, new_slice_finder_node)
 
         self._add_fix_computation_ml(conditional_slices_found_node, dag, new_dag, new_slice_finder_node,
-                                     predict_operators, score_operators)
+                                     predict_operators, score_operators, test_labels_operators)
 
         return new_dag
 
@@ -263,12 +263,12 @@ class FairnessSlices(ShadowPipeline):
         conditional_slices_found_node = self._get_slice_found_conditional_node(new_dag, new_slice_finder_node)
 
         self._add_fix_computation_llm(conditional_slices_found_node, new_dag, new_slice_finder_node, predict_operators,
-                                      rag_join_operators, score_operators, test_data_operators)
+                                      rag_join_operators, score_operators, test_data_operators, test_labels_operators)
 
         return new_dag
 
     def _add_fix_computation_ml(self, conditional_slices_found_node, dag, new_dag, new_slice_finder_node,
-                                predict_operators, score_operators):
+                                predict_operators, score_operators, test_labels_operators):
         slice_finder_indices_node = FairnessSlices._get_slice_finder_indices_node(
             new_dag, [new_slice_finder_node, conditional_slices_found_node])
         data_parent_transformer_and_data_type = get_transformer_parents_with_data_types(dag)
@@ -284,7 +284,8 @@ class FairnessSlices(ShadowPipeline):
                 FairnessSlices._add_fix_evaluation_computation_ml(conditional_fix_function_made_changes_node, dag,
                                                                   data_parent,
                                                                   fix_strategy_index, new_dag, new_fix_diff_node,
-                                                                  new_fix_node, predict_operators, score_operators)
+                                                                  new_fix_node, predict_operators, score_operators,
+                                                                  test_labels_operators)
                 fix_strategy_index += 1
 
     @staticmethod
@@ -308,7 +309,7 @@ class FairnessSlices(ShadowPipeline):
         return slice_finder_result[1]
 
     def _add_fix_computation_llm(self, conditional_slices_found_node, new_dag, new_slice_finder_node, predict_operators,
-                                 rag_join_operators, score_operators, test_data_operators):
+                                 rag_join_operators, score_operators, test_data_operators, test_labels_operators):
         slice_finder_indices_node = FairnessSlices._get_slice_finder_indices_node(
             new_dag, [new_slice_finder_node, conditional_slices_found_node])
         data_parent = test_data_operators[0]
@@ -322,21 +323,19 @@ class FairnessSlices(ShadowPipeline):
 
             FairnessSlices._add_fix_evaluation_computation_llm(conditional_fix_function_made_changes_node, data_parent,
                                                                fix_strategy_index, new_dag, new_fix_diff_node,
-                                                               new_fix_node,
-                                                               predict_operators, rag_join_operators, score_operators)
+                                                               new_fix_node, predict_operators, rag_join_operators,
+                                                               score_operators, test_labels_operators)
 
     @staticmethod
     def _add_fix_evaluation_computation_llm(conditional_fix_function_made_changes_node, data_parent,
                                             fix_strategy_index, new_dag, new_fix_diff_node, new_fix_node,
-                                            predict_operators,
-                                            rag_join_operators, score_operators):
+                                            predict_operators, rag_join_operators, score_operators,
+                                            test_labels_operators):
         new_unmodified_fix_filter_node = get_diff_filter_node(singleton, new_dag, [data_parent, new_fix_diff_node])
-        _ = get_intermediate_extraction_node(singleton, new_dag, [new_unmodified_fix_filter_node],
-                                             f"fairness-slices-data-to-fix-{fix_strategy_index}")
+
         new_fix_diff_filter_node = get_diff_filter_node(singleton, new_dag, [new_fix_node, new_fix_diff_node,
                                                                              conditional_fix_function_made_changes_node])
-        _ = get_intermediate_extraction_node(singleton, new_dag, [new_fix_diff_filter_node],
-                                             f"fairness-slice-fixing-diff-{fix_strategy_index}")
+
         # Evaluate with updated data
         # Operator to get the rag join results
         new_rag_join_update_node = get_rag_join_update_node(
@@ -349,6 +348,10 @@ class FairnessSlices(ShadowPipeline):
                                                                                        conditional_fix_function_made_changes_node])
         add_new_score_and_score_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
                                                  score_operators, f"fairness-slice-fixing-{fix_strategy_index}")
+
+        FairnessSlices.generate_fix_explanation_df(fix_strategy_index, new_dag, new_fix_diff_filter_node,
+                                                   new_fix_diff_node, test_predict, new_unmodified_fix_filter_node,
+                                                   predict_operators, test_labels_operators)
 
     @staticmethod
     def get_fix_made_changes_conditional_node(fix_strategy_index, new_dag, new_fix_diff_node):
@@ -402,14 +405,10 @@ class FairnessSlices(ShadowPipeline):
     @staticmethod
     def _add_fix_evaluation_computation_ml(conditional_fix_function_made_changes_node, dag, data_parent,
                                            fix_strategy_index, new_dag, new_fix_diff_node, new_fix_node,
-                                           predict_operators, score_operators):
+                                           predict_operators, score_operators, test_labels_operators):
         new_unmodified_fix_filter_node = get_diff_filter_node(singleton, new_dag, [data_parent, new_fix_diff_node])
-        _ = get_intermediate_extraction_node(singleton, new_dag, [new_unmodified_fix_filter_node],
-                                             f"fairness-slices-data-to-fix-{fix_strategy_index}")
         new_fix_diff_filter_node = get_diff_filter_node(singleton, new_dag, [new_fix_node, new_fix_diff_node,
                                                                              conditional_fix_function_made_changes_node])
-        _ = get_intermediate_extraction_node(singleton, new_dag, [new_fix_diff_filter_node],
-                                             f"fairness-slice-fixing-diff-{fix_strategy_index}")
         # Evaluate with updated data
         new_predict = duplicate_descendants_and_filter_concat_inputs(singleton, dag, new_dag, data_parent,
                                                                      new_fix_diff_filter_node, new_fix_diff_node,
@@ -420,6 +419,27 @@ class FairnessSlices(ShadowPipeline):
         add_new_score_and_score_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
                                                  score_operators,
                                                  f"fairness-slice-fixing-{fix_strategy_index}")
+
+        FairnessSlices.generate_fix_explanation_df(fix_strategy_index, new_dag, new_fix_diff_filter_node,
+                                                   new_fix_diff_node, new_predict, new_unmodified_fix_filter_node,
+                                                   predict_operators, test_labels_operators)
+
+    @staticmethod
+    def generate_fix_explanation_df(fix_strategy_index, new_dag, new_fix_diff_filter_node, new_fix_diff_node,
+                                    new_predict, new_unmodified_fix_filter_node, predict_operators,
+                                    test_labels_operators):
+        prediction_old_filter_node = get_diff_filter_node(singleton, new_dag,
+                                                          [predict_operators[0],
+                                                           new_fix_diff_node])
+        labels_filter_node = get_diff_filter_node(singleton, new_dag, [test_labels_operators[0],
+                                                                       new_fix_diff_node])
+        explanation_node = get_X_before_X_after_y_pred_before_y_pred_after_y_true_concat_node(
+            singleton, new_dag,
+            [new_unmodified_fix_filter_node, new_fix_diff_filter_node, prediction_old_filter_node, new_predict,
+             labels_filter_node]
+        )
+        _ = get_intermediate_extraction_node(singleton, new_dag, [explanation_node],
+                                             f"fairness-slices-fix-explanation-{fix_strategy_index}")
 
     def fix_function_computation_node(self, data_parent, fix_strategy, new_dag, slice_finder_indices_node):
         self.fix_strategy_names.append(fix_strategy.value)
@@ -470,10 +490,6 @@ class FairnessSlices(ShadowPipeline):
                                                  f"fairness-slice-only-problematic-slice",
                                                        slice_finder_indices_node)
 
-        # TODO: explanations for the slice
-
-
-
         test_data_slice_filter_node = get_diff_filter_node(singleton, new_dag, [test_data_operators[0],
                                                                              slice_finder_indices_node], prov=True)
         top_n_data_slice_filter_node = get_top_n_filter_node(singleton, new_dag, [test_data_slice_filter_node],
@@ -484,7 +500,6 @@ class FairnessSlices(ShadowPipeline):
                                                           top_n_data_slice_filter_node)
 
         prediction_slice_filter_node = get_diff_filter_node(singleton, new_dag, [predict_operators[0], slice_finder_indices_node])
-        # TODO: Still some error
         top_n_prediction_slice_filter_node = get_top_n_filter_node(singleton, new_dag, [prediction_slice_filter_node])
         labels_slice_filter_node = get_diff_filter_node(singleton, new_dag, [test_labels_operators[0],
                                                                              slice_finder_indices_node])
@@ -579,27 +594,16 @@ class FairnessSlices(ShadowPipeline):
         if extracted_plan_results[f"fairness-slices-fixing-made-changes-{fix_strategy_index}"] is False:
             report += "The fixing function did not make any changes.\n"
             suggestion = PotentialSuggestion(False, f"{fix_strategy_name}", orig_result, 1.0,
-                                             None, None, None)
+                                             None, None)
         else:
-            fix_diff_df = extracted_plan_results[
-                f"fairness-slice-fixing-diff-{fix_strategy_index}"]
-            if isinstance(fix_diff_df, (pandas.DataFrame, pandas.Series)):
-                fix_diff_df_sample = fix_diff_df.head(20)
-            elif isinstance(fix_diff_df, numpy.ndarray) and fix_diff_df.ndim == 1:
-                fix_diff_df_sample = fix_diff_df[:20]
-            elif isinstance(fix_diff_df, numpy.ndarray) and fix_diff_df.ndim == 2:
-                fix_diff_df_sample = fix_diff_df[:20, :]
-            else:
-                raise NotImplementedError("TODO")
-
-            unmodified_diff = extracted_plan_results[
-                f"fairness-slices-data-to-fix-{fix_strategy_index}"]
-            if isinstance(unmodified_diff, (pandas.DataFrame, pandas.Series)):
-                unmodified_diff_sample = unmodified_diff.head(20)
-            elif isinstance(unmodified_diff, numpy.ndarray) and unmodified_diff.ndim == 1:
-                unmodified_diff_sample = unmodified_diff[:20]
-            elif isinstance(unmodified_diff, numpy.ndarray) and unmodified_diff.ndim == 2:
-                unmodified_diff_sample = unmodified_diff[:20, :]
+            fix_explanation_df = extracted_plan_results[
+                f"fairness-slices-fix-explanation-{fix_strategy_index}"]
+            if isinstance(fix_explanation_df, (pandas.DataFrame, pandas.Series)):
+                fix_explanation_df = fix_explanation_df.head(20)
+            elif isinstance(fix_explanation_df, numpy.ndarray) and fix_explanation_df.ndim == 1:
+                fix_explanation_df = fix_explanation_df[:20]
+            elif isinstance(fix_explanation_df, numpy.ndarray) and fix_explanation_df.ndim == 2:
+                fix_explanation_df = fix_explanation_df[:20, :]
             else:
                 raise NotImplementedError("TODO")
 
@@ -613,8 +617,7 @@ class FairnessSlices(ShadowPipeline):
             report += (
                 f"After trying to automatically repair rows from this slice, "
                 f"the pipeline metric was {fix_result} (A change of {max_score_improvement}). "
-                f"A sample of the modified rows:\n{str(fix_diff_df_sample)}.\n\n"
-                f"Before, these rows had the following values:\n{str(unmodified_diff_sample)}.\n")
+                f"An explanation of the change:\n{str(fix_explanation_df)}.\n\n")
             is_improvement = max_score_improvement > 1.
             if is_improvement:
                 promising_fix_strategies.append(fix_strategy_name)
@@ -629,7 +632,7 @@ class FairnessSlices(ShadowPipeline):
                     f"repair strategy automatically.\n")
             source_code = FIX_STRATEGY_TO_CODE[fix_strategy_name]
             suggestion = PotentialSuggestion(is_improvement, fix_strategy_name, fix_result, max_score_improvement,
-                                             unmodified_diff_sample, fix_diff_df_sample, source_code)
+                                             fix_explanation_df, source_code)
         return report, suggestion
 
     @staticmethod
