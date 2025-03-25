@@ -114,6 +114,23 @@ def test_label_errors_anhedonia_llm(tmpdir):
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
 
 
+def test_label_errors_anhedonia_llm_concat_data_sources(tmpdir):
+    """
+    Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
+    """
+    ANHEDONIA_LLM_CONCAT_PY = "TODO"
+    label_errors = LabelErrors()
+    analysis_result = PipelineAnalyzer \
+        .on_pipeline_from_py_file(ANHEDONIA_LLM_CONCAT_PY) \
+        .add_shadow_pipeline(label_errors) \
+        .execute()
+
+    report = analysis_result.shadow_pipelines_to_result_reports[label_errors]
+    assert "the pipeline metric was" in report.summary
+
+    visualize_dags_shadow_pipelines(analysis_result, tmpdir)
+
+
 def test_label_errors_adult_complex(tmpdir):
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
@@ -201,20 +218,6 @@ def test_label_errors_mini_example_with_transformer_processing_multiple_columns_
     assert "the pipeline metric was" in report.summary
 
     visualize_dags_shadow_pipelines(analysis_result, tmpdir)
-
-
-def test_label_errors_mini_example_llm_rag_proxy():
-    """
-    Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
-    """
-    with pytest.raises(ValueError):
-        test_code = get_llm_rag_mini_example_code()
-
-        label_errors = LabelErrors(proxy_model=True)
-        PipelineAnalyzer \
-            .on_pipeline_from_string(test_code) \
-            .add_shadow_pipeline(label_errors) \
-            .execute()
 
 
 def test_label_errors_compas_proxy(tmpdir):

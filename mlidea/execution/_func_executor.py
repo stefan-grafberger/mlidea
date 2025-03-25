@@ -122,8 +122,10 @@ def get_optimizer_info(estimator_transformer_state, execution_start, keras_batch
             result_or_inplace_obj = result
         else:
             result_or_inplace_obj = obj_for_inplace_ops
-
-        shape = get_df_shape(result_or_inplace_obj)
+        if not isinstance(result_or_inplace_obj, list) or len(result_or_inplace_obj) > 0:
+            shape = get_df_shape(result_or_inplace_obj)
+        else:
+            shape = None
         size = get_df_memory(result_or_inplace_obj, estimator_transformer_state, keras_batch_size)
         optimizer_info = OptimizerInfo(execution_duration_in_ms, shape, size)
     else:

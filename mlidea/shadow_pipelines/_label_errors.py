@@ -19,7 +19,8 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     get_diff_filter_node, merge_prediction_diff_with_old_predictions, add_new_score_and_score_extraction_nodes, \
     assert_standard_llm_shape, assert_standard_ml_shape, get_proxy_model_node, df_or_array_non_empty, \
     df_or_array_non_empty_func_info, add_parent_node_edges, get_basic_code_location_for_current_line, \
-    get_data_sources_to_all_columns, prov_join_node_with_data_sources, get_projection_nodes, get_concat_node
+    get_data_sources_to_all_columns, prov_join_node_with_data_sources, get_projection_nodes, get_concat_node, \
+    get_sorted_parent_nodes, get_shapley_X_data_y_pred_concat_node
 
 
 @dataclasses.dataclass
@@ -107,20 +108,7 @@ class LabelErrors(ShadowPipeline):
             new_dag,
             [train_data_operators[0], train_labels_operators[0], test_data_operators[0], test_labels_operators[0]])
 
-        top_k_shapley_indices = get_projection_nodes(singleton, new_dag, [new_shapley_node], "train_id",
-                                                     prov=False)
-        shapley_values = get_projection_nodes(singleton, new_dag, [new_shapley_node], "shapley_value",
-                                                     prov=False)
-        top_k_train_rows_filter_node = get_diff_filter_node(singleton, new_dag, [
-            train_data_operators[0], top_k_shapley_indices], prov=True)
-
-        relevant_data_sources_and_columns = get_data_sources_to_all_columns(new_dag, False)
-        prov_join_node = prov_join_node_with_data_sources(singleton, relevant_data_sources_and_columns, new_dag,
-                                                          top_k_train_rows_filter_node)
-        concat_node = get_concat_node(singleton, new_dag, [shapley_values, prov_join_node])
-
-
-        _ = get_intermediate_extraction_node(singleton, new_dag, [concat_node], "label-errors-shapley-values")
+        LabelErrors.add_shapley_value_explanation(new_dag, new_shapley_node, train_labels_operators[0])
 
         likely_mislabeled_rows_condition_node = LabelErrors._get_likely_mislabeled_rows_present_condition_node(
             new_dag, new_shapley_node)
@@ -134,6 +122,23 @@ class LabelErrors(ShadowPipeline):
                                             train_data_operators, train_labels_operators)
 
         return new_dag
+
+    @staticmethod
+    def add_shapley_value_explanation(new_dag, new_shapley_node, y_pred_node):
+        top_k_shapley_indices = get_projection_nodes(singleton, new_dag, [new_shapley_node], "train_id",
+                                                     prov=False)
+        shapley_values = get_projection_nodes(singleton, new_dag, [new_shapley_node], "shapley_value",
+                                              prov=False)
+        top_k_train_rows_filter_node = get_diff_filter_node(singleton, new_dag, [
+            y_pred_node, top_k_shapley_indices], prov=True)
+        relevant_data_sources_and_columns = get_data_sources_to_all_columns(new_dag, False)
+        prov_join_node = prov_join_node_with_data_sources(singleton, relevant_data_sources_and_columns, new_dag,
+                                                          top_k_train_rows_filter_node)
+
+        y_pred_filter_node = get_diff_filter_node(singleton, new_dag, [y_pred_node, top_k_shapley_indices])
+        concat_node = get_shapley_X_data_y_pred_concat_node(singleton, new_dag, [
+            shapley_values, prov_join_node, y_pred_filter_node])
+        _ = get_intermediate_extraction_node(singleton, new_dag, [concat_node], "label-errors-shapley-values")
 
     def _get_llm_rag_dag(self, dag):
         new_dag = dag.copy()
@@ -152,9 +157,11 @@ class LabelErrors(ShadowPipeline):
 
         self.score_operator_count = len(score_operators)
 
-        new_shapley_node = self._add_shapley_value_computation_llm(label_encoder_operators, new_dag, rag_join_operators,
-                                                                   score_operators, test_data_operators,
-                                                                   test_labels_operators, train_labels_operators)
+        new_shapley_node, encoded_train_labels_node = self._add_shapley_value_computation_llm(
+            label_encoder_operators, new_dag, rag_join_operators, score_operators, test_data_operators,
+            test_labels_operators, train_labels_operators)
+
+        LabelErrors.add_shapley_value_explanation(new_dag, new_shapley_node, encoded_train_labels_node)
 
         likely_mislabeled_rows_condition_node = LabelErrors._get_likely_mislabeled_rows_present_condition_node(
             new_dag, new_shapley_node)
@@ -181,7 +188,7 @@ class LabelErrors(ShadowPipeline):
         shapley_values = extracted_plan_results["label-errors-shapley-values"]
         if extracted_plan_results["label-errors-shapley-values-non-empty"] is False:
             summary += "No likely mislabeled rows were found with the given label error config!\nNothing to do for now."
-            screened_issues = [ScreenedIssue("Likely label errors", False, shapley_values, False, None, None, None)]
+            screened_issues = [ScreenedIssue("Likely label errors", False, shapley_values, False, [])]
         else:
             flip_result = []
             for score_index in range(self.score_operator_count):
@@ -345,20 +352,23 @@ class LabelErrors(ShadowPipeline):
         add_orig_score_extraction_nodes(singleton, new_dag, score_operators)
         train_labels_dict_conversion = list(new_dag.predecessors(train_labels_operators[0]))[0]
         train_labels_before_dict = list(new_dag.predecessors(train_labels_dict_conversion))[0]
+
+        # If pipelines do a simple conversion from
+        train_labels_before_dict_parent = get_sorted_parent_nodes(new_dag, train_labels_before_dict)[-1]
+        if train_labels_before_dict_parent.operator_info.function_info == FunctionInfo(
+                'pandas.core.frame', '__setitem__'):
+            train_labels_before_dict_parent_parent = get_sorted_parent_nodes(
+                new_dag, train_labels_before_dict_parent)[-1]
+            if train_labels_before_dict_parent_parent.operator_info.function_info == FunctionInfo(
+                    'pandas.core.series', 'replace'):
+                train_labels_before_dict = get_sorted_parent_nodes(new_dag, train_labels_before_dict_parent_parent)[-1]
+
         encoded_train_labels_node = copy_node_with_new_id(singleton, new_dag, label_encoder_operators[0],
                                                           [train_labels_before_dict])
         new_shapley_node = self._get_new_shapley_llm_node(
             new_dag, [rag_join_operators[0], encoded_train_labels_node, test_data_operators[0], test_labels_operators[0]])
 
-        relevant_data_sources_and_columns = get_data_sources_to_all_columns(new_dag)
-        prov_join_node = prov_join_node_with_data_sources(singleton, relevant_data_sources_and_columns, new_dag,
-                                                          new_shapley_node)
-
-        _ = get_intermediate_extraction_node(singleton, new_dag, [prov_join_node], "label-errors-shapley-values")
-
-
-
-        return new_shapley_node
+        return new_shapley_node, encoded_train_labels_node
 
     def _get_new_shapley_llm_node(self, new_dag, parents):
         non_data_kwargs = {'cleaning_batch_size': self._cleaning_batch_size,
@@ -425,6 +435,7 @@ class LabelErrors(ShadowPipeline):
                                 train_fraction_to_consider, test_fraction_to_consider, cleaning_batch_size,
                                 only_consider_negative_shapley_values):
         # TODO: Should we propagate provenance here? Might be important for explanations later
+        # BUG FIXME encoded train labels is always zero!!!
         test_indices_to_consider, train_indices_to_consider = LabelErrors._get_train_and_test_indices_to_consider_llm(
             encoded_test_labels, test_fraction_to_consider, encoded_train_labels, train_fraction_to_consider)
 
@@ -440,6 +451,7 @@ class LabelErrors(ShadowPipeline):
         rows_to_fix = df_with_id_and_shapley_value.nsmallest(cleaning_batch_size, "shapley_value")
         if only_consider_negative_shapley_values:
             rows_to_fix = rows_to_fix[rows_to_fix["shapley_value"] <= 0.]
+        rows_to_fix = rows_to_fix.reset_index(drop=True)
         return rows_to_fix
 
     @staticmethod

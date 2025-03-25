@@ -247,7 +247,7 @@ class PipelineExecutor:
                 if node in self.operators_to_runtime_during_analysis:
                     node.details.optimizer_info = self.operators_to_runtime_during_analysis[node]
                     if node.operator_info.operator == OperatorType.ESTIMATOR:
-                        shadow_pipeline_estimator_runtimes += node.details.optimizer_info.runtime
+                        shadow_pipeline_estimator_runtimes += node.details.optimizer_info.runtime or 0
                 else:
                     print(node)
 

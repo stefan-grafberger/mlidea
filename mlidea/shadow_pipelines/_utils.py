@@ -749,6 +749,35 @@ def concat_func_X_y_pred_y_true(test_data, y_pred, y_true):
     return result
 
 
+def concat_shapley_X_data_y_pred(shapley, test_data, y_pred):
+    # TODO: What if not all inputs are pandas dfs?
+    predictions = pandas.DataFrame({"y_pred": list(y_pred)})
+    result = pandas.concat([shapley, predictions, test_data], axis=1)
+    result = wrap_in_mlinspect_array_if_necessary(result)
+    # Not sure if this might be necessary at some point
+    # result._mlinspect_provenance = ...
+    return result
+
+
+def get_shapley_X_data_y_pred_concat_node(singleton, new_dag, parents):
+    operator_context = OperatorContext(OperatorType.CONCATENATION,
+                                       FunctionInfo('mlidea.shadow_pipelines._utils',
+                                                    'get_shapley_X_data_y_pred_concat_node'),
+                                       {})
+    operator_call_info = OperatorCallInfo(operator_context, parents)
+    columns = []
+    for parent in parents:
+        columns.extend(parent.details.columns)
+    concat_node = DagNode(singleton.get_next_op_id(operator_call_info),
+                          get_basic_code_location_for_current_line(),
+                          operator_context,
+                          DagNodeDetails("Concat for provenance explanation", columns),
+                          None,
+                          concat_shapley_X_data_y_pred)
+    add_parent_node_edges(singleton, new_dag, concat_node, parents)
+    return concat_node
+
+
 def concat_X_before_X_after_y_pred_before_y_pred_after_y_true(test_data_before, test_data_after, y_pred_before,
                                                               y_pred_after, y_true):
     # TODO: What if not all inputs are pandas dfs?
