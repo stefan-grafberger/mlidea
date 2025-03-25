@@ -24,7 +24,7 @@ from mlidea.instrumentation._operator_types import ConditionalResult, FunctionIn
 from mlidea.instrumentation._operator_types import OperatorType
 from mlidea.monkeypatching._monkey_patching_utils import wrap_in_mlinspect_array_if_necessary
 from mlidea.monkeypatching._patch_langchain import RunnableSequencePatching
-from mlidea.monkeypatching._provenance_propagation import wrap_projection_func
+from mlidea.monkeypatching._provenance_propagation import wrap_projection_func, wrap_filter_func
 from mlidea.shadow_pipelines.cached_text_transformer import CachedTextTransformer
 
 
@@ -537,11 +537,15 @@ def prov_join_with_data_source(intermediate_df, data_source):
     return result
 
 
-def get_diff_filter_node(singleton, dag, parents):
+def get_diff_filter_node(singleton, dag, parents, prov=False):
     operator_context = OperatorContext(OperatorType.SELECTION,
                                        FunctionInfo('mlidea.shadow_pipelines._utils', 'apply_diff_filter'),
                                        {})
     operator_call_info = OperatorCallInfo(operator_context, parents)
+    if prov is True:
+        diff_filter_func = wrap_filter_func(apply_diff_filter)
+    else:
+        diff_filter_func = apply_diff_filter
     new_fix_diff_filter_node = DagNode(singleton.get_next_op_id(operator_call_info),
                                        get_basic_code_location_for_current_line(),
                                        operator_context,
@@ -549,7 +553,7 @@ def get_diff_filter_node(singleton, dag, parents):
                                            "Filter for diff only",
                                            parents[0].details.columns),
                                        None,
-                                       apply_diff_filter)
+                                       diff_filter_func)
     add_parent_node_edges(singleton, dag, new_fix_diff_filter_node, parents)
     return new_fix_diff_filter_node
 
@@ -806,3 +810,24 @@ def get_rag_join_update_node(singleton, new_dag, parents):
                                        rag_join_update)
     add_parent_node_edges(singleton, new_dag, new_rag_join_update_node, parents)
     return new_rag_join_update_node
+
+
+def get_top_n_filter_node(singleton, dag, parents, n=20, prov=False):
+    operator_context = OperatorContext(OperatorType.SELECTION,
+                                       FunctionInfo('mlidea.shadow_pipelines._utils', 'get_top_n_df_rows'),
+                                       {})
+    operator_call_info = OperatorCallInfo(operator_context, parents)
+    if prov is True:
+        top_n_func = wrap_filter_func(partial(get_top_n_df_rows, sample_size=n))
+    else:
+        top_n_func = partial(get_top_n_df_rows, sample_size=n)
+    new_fix_diff_filter_node = DagNode(singleton.get_next_op_id(operator_call_info),
+                                       get_basic_code_location_for_current_line(),
+                                       operator_context,
+                                       DagNodeDetails(
+                                           f"Get top {n} rows",
+                                           parents[0].details.columns),
+                                       None,
+                                       top_n_func)
+    add_parent_node_edges(singleton, dag, new_fix_diff_filter_node, parents)
+    return new_fix_diff_filter_node
