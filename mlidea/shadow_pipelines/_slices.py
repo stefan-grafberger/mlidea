@@ -27,7 +27,7 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     get_diff_filter_node, get_changed_indices_node, merge_prediction_diff_with_old_predictions, \
     add_new_score_and_score_extraction_nodes, assert_standard_llm_shape, assert_standard_ml_shape, \
     prov_join_node_with_data_sources, df_or_array_non_empty, df_or_array_non_empty_func_info, add_parent_node_edges, \
-    get_rag_join_update_node, get_basic_code_location_for_current_line
+    get_rag_join_update_node, get_basic_code_location_for_current_line, add_new_score_and_score_extraction_nodes_slice
 
 
 @dataclasses.dataclass
@@ -46,6 +46,7 @@ class ScreenedIssue:
     description: str
     issue_found: bool
     problematic_slice: any or None
+    slice_metric_result: any or None
     suggestion_found: bool
     issue_suggestions: list[PotentialSuggestion]
 
@@ -229,7 +230,7 @@ class FairnessSlices(ShadowPipeline):
 
         new_slice_finder_node = self._add_slice_finder_computation(data_sources_with_sensitive_columns, new_dag,
                                                                    predict_operators, test_data_operators,
-                                                                   test_labels_operators)
+                                                                   test_labels_operators, score_operators)
 
         conditional_slices_found_node = FairnessSlices._get_slice_found_conditional_node(new_dag, new_slice_finder_node)
 
@@ -255,7 +256,7 @@ class FairnessSlices(ShadowPipeline):
 
         new_slice_finder_node = self._add_slice_finder_computation(data_sources_with_sensitive_columns, new_dag,
                                                                    predict_operators, test_data_operators,
-                                                                   test_labels_operators)
+                                                                   test_labels_operators, score_operators)
 
         conditional_slices_found_node = self._get_slice_found_conditional_node(new_dag, new_slice_finder_node)
 
@@ -435,13 +436,27 @@ class FairnessSlices(ShadowPipeline):
         return new_fix_node
 
     def _add_slice_finder_computation(self, data_sources_with_sensitive_columns, new_dag, predict_operators,
-                                      test_data_operators, test_labels_operators):
+                                      test_data_operators, test_labels_operators, score_operators):
         concat_node = prov_join_node_with_data_sources(singleton, data_sources_with_sensitive_columns, new_dag,
                                                        test_data_operators[0])
         new_slice_finder_node = self._get_slice_finder_node(
             new_dag, [concat_node, test_labels_operators[0], predict_operators[0]])
+
+        # To get the description of the problematic slice
         _ = get_intermediate_extraction_node(singleton, new_dag, [new_slice_finder_node],
                                              "fairness-slices-slice-line-result")
+
+        # Compute the scores only on the slice
+        conditional_slices_found_node = FairnessSlices._get_slice_found_conditional_node(new_dag, new_slice_finder_node)
+        slice_finder_indices_node = FairnessSlices._get_slice_finder_indices_node(
+            new_dag, [new_slice_finder_node, conditional_slices_found_node])
+        add_new_score_and_score_extraction_nodes_slice(singleton, new_dag, predict_operators[0],
+                                                 score_operators,
+                                                 f"fairness-slice-only-problematic-slice",
+                                                       slice_finder_indices_node)
+
+        # TODO: explanations for the slice
+
         return new_slice_finder_node
 
     def _get_slice_finder_node(self, new_dag, parents):
@@ -474,7 +489,7 @@ class FairnessSlices(ShadowPipeline):
             summary += ("No problematic slice could be found by Fairness Slices. However, this does not mean that "
                        "there are no fairness problems, Fairness Slices only could not find any with the given config.")
             report = FairnessSlicesReport(orig_result, [ScreenedIssue("Underperforming slices", False,
-                                                                      None, False, [])], summary)
+                                                                      None, None, False, [])], summary)
         else:
             slice_line_result = extracted_plan_results["fairness-slices-slice-line-result"]
             column_with_slice_value = []
@@ -483,6 +498,14 @@ class FairnessSlices(ShadowPipeline):
             readable_slice_result = ", ".join(column_with_slice_value)
             readable_slice_result = f"[{readable_slice_result}]"
             summary += f"The problematic slice that was found is {readable_slice_result}.\n"
+
+            slice_result = []
+            for score_index in range(self.score_operator_count):
+                slice_result.append(extracted_plan_results[f"fairness-slice-only-problematic-slice-{score_index}"])
+            max_score_decrease = get_relative_score_change(max_not_min=False, *orig_result, *slice_result)
+            summary += (
+                f"On the problematic slice, the pipeline metric was {slice_result} (a relative change of {max_score_decrease} in the "
+                f"most extreme scenario).\n")
 
             promising_fix_strategies = []
             performance_increases = []
@@ -505,7 +528,7 @@ class FairnessSlices(ShadowPipeline):
                            f" cannot find any promising repair strategy automatically. However, you could try finding"
                            f" one on your own.")
             report = FairnessSlicesReport(orig_result, [ScreenedIssue(
-                "Underperforming slices", True, readable_slice_result, fix_found, suggestions)], summary)
+                "Underperforming slices", True, readable_slice_result, slice_result, fix_found, suggestions)], summary)
 
         return report
 

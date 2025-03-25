@@ -604,6 +604,25 @@ def add_new_score_and_score_extraction_nodes(singleton, new_dag, new_predict_nod
     return new_score_nodes
 
 
+def add_new_score_and_score_extraction_nodes_slice(singleton, new_dag, unfiltered_predict_node, score_operators,
+                                                   label_prefix, slice_finder_indices_node):
+    prediction_slice_filter_node = get_diff_filter_node(singleton, new_dag, [unfiltered_predict_node,
+                                                                             slice_finder_indices_node])
+    new_score_nodes = []
+    for score_index, score_operator in enumerate(score_operators):
+        filtered_parents = []
+        for unfiltered_parent in get_sorted_parent_nodes(new_dag, score_operator)[1:]:
+            filtered_parent = get_diff_filter_node(singleton, new_dag, [unfiltered_parent,
+                                                                             slice_finder_indices_node])
+            filtered_parents.append(filtered_parent)
+        new_score_node = copy_node_with_new_id(singleton, new_dag, score_operator,
+                                               [prediction_slice_filter_node, *filtered_parents])
+        new_score_nodes.append(new_score_node)
+        _ = get_intermediate_extraction_node(singleton, new_dag, [new_score_node],
+                                             f"{label_prefix}-{score_index}")
+    return new_score_nodes
+
+
 def assert_standard_llm_shape(dag, shadow_pipeline_name):
     predict_operators = find_nodes_by_type(dag, OperatorType.PREDICT)
     score_operators = find_nodes_by_type(dag, OperatorType.SCORE)
