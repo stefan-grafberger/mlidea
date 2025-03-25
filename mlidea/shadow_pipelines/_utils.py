@@ -609,9 +609,11 @@ def add_new_score_and_score_extraction_nodes(singleton, new_dag, new_predict_nod
 
 
 def add_new_score_and_score_extraction_nodes_slice(singleton, new_dag, unfiltered_predict_node, score_operators,
-                                                   label_prefix, slice_finder_indices_node):
+                                                   label_prefix, slice_finder_indices_node,
+                                                   conditional_slices_found_node):
     prediction_slice_filter_node = get_diff_filter_node(singleton, new_dag, [unfiltered_predict_node,
-                                                                             slice_finder_indices_node])
+                                                                             slice_finder_indices_node,
+                                                                             conditional_slices_found_node])
     new_score_nodes = []
     for score_index, score_operator in enumerate(score_operators):
         filtered_parents = []
