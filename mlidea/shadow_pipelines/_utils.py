@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 import nest_asyncio
 nest_asyncio.apply()
 import asyncio
@@ -629,6 +631,22 @@ def add_new_score_and_score_extraction_nodes_slice(singleton, new_dag, unfiltere
     return new_score_nodes
 
 
+def get_data_sources_to_all_columns(dag, test_not_train=True):
+    data_sources_to_columns = defaultdict(list)
+    data_sources = find_nodes_by_type(dag, OperatorType.DATA_SOURCE)
+
+    if test_not_train is True:
+        target_data_operators = find_nodes_by_type(dag, OperatorType.TEST_DATA)
+    else:
+        target_data_operators = find_nodes_by_type(dag, OperatorType.TRAIN_DATA)
+    dag_to_consider = networkx.subgraph_view(dag, filter_edge=filter_estimator_transformer_edges)
+    for data_source in data_sources:
+        for column_name in data_source.details.columns:
+            if networkx.has_path(dag_to_consider, source=data_source, target=target_data_operators[0]) is True:
+                data_sources_to_columns[data_source].append(column_name)
+    return data_sources_to_columns
+
+
 def assert_standard_llm_shape(dag, shadow_pipeline_name):
     predict_operators = find_nodes_by_type(dag, OperatorType.PREDICT)
     score_operators = find_nodes_by_type(dag, OperatorType.SCORE)
@@ -664,6 +682,7 @@ def assert_standard_ml_shape(dag, shadow_pipeline_name):
 def concat_func(*inputs):
     # TODO: What if not all inputs are pandas dfs?
     result = pandas.concat(inputs, axis=1)
+    result = result.loc[:, ~result.columns.duplicated()]
     result = wrap_in_mlinspect_array_if_necessary(result)
     # Not sure if this might be necessary at some point
     # result._mlinspect_provenance = ...
@@ -680,17 +699,20 @@ def prov_join_node_with_data_sources(singleton, data_sources_with_sensitive_colu
         if len(paths) != 0:
             nodes_in_paths = set(node for path in paths for node in path)
             if len([node for node in nodes_in_paths if
-                    node.operator_info.operator in {OperatorType.SELECTION, OperatorType.JOIN}]) == 0:
+                    (node.operator_info.operator in {OperatorType.SELECTION, OperatorType.JOIN}
+                     or node.operator_info.function_info  == FunctionInfo(
+                                'mlidea.shadow_pipelines._label_errors.LabelErrors',
+                                '_add_shapley_value_computation_ml'))]) == 0:
                 data_sources_concat[data_source] = columns
             else:
                 data_sources_prov_join[data_source] = columns
 
     nodes_to_concat = []
     for data_source, column_names in data_sources_concat.items():
-        projection_node = get_projection_nodes(singleton, new_dag, [data_source], column_names)
+        projection_node = get_projection_nodes(singleton, new_dag, [data_source], column_names, prov=True)
         nodes_to_concat.append(projection_node)
     for data_source, column_names in data_sources_prov_join.items():
-        projection_node = get_projection_nodes(singleton, new_dag, [data_source], column_names)
+        projection_node = get_projection_nodes(singleton, new_dag, [data_source], column_names, prov=True)
         join_node = get_prov_join_node(singleton, new_dag, [node_requiring_side_info, projection_node])
 
         nodes_to_concat.append(join_node)
@@ -806,9 +828,11 @@ def get_prov_join_node(singleton, new_dag, parents):
     return join_node
 
 
-def get_projection_nodes(singleton, new_dag, parents, column_names):
-    projection_processing_func = wrap_projection_func(
-        partial(projection, column_names))
+def get_projection_nodes(singleton, new_dag, parents, column_names, prov=False):
+    if prov is True:
+        projection_processing_func = wrap_projection_func(partial(projection, column_names))
+    else:
+        projection_processing_func = partial(projection, column_names)
     operator_context = OperatorContext(OperatorType.PROJECTION,
                                        FunctionInfo('mlidea.shadow_pipelines._utils', 'projection'),
                                        {'column_names': column_names})

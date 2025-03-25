@@ -18,7 +18,8 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     get_conditional_stop_node, get_relative_score_change, add_orig_score_extraction_nodes, \
     get_diff_filter_node, merge_prediction_diff_with_old_predictions, add_new_score_and_score_extraction_nodes, \
     assert_standard_llm_shape, assert_standard_ml_shape, get_proxy_model_node, df_or_array_non_empty, \
-    df_or_array_non_empty_func_info, add_parent_node_edges, get_basic_code_location_for_current_line
+    df_or_array_non_empty_func_info, add_parent_node_edges, get_basic_code_location_for_current_line, \
+    get_data_sources_to_all_columns, prov_join_node_with_data_sources, get_projection_nodes, get_concat_node
 
 
 @dataclasses.dataclass
@@ -106,6 +107,21 @@ class LabelErrors(ShadowPipeline):
             new_dag,
             [train_data_operators[0], train_labels_operators[0], test_data_operators[0], test_labels_operators[0]])
 
+        top_k_shapley_indices = get_projection_nodes(singleton, new_dag, [new_shapley_node], "train_id",
+                                                     prov=False)
+        shapley_values = get_projection_nodes(singleton, new_dag, [new_shapley_node], "shapley_value",
+                                                     prov=False)
+        top_k_train_rows_filter_node = get_diff_filter_node(singleton, new_dag, [
+            train_data_operators[0], top_k_shapley_indices], prov=True)
+
+        relevant_data_sources_and_columns = get_data_sources_to_all_columns(new_dag, False)
+        prov_join_node = prov_join_node_with_data_sources(singleton, relevant_data_sources_and_columns, new_dag,
+                                                          top_k_train_rows_filter_node)
+        concat_node = get_concat_node(singleton, new_dag, [shapley_values, prov_join_node])
+
+
+        _ = get_intermediate_extraction_node(singleton, new_dag, [concat_node], "label-errors-shapley-values")
+
         likely_mislabeled_rows_condition_node = LabelErrors._get_likely_mislabeled_rows_present_condition_node(
             new_dag, new_shapley_node)
 
@@ -174,8 +190,7 @@ class LabelErrors(ShadowPipeline):
                        f"likely incorrect row labels, the pipeline metric was {flip_result}")
             if self._proxy_model is True:
                 summary += " (with the proxy model)"
-            summary += (f".\nThe shapley values of the "
-                       f"most likely mislabeled rows:\n{str(shapley_values)}")
+            summary += f".\nThe most likely mislabeled rows and their shapley values: \n{str(shapley_values)}"
             if self._proxy_model is True and len(proxy_result) != 0:
                 max_score_improvement = get_relative_score_change(*proxy_result, *flip_result)
             else:
@@ -269,7 +284,7 @@ class LabelErrors(ShadowPipeline):
                                    parent_nodes[0].details.columns,
                                    processing_func)
         add_parent_node_edges(singleton, new_dag, new_shapley_node, parent_nodes)
-        _ = get_intermediate_extraction_node(singleton, new_dag, [new_shapley_node], "label-errors-shapley-values")
+
         return new_shapley_node
 
     def _add_label_flip_computation_llm(self, likely_mislabeled_rows_condition_node, new_dag, new_shapley_node,
@@ -334,7 +349,15 @@ class LabelErrors(ShadowPipeline):
                                                           [train_labels_before_dict])
         new_shapley_node = self._get_new_shapley_llm_node(
             new_dag, [rag_join_operators[0], encoded_train_labels_node, test_data_operators[0], test_labels_operators[0]])
-        _ = get_intermediate_extraction_node(singleton, new_dag, [new_shapley_node], "label-errors-shapley-values")
+
+        relevant_data_sources_and_columns = get_data_sources_to_all_columns(new_dag)
+        prov_join_node = prov_join_node_with_data_sources(singleton, relevant_data_sources_and_columns, new_dag,
+                                                          new_shapley_node)
+
+        _ = get_intermediate_extraction_node(singleton, new_dag, [prov_join_node], "label-errors-shapley-values")
+
+
+
         return new_shapley_node
 
     def _get_new_shapley_llm_node(self, new_dag, parents):
@@ -481,6 +504,7 @@ class LabelErrors(ShadowPipeline):
         rows_to_fix = df_with_id_and_shapley_value.nsmallest(cleaning_batch_size, "shapley_value")
         if only_consider_negative_shapley_values:
             rows_to_fix = rows_to_fix[rows_to_fix["shapley_value"] <= 0.]
+        rows_to_fix = rows_to_fix.reset_index(drop=True)
         return rows_to_fix
 
     @staticmethod

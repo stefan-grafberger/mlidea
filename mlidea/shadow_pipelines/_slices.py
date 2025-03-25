@@ -29,7 +29,7 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     prov_join_node_with_data_sources, df_or_array_non_empty, df_or_array_non_empty_func_info, add_parent_node_edges, \
     get_rag_join_update_node, get_basic_code_location_for_current_line, add_new_score_and_score_extraction_nodes_slice, \
     get_top_n_filter_node, get_X_y_pred_y_true_concat_node, \
-    get_X_before_X_after_y_pred_before_y_pred_after_y_true_concat_node
+    get_X_before_X_after_y_pred_before_y_pred_after_y_true_concat_node, get_data_sources_to_all_columns
 
 
 @dataclasses.dataclass
@@ -393,19 +393,6 @@ class FairnessSlices(ShadowPipeline):
         return data_sources_to_columns
 
     @staticmethod
-    def get_data_sources_to_all_columns(dag):
-        data_sources_to_columns = defaultdict(list)
-        data_sources = find_nodes_by_type(dag, OperatorType.DATA_SOURCE)
-
-        test_data_operators = find_nodes_by_type(dag, OperatorType.TEST_DATA)
-        dag_to_consider = networkx.subgraph_view(dag, filter_edge=filter_estimator_transformer_edges)
-        for data_source in data_sources:
-            for column_name in data_source.details.columns:
-                if networkx.has_path(dag_to_consider, source=data_source, target=test_data_operators[0]) is True:
-                    data_sources_to_columns[data_source].append(column_name)
-        return data_sources_to_columns
-
-    @staticmethod
     def _add_fix_evaluation_computation_ml(conditional_fix_function_made_changes_node, dag, data_parent,
                                            fix_strategy_index, new_dag, new_fix_diff_node, new_fix_node,
                                            predict_operators, score_operators, test_labels_operators):
@@ -503,7 +490,7 @@ class FairnessSlices(ShadowPipeline):
         top_n_data_slice_filter_node = get_top_n_filter_node(singleton, new_dag, [test_data_slice_filter_node],
                                                              prov=True)
 
-        relevant_data_sources_and_columns = FairnessSlices.get_data_sources_to_all_columns(new_dag)
+        relevant_data_sources_and_columns = get_data_sources_to_all_columns(new_dag)
         prov_join_node = prov_join_node_with_data_sources(singleton, relevant_data_sources_and_columns, new_dag,
                                                           top_n_data_slice_filter_node)
 
