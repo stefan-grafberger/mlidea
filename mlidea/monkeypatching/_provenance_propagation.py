@@ -116,17 +116,19 @@ def wrap_filter_func(source_func):
         df_input = inputs[0]
         if singleton.prov_enabled is True:
             provenance = df_input._mlinspect_provenance
+            # TODO: Clean this code up with an enum or something like that
+            was_numpy = False
+            was_series = False
+            was_list = False
             if isinstance(df_input, pandas.Series):
                 df_input = pandas.DataFrame(df_input)
-                was_numpy = False
                 was_series = True
             elif isinstance(df_input, numpy.ndarray):
                 df_input = pandas.DataFrame(df_input)
                 was_numpy = True
-                was_series = False
-            else:
-                was_numpy = False
-                was_series = False
+            elif isinstance(df_input, list):
+                df_input = pandas.DataFrame(df_input)
+                was_list = True
             for prov_key, prov_value in provenance.items():
                 assert isinstance(df_input, pandas.DataFrame)
                 df_input[prov_key] = prov_value
@@ -147,6 +149,8 @@ def wrap_filter_func(source_func):
                 df_obj = df_obj.iloc[:, 0]
             elif was_numpy is True:
                 df_obj = df_obj.to_numpy()
+            elif was_list is True:
+                df_obj = df_obj.iloc[:, 0].to_list()
         df_obj = wrap_in_mlinspect_array_if_necessary(df_obj)
 
         if singleton.prov_enabled is True:

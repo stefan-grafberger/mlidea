@@ -699,7 +699,7 @@ def prov_join_node_with_data_sources(singleton, data_sources_with_sensitive_colu
 
 def get_concat_node(singleton, new_dag, parents):
     operator_context = OperatorContext(OperatorType.CONCATENATION,
-                                       FunctionInfo('mlidea.shadow_pipelines._utils', 'prov_join_with_data_source'),
+                                       FunctionInfo('mlidea.shadow_pipelines._utils', 'concat_func'),
                                        {})
     operator_call_info = OperatorCallInfo(operator_context, parents)
     columns = []
@@ -711,6 +711,34 @@ def get_concat_node(singleton, new_dag, parents):
                           DagNodeDetails("Concat sensitive attributes", columns),
                           None,
                           concat_func)
+    add_parent_node_edges(singleton, new_dag, concat_node, parents)
+    return concat_node
+
+
+def concat_func_X_y_pred_y_true(test_data, y_pred, y_true):
+    # TODO: What if not all inputs are pandas dfs?
+    predictions = pandas.DataFrame({"y_pred": list(y_pred), "y_true": list(y_true)})
+    result = pandas.concat([predictions, test_data], axis=1)
+    result = wrap_in_mlinspect_array_if_necessary(result)
+    # Not sure if this might be necessary at some point
+    # result._mlinspect_provenance = ...
+    return result
+
+
+def get_X_y_pred_y_true_concat_node(singleton, new_dag, parents):
+    operator_context = OperatorContext(OperatorType.CONCATENATION,
+                                       FunctionInfo('mlidea.shadow_pipelines._utils', 'get_X_y_pred_y_true_concat_node'),
+                                       {})
+    operator_call_info = OperatorCallInfo(operator_context, parents)
+    columns = []
+    for parent in parents:
+        columns.extend(parent.details.columns)
+    concat_node = DagNode(singleton.get_next_op_id(operator_call_info),
+                          get_basic_code_location_for_current_line(),
+                          operator_context,
+                          DagNodeDetails("Concat for provenance explanation", columns),
+                          None,
+                          concat_func_X_y_pred_y_true)
     add_parent_node_edges(singleton, new_dag, concat_node, parents)
     return concat_node
 

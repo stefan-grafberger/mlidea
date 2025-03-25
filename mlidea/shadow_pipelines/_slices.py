@@ -28,7 +28,7 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     add_new_score_and_score_extraction_nodes, assert_standard_llm_shape, assert_standard_ml_shape, \
     prov_join_node_with_data_sources, df_or_array_non_empty, df_or_array_non_empty_func_info, add_parent_node_edges, \
     get_rag_join_update_node, get_basic_code_location_for_current_line, add_new_score_and_score_extraction_nodes_slice, \
-    get_top_n_filter_node, get_concat_node
+    get_top_n_filter_node, get_concat_node, get_X_y_pred_y_true_concat_node
 
 
 @dataclasses.dataclass
@@ -48,6 +48,7 @@ class ScreenedIssue:
     issue_found: bool
     problematic_slice: any or None
     slice_metric_result: any or None
+    problematic_slice_sample: any or None
     suggestion_found: bool
     issue_suggestions: list[PotentialSuggestion]
 
@@ -482,20 +483,17 @@ class FairnessSlices(ShadowPipeline):
         prov_join_node = prov_join_node_with_data_sources(singleton, relevant_data_sources_and_columns, new_dag,
                                                           top_n_data_slice_filter_node)
 
-        prediction_slice_filter_node = get_diff_filter_node(singleton, new_dag, [predict_operators[0], slice_finder_indices_node],
-                                                            prov=True)
+        prediction_slice_filter_node = get_diff_filter_node(singleton, new_dag, [predict_operators[0], slice_finder_indices_node])
         # TODO: Still some error
-        # top_n_prediction_slice_filter_node = get_top_n_filter_node(singleton, new_dag, [prediction_slice_filter_node],
-        #                                                            prov=True)
-        # labels_slice_filter_node = get_diff_filter_node(singleton, new_dag, [test_labels_operators[0],
-        #                                                                      slice_finder_indices_node], prov=True)
-        # top_n_labels_slice_filter_node = get_top_n_filter_node(singleton, new_dag, [labels_slice_filter_node],
-        #                                                        prov=True)
+        top_n_prediction_slice_filter_node = get_top_n_filter_node(singleton, new_dag, [prediction_slice_filter_node])
+        labels_slice_filter_node = get_diff_filter_node(singleton, new_dag, [test_labels_operators[0],
+                                                                             slice_finder_indices_node])
+        top_n_labels_slice_filter_node = get_top_n_filter_node(singleton, new_dag, [labels_slice_filter_node])
 
-        # explanation_concat_node = get_concat_node(singleton, new_dag, [prov_join_node, top_n_prediction_slice_filter_node,
-        #                                                                top_n_labels_slice_filter_node])
-        # _ = get_intermediate_extraction_node(singleton, new_dag, [explanation_concat_node],
-        #                                      "fairness-slices-slice-line-explanation")
+        explanation_concat_node = get_X_y_pred_y_true_concat_node(singleton, new_dag, [
+            prov_join_node, top_n_prediction_slice_filter_node, top_n_labels_slice_filter_node])
+        _ = get_intermediate_extraction_node(singleton, new_dag, [explanation_concat_node],
+                                             "fairness-slices-slice-line-explanation")
 
         return new_slice_finder_node
 
@@ -529,7 +527,7 @@ class FairnessSlices(ShadowPipeline):
             summary += ("No problematic slice could be found by Fairness Slices. However, this does not mean that "
                        "there are no fairness problems, Fairness Slices only could not find any with the given config.")
             report = FairnessSlicesReport(orig_result, [ScreenedIssue("Underperforming slices", False,
-                                                                      None, None, False, [])], summary)
+                                                                      None, None, None, False, [])], summary)
         else:
             slice_line_result = extracted_plan_results["fairness-slices-slice-line-result"]
             column_with_slice_value = []
@@ -538,6 +536,7 @@ class FairnessSlices(ShadowPipeline):
             readable_slice_result = ", ".join(column_with_slice_value)
             readable_slice_result = f"[{readable_slice_result}]"
             summary += f"The problematic slice that was found is {readable_slice_result}.\n"
+            problematic_slice_sample = extracted_plan_results["fairness-slices-slice-line-explanation"]
 
             slice_result = []
             for score_index in range(self.score_operator_count):
@@ -546,7 +545,8 @@ class FairnessSlices(ShadowPipeline):
             summary += (
                 f"On the problematic slice, the pipeline metric was {slice_result} (a relative change of {max_score_decrease} in the "
                 f"most extreme scenario).\n")
-
+            summary += (
+                f"Here is a sample:\n{problematic_slice_sample}\n")
             promising_fix_strategies = []
             performance_increases = []
             suggestions = []
@@ -562,13 +562,14 @@ class FairnessSlices(ShadowPipeline):
                            f"It seems that the fix strategies {promising_fix_strategies} that Fairness Slices"
                            f" tried to improve the predictions for the problematic slice "
                            f"can lead to performance improvements by up to {max(performance_increases)}. "
-                           f"You could take a look at these.")
+                           f"You could take a look at these. ")
             else:
                 summary += (f"While the slice {column_with_slice_value} seems to be problematic, Fairness Slices"
                            f" cannot find any promising repair strategy automatically. However, you could try finding"
                            f" one on your own.")
             report = FairnessSlicesReport(orig_result, [ScreenedIssue(
-                "Underperforming slices", True, readable_slice_result, slice_result, fix_found, suggestions)], summary)
+                "Underperforming slices", True, readable_slice_result, slice_result, problematic_slice_sample,
+                fix_found, suggestions)], summary)
 
         return report
 
