@@ -120,7 +120,7 @@ class LabelErrors(ShadowPipeline):
 
         self._add_label_flip_computation_ml(likely_mislabeled_rows_condition_node, model_operators, new_dag,
                                             new_shapley_node, predict_operators, score_operators, test_data_operators,
-                                            train_data_operators, train_labels_operators)
+                                            train_data_operators, train_labels_operators, test_labels_operators)
 
         return new_dag
 
@@ -230,7 +230,7 @@ class LabelErrors(ShadowPipeline):
 
     def _add_label_flip_computation_ml(self, likely_mislabeled_rows_condition_node, model_operators, new_dag,
                                        new_shapley_node, predict_operators, score_operators, test_data_operators,
-                                       train_data_operators, train_labels_operators):
+                                       train_data_operators, train_labels_operators, test_labels_operators):
         # pylint: disable=too-many-arguments
         new_label_flip_node = self._get_label_flip_node_ml(
             new_dag, [train_labels_operators[0], new_shapley_node, likely_mislabeled_rows_condition_node])
@@ -243,6 +243,35 @@ class LabelErrors(ShadowPipeline):
                                                  [new_model_node, test_data_operators[0]])
         add_new_score_and_score_extraction_nodes(singleton, new_dag, new_predict_node, score_operators,
                                                  "label-errors-flip-retrain")
+
+        LabelErrors.add_label_flip_explanation(new_dag, new_predict_node, predict_operators, test_labels_operators)
+
+
+    @staticmethod
+    def add_label_flip_explanation(new_dag, new_predict_node, predict_operators, test_labels_operators):
+        # Generate provenance explanation for the label flips
+        # determine difference between new_fix_predict_diff_update_node and predict_operators[0]
+        changed_predictions_indices = get_changed_indices_node(singleton, new_dag, [
+            new_predict_node, predict_operators[0]])
+        # then, apply this to predict_operators[0]
+        changed_predictions_true_label_node = get_diff_filter_node(singleton, new_dag, [
+            test_labels_operators[0], changed_predictions_indices], prov=True)
+        changed_predictions_true_label_df_node = get_to_df_projection_nodes(singleton, new_dag, [
+            changed_predictions_true_label_node], "y_true", prov=True)
+        # then, do a provenance join as in fairness slices with the initial test set rows
+        relevant_data_sources_and_columns = get_data_sources_to_all_columns(new_dag)
+        prov_join_node = prov_join_node_with_data_sources(singleton, relevant_data_sources_and_columns, new_dag,
+                                                          changed_predictions_true_label_df_node)
+        # then, create the output with the proper column names y_pred_old, y_pred_new, y_true, X_data
+        changed_predictions_before_node = get_diff_filter_node(singleton, new_dag, [
+            predict_operators[0], changed_predictions_indices])
+        changed_predictions_after_node = get_diff_filter_node(singleton, new_dag, [
+            new_predict_node, changed_predictions_indices])
+        label_flip_explanation_node = get_y_pred_old_y_pred_new_y_true_X_concat_node(singleton, new_dag, [
+            changed_predictions_before_node, changed_predictions_after_node,
+            changed_predictions_true_label_node, prov_join_node])
+        _ = get_intermediate_extraction_node(singleton, new_dag, [label_flip_explanation_node],
+                                             "label-errors-flip_explanation")
 
     def _get_label_flip_node_ml(self, new_dag, parents):
         non_data_kwargs = {'cleaning_batch_size': self._cleaning_batch_size}
@@ -316,33 +345,8 @@ class LabelErrors(ShadowPipeline):
         add_new_score_and_score_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
                                                  score_operators, "label-errors-flip-retrain")
 
-        # Generate provenance explanation for the label flips
-        # determine difference between new_fix_predict_diff_update_node and predict_operators[0]
-        changed_predictions_indices = get_changed_indices_node(singleton, new_dag, [
-            new_fix_predict_diff_update_node, predict_operators[0]])
-        # then, apply this to predict_operators[0]
-
-        changed_predictions_true_label_node = get_diff_filter_node(singleton, new_dag, [
-            test_labels_operators[0], changed_predictions_indices], prov=True)
-        changed_predictions_true_label_df_node = get_to_df_projection_nodes(singleton, new_dag, [
-            changed_predictions_true_label_node], "y_true", prov=True)
-
-        # then, do a provenance join as in fairness slices with the initial test set rows
-        relevant_data_sources_and_columns = get_data_sources_to_all_columns(new_dag)
-        prov_join_node = prov_join_node_with_data_sources(singleton, relevant_data_sources_and_columns, new_dag,
-                                                          changed_predictions_true_label_df_node)
-        # then, create the output with the proper column names y_pred_old, y_pred_new, y_true, X_data
-        changed_predictions_before_node = get_diff_filter_node(singleton, new_dag, [
-            predict_operators[0], changed_predictions_indices])
-        changed_predictions_after_node = get_diff_filter_node(singleton, new_dag, [
-            new_fix_predict_diff_update_node, changed_predictions_indices])
-
-        label_flip_explanation_node = get_y_pred_old_y_pred_new_y_true_X_concat_node(singleton, new_dag, [
-            changed_predictions_before_node, changed_predictions_after_node,
-            changed_predictions_true_label_node, prov_join_node])
-
-        _ = get_intermediate_extraction_node(singleton, new_dag, [label_flip_explanation_node],
-                                             "label-errors-flip_explanation")
+        LabelErrors.add_label_flip_explanation(new_dag, new_fix_predict_diff_update_node, predict_operators,
+                                               test_labels_operators)
 
     def _get_label_flip_node_llm(self, new_dag, parents):
         non_data_kwargs = {'cleaning_batch_size': self._cleaning_batch_size}
