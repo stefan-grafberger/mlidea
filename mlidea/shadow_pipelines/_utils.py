@@ -548,10 +548,14 @@ def prov_join_with_data_source(intermediate_df, data_source):
     return result
 
 
-def get_diff_filter_node(singleton, dag, parents, prov=False):
+def get_diff_filter_node(singleton, dag, parents, prov=False, for_eval=None):
+    additional_info = {}
+    if for_eval is not None:
+        additional_info = {"for_eval": for_eval}
+
     operator_context = OperatorContext(OperatorType.SELECTION,
                                        FunctionInfo('mlidea.shadow_pipelines._utils', 'apply_diff_filter'),
-                                       {})
+                                       additional_info)
     operator_call_info = OperatorCallInfo(operator_context, parents)
     if prov is True:
         diff_filter_func = wrap_filter_func(apply_diff_filter)
@@ -630,7 +634,8 @@ def add_new_score_and_score_extraction_nodes_slice(singleton, new_dag, unfiltere
         filtered_parents = []
         for unfiltered_parent in get_sorted_parent_nodes(new_dag, score_operator)[1:]:
             filtered_parent = get_diff_filter_node(singleton, new_dag, [unfiltered_parent,
-                                                                             slice_finder_indices_node])
+                                                                             slice_finder_indices_node],
+                                                   for_eval=f"{label_prefix}-{score_index}")
             filtered_parents.append(filtered_parent)
         new_score_node = copy_node_with_new_id(singleton, new_dag, score_operator,
                                                [prediction_slice_filter_node, *filtered_parents])
