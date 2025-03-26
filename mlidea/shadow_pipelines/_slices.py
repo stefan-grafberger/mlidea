@@ -826,7 +826,7 @@ class FairnessSlices(ShadowPipeline):
         """)
         # TODO: This is ugly and needs cleanup
         prompt = cleandoc(f"""
-            Can you please help to generate a scikit-learn Function Transformer to fix data problems in a problematic data slice? I have a ML or LLM+RAG pipeline and want to improve its performance. Please directly reply with Python code only with the updated pipeline. Please don't wrap your response with backticks. The generated transformer should have the name `function_transformer`, so I can directly run your code and integrate it in my bigger application. Please make sure the result is directly executable by including all relevant imports and not using unknown libraries other than what you see in the code example. You do not need to apply the function_transformer, just creating it is enough.
+            Can you please help to generate a scikit-learn Function Transformer to fix data problems in a problematic data slice? I have a ML or LLM+RAG pipeline and want to improve its performance. Please directly reply with Python code only with the updated pipeline. Please don't wrap your response with backticks. The generated transformer should have the name `function_transformer`, so I can directly run your code and integrate it in my bigger application. Please make sure the result is directly executable by including all relevant imports and not using unknown libraries other than what you see in the code example. You do not need to apply the function_transformer, just creating it is enough. Also, please avoid issues with async by just using `asyncio.run` instead of writing async code directly.
             
             __
             A sample from the problematic data slice:\n
