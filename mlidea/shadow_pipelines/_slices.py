@@ -235,12 +235,12 @@ class FairnessSlices(ShadowPipeline):
         if len(data_sources_with_sensitive_columns) == 0:
             return new_dag
 
-        new_slice_finder_node, conditional_slices_found_node = self._add_slice_finder_computation(
+        new_slice_finder_node, slice_finder_indices_node = self._add_slice_finder_computation(
             data_sources_with_sensitive_columns, new_dag, predict_operators, test_data_operators,
             test_labels_operators, score_operators)
 
-        self._add_fix_computation_ml(conditional_slices_found_node, dag, new_dag, new_slice_finder_node,
-                                     predict_operators, score_operators, test_labels_operators)
+        self._add_fix_computation_ml(slice_finder_indices_node, dag, new_dag, predict_operators, score_operators,
+                                     test_labels_operators)
 
         return new_dag
 
@@ -259,19 +259,17 @@ class FairnessSlices(ShadowPipeline):
         if len(data_sources_with_sensitive_columns) == 0:
             return new_dag
 
-        new_slice_finder_node, conditional_slices_found_node = self._add_slice_finder_computation(
+        new_slice_finder_node, slice_finder_indices_node = self._add_slice_finder_computation(
             data_sources_with_sensitive_columns, new_dag, predict_operators, test_data_operators,
             test_labels_operators, score_operators)
 
-        self._add_fix_computation_llm(conditional_slices_found_node, new_dag, new_slice_finder_node, predict_operators,
+        self._add_fix_computation_llm(slice_finder_indices_node, new_dag, predict_operators,
                                       rag_join_operators, score_operators, test_data_operators, test_labels_operators)
 
         return new_dag
 
-    def _add_fix_computation_ml(self, conditional_slices_found_node, dag, new_dag, new_slice_finder_node,
+    def _add_fix_computation_ml(self, slice_finder_indices_node, dag, new_dag,
                                 predict_operators, score_operators, test_labels_operators):
-        slice_finder_indices_node = FairnessSlices._get_slice_finder_indices_node(
-            new_dag, [new_slice_finder_node, conditional_slices_found_node])
         data_parent_transformer_and_data_type = get_transformer_parents_with_data_types(dag)
         fix_strategy_index = 0
         for data_parent, data_type in data_parent_transformer_and_data_type:
@@ -310,10 +308,8 @@ class FairnessSlices(ShadowPipeline):
     def extract_slice_finder_result(slice_finder_result):
         return slice_finder_result[1]
 
-    def _add_fix_computation_llm(self, conditional_slices_found_node, new_dag, new_slice_finder_node, predict_operators,
+    def _add_fix_computation_llm(self, slice_finder_indices_node, new_dag, predict_operators,
                                  rag_join_operators, score_operators, test_data_operators, test_labels_operators):
-        slice_finder_indices_node = FairnessSlices._get_slice_finder_indices_node(
-            new_dag, [new_slice_finder_node, conditional_slices_found_node])
         data_parent = test_data_operators[0]
         data_type = DataType.TEXT
         for fix_strategy_index, fix_strategy in enumerate(DATA_TYPE_TO_FIX_STRATEGY[data_type]):
@@ -518,7 +514,7 @@ class FairnessSlices(ShadowPipeline):
         _ = get_intermediate_extraction_node(singleton, new_dag, [explanation_concat_node],
                                              "fairness-slices-slice-line-explanation")
 
-        return new_slice_finder_node, conditional_slices_found_node
+        return new_slice_finder_node, slice_finder_indices_node
 
     def _get_slice_finder_node(self, new_dag, parents):
         non_data_kwargs = {'alpha': self.slice_finder_alpha}
