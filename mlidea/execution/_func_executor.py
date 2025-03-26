@@ -70,6 +70,13 @@ def try_ivm_reuse_using_cache(current_dag_node, estimator_transformer_state, ext
         if dag_node not in singleton.reuse_info.new_node_to_old_node:
             singleton.reuse_info.new_node_to_old_node[dag_node] = dag_node, OperatorOutputChange(
                 OutputChangeType.NOTHING_CHANGED)
+        # FIXME: Warning: If current_dag_node != dag_node because operator_call_info overlaps, e.g., because of a
+        #  duplicate operation in a shadow pipeline, this can cause issues if the current_dag_node result
+        #  does not get added to singleton.reuse_info.new_node_to_old_node
+        # FIXME: But if we just add it as backup, we might miss some errors. However, once everything works, maybe
+        #  this should also be added to singleton.reuse_info.new_node_to_old_node
+        # if current_dag_node != dag_node:
+        #     print("Warning!")
     # We have to re-execute conditionals
     elif (not_a_constructor and
           operator_call_info in singleton.reuse_info.operator_call_info_to_dag_node
