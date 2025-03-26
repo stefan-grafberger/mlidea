@@ -507,10 +507,10 @@ class FairnessSlices(ShadowPipeline):
                                                           top_n_data_slice_filter_node)
 
         prediction_slice_filter_node = get_diff_filter_node(singleton, new_dag, [
-            predict_operators[0], slice_finder_indices_node, conditional_slices_found_node])
+            predict_operators[0], slice_finder_indices_node])
         top_n_prediction_slice_filter_node = get_top_n_filter_node(singleton, new_dag, [prediction_slice_filter_node])
         labels_slice_filter_node = get_diff_filter_node(singleton, new_dag, [
-            test_labels_operators[0], slice_finder_indices_node, conditional_slices_found_node])
+            test_labels_operators[0], slice_finder_indices_node])
         top_n_labels_slice_filter_node = get_top_n_filter_node(singleton, new_dag, [labels_slice_filter_node])
 
         explanation_concat_node = get_X_y_pred_y_true_concat_node(singleton, new_dag, [
