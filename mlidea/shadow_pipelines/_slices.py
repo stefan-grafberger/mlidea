@@ -44,6 +44,7 @@ class PotentialSuggestion:
     suggestion_max_score_improvement_slice_only: float or None
     suggestion_explanation_df: any or None
     source_code_to_integrate: str or None
+    prompt_used_to_generate_suggestion: str or None
 
 
 @dataclasses.dataclass
@@ -276,7 +277,8 @@ class FairnessSlices(ShadowPipeline):
         for data_parent, data_type in data_parent_transformer_and_data_type:
             for fix_strategy in DATA_TYPE_TO_FIX_STRATEGY[data_type]:
                 new_fix_diff_node, new_fix_node = self.fix_function_computation_node(data_parent, fix_strategy, new_dag,
-                                                                                     slice_finder_indices_node)
+                                                                                     slice_finder_indices_node,
+                                                                                     fix_strategy_index)
 
                 conditional_fix_function_made_changes_node = FairnessSlices.get_fix_made_changes_conditional_node(
                     fix_strategy_index, new_dag, new_fix_diff_node)
@@ -316,7 +318,8 @@ class FairnessSlices(ShadowPipeline):
         data_type = DataType.TEXT
         for fix_strategy_index, fix_strategy in enumerate(DATA_TYPE_TO_FIX_STRATEGY[data_type]):
             new_fix_diff_node, new_fix_node = self.fix_function_computation_node(data_parent, fix_strategy, new_dag,
-                                                                                 slice_finder_indices_node)
+                                                                                 slice_finder_indices_node,
+                                                                                 fix_strategy_index)
 
             conditional_fix_function_made_changes_node = FairnessSlices.get_fix_made_changes_conditional_node(
                 fix_strategy_index, new_dag, new_fix_diff_node)
@@ -438,10 +441,16 @@ class FairnessSlices(ShadowPipeline):
         _ = get_intermediate_extraction_node(singleton, new_dag, [explanation_node],
                                              f"fairness-slices-fix-explanation-{fix_strategy_index}")
 
-    def fix_function_computation_node(self, data_parent, fix_strategy, new_dag, slice_finder_indices_node):
+    def fix_function_computation_node(self, data_parent, fix_strategy, new_dag, slice_finder_indices_node,
+                                      fix_strategy_index):
         self.fix_strategy_names.append(fix_strategy.value)
         new_fix_node = self._get_fix_node(fix_strategy, new_dag, [data_parent, slice_finder_indices_node])
         new_fix_diff_node = get_changed_indices_node(singleton, new_dag, [data_parent, new_fix_node])
+
+        if fix_strategy == FixType.TEXT_TRANSLATE:
+            _ = get_intermediate_extraction_node(singleton, new_dag, [new_fix_node],
+                                                 f"fairness-slices-fix-explanation-code-and-prompts-"
+                                                 f"{fix_strategy_index}")
         return new_fix_diff_node, new_fix_node
 
     def _get_fix_node(self, fix_strategy, new_dag, parents):
@@ -465,6 +474,7 @@ class FairnessSlices(ShadowPipeline):
                                None,
                                processing_func)
         add_parent_node_edges(singleton, new_dag, new_fix_node, parents)
+
         return new_fix_node
 
     def _add_slice_finder_computation(self, data_sources_with_sensitive_columns, new_dag, predict_operators,
@@ -592,7 +602,7 @@ class FairnessSlices(ShadowPipeline):
         if extracted_plan_results[f"fairness-slices-fixing-made-changes-{fix_strategy_index}"] is False:
             report += "The fixing function did not make any changes.\n"
             suggestion = PotentialSuggestion(False, f"{fix_strategy_name}", orig_result, 1.0, None, None,
-                                             None, None)
+                                             None, None, None)
         else:
             fix_explanation_df = extracted_plan_results[
                 f"fairness-slices-fix-explanation-{fix_strategy_index}"]
@@ -636,10 +646,17 @@ class FairnessSlices(ShadowPipeline):
                     f"the pipeline performance. However, this does not mean that changing the preprocessing "
                     f"cannot help, it only means that Fairness Slices cannot find a promising "
                     f"repair strategy automatically.\n")
-            source_code = FIX_STRATEGY_TO_CODE[fix_strategy_name]
+            if fix_strategy_name != "Text: Translate":
+                source_code = FIX_STRATEGY_TO_CODE[fix_strategy_name]
+                prompt = None
+            else:
+                llm_fix_result = extracted_plan_results[(f"fairness-slices-fix-explanation-code-and-prompts-"
+                                                         f"{fix_strategy_index}")]
+                source_code = "\n".join(llm_fix_result._mlinspect_generated_code)
+                prompt = "\n".join(llm_fix_result._mlinspect_generated_prompts)
             suggestion = PotentialSuggestion(is_improvement, fix_strategy_name, fix_result, max_score_improvement,
                                              fix_result_slice_only, max_score_improvement_slice,
-                                             fix_explanation_df, source_code)
+                                             fix_explanation_df, source_code, prompt)
         return report, suggestion
 
     @staticmethod
@@ -647,9 +664,10 @@ class FairnessSlices(ShadowPipeline):
         # For now, this function is the same as in data_errors. Might want to consider different things here
         #  at some point
         fixed_corrupted = input_df.copy()
+        generated_code, prompts = [], []
         if fix_strategy in {FixType.TEXT_TRANSLATE, FixType.TEXT_SPELLCHECK}:
-            fixed_corrupted = FairnessSlices.fix_data_type_text(database_path, fix_strategy, fixed_corrupted,
-                                                                only_fix_indices)
+            fixed_corrupted, generated_code, prompts = FairnessSlices.fix_data_type_text(
+                database_path, fix_strategy, fixed_corrupted, only_fix_indices)
         elif fix_strategy == FixType.CAT:
             fixed_corrupted = FairnessSlices.fix_data_type_cat(fixed_corrupted, only_fix_indices)
         elif fix_strategy == FixType.NUM:
@@ -659,6 +677,8 @@ class FairnessSlices(ShadowPipeline):
 
         fixed_corrupted = wrap_in_mlinspect_array_if_necessary(fixed_corrupted)
         fixed_corrupted._mlinspect_provenance = None
+        fixed_corrupted._mlinspect_generated_prompts = prompts
+        fixed_corrupted._mlinspect_generated_code = generated_code
 
         return fixed_corrupted
 
@@ -735,6 +755,8 @@ class FairnessSlices(ShadowPipeline):
         was_series = False
         was_numpy = False
         series_column_name = None
+        prompts = []
+        generated_code = []
         if isinstance(fixed_corrupted, pandas.Series):
             series_column_name = fixed_corrupted.name
             if series_column_name is None:
@@ -750,10 +772,13 @@ class FairnessSlices(ShadowPipeline):
 
                     try:
                         data_to_transform = fixed_corrupted.iloc[only_fix_indices, column_index]
-                        function_transformer = FairnessSlices.generate_llm_function_transformer(data_to_transform)
+                        function_transformer, prompt, llm_code = FairnessSlices.generate_llm_function_transformer(
+                            data_to_transform)
                         fixed_corrupted.iloc[only_fix_indices, column_index] = function_transformer.fit_transform(
                             data_to_transform)
                         print(f"LLM application successful!")
+                        prompts.append(prompt)
+                        generated_code.append(llm_code)
                     except Exception as e:
                         print(f"Error executing LLM code: {e}")
                         data_to_transform = fixed_corrupted.iloc[only_fix_indices, [column_index]]
@@ -772,7 +797,7 @@ class FairnessSlices(ShadowPipeline):
             fixed_corrupted = fixed_corrupted[series_column_name]
         elif was_numpy is True:
             fixed_corrupted = fixed_corrupted["column"].to_numpy()
-        return fixed_corrupted
+        return fixed_corrupted, generated_code, prompts
 
     @staticmethod
     def generate_llm_function_transformer(data_to_transform):
@@ -817,7 +842,7 @@ class FairnessSlices(ShadowPipeline):
         print(f"The generated LLM code to try: {llm_code}")
         exec(llm_code, namespace)
         function_transformer = namespace["function_transformer"]
-        return function_transformer
+        return function_transformer, prompt, llm_code
 
     @staticmethod
     def get_slice_finder_slice_and_indices(side_info_df, encoded_test_labels, predicted_test_labels, alpha):
