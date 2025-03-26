@@ -648,8 +648,15 @@ class FairnessSlices(ShadowPipeline):
             else:
                 llm_fix_result = extracted_plan_results[(f"fairness-slices-fix-explanation-code-and-prompts-"
                                                          f"{fix_strategy_index}")]
-                source_code = "\n".join(llm_fix_result._mlinspect_generated_code)
-                prompt = "\n".join(llm_fix_result._mlinspect_generated_prompts)
+                if hasattr(llm_fix_result, "_mlinspect_generated_code"):
+                    source_code = "\n".join(llm_fix_result._mlinspect_generated_code)
+                    prompt = "\n".join(llm_fix_result._mlinspect_generated_prompts)
+                else:
+                    source_code = """
+                        FIX_STRATEGY_TO_CODE[fix_strategy_name]
+                    """
+                    prompt = "N/A. LLM application failed. Used fallback FunctionTransformer."
+
             suggestion = PotentialSuggestion(is_improvement, fix_strategy_name, fix_result, max_score_improvement,
                                              fix_result_slice_only, max_score_improvement_slice,
                                              fix_explanation_df, source_code, prompt)
