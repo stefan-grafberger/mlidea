@@ -84,7 +84,8 @@ def wrap_concat_rows_func(source_func):
                 if prov_key in result_prov:
                     raise NotImplementedError("TODO")
                 new_len = len(list(input._mlinspect_provenance.values())[0])
-                result_prov[prov_key] = numpy.pad(prov_value, (current_len, total_len - current_len - new_len))
+                result_prov[prov_key] = numpy.pad(prov_value, (current_len, total_len - current_len - new_len),
+                                                  constant_values=-1)
                 current_len += new_len
 
         df_obj = source_func(*inputs)

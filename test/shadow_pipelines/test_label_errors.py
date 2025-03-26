@@ -3,6 +3,7 @@ from inspect import cleandoc
 import pytest
 
 from example_pipelines import HEALTHCARE_PY, ANHEDONIA_ML_PY, ANHEDONIA_LLM_PY, ADULT_COMPLEX_PY, COMPAS_PY
+from example_pipelines._pipelines import ANHEDONIA_LLM_CONCAT_DATA_LOADING_PY
 from example_pipelines.healthcare import custom_monkeypatching
 from mlidea import PipelineAnalyzer
 from mlidea.shadow_pipelines._label_errors import LabelErrors
@@ -102,7 +103,7 @@ def test_label_errors_anhedonia_llm(tmpdir):
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
     """
-    label_errors = LabelErrors()
+    label_errors = LabelErrors(cleaning_batch_size=100)
     analysis_result = PipelineAnalyzer \
         .on_pipeline_from_py_file(ANHEDONIA_LLM_PY) \
         .add_shadow_pipeline(label_errors) \
@@ -118,10 +119,9 @@ def test_label_errors_anhedonia_llm_concat_data_sources(tmpdir):
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
     """
-    ANHEDONIA_LLM_CONCAT_PY = "TODO"
-    label_errors = LabelErrors()
+    label_errors = LabelErrors(cleaning_batch_size=10000)
     analysis_result = PipelineAnalyzer \
-        .on_pipeline_from_py_file(ANHEDONIA_LLM_CONCAT_PY) \
+        .on_pipeline_from_py_file(ANHEDONIA_LLM_CONCAT_DATA_LOADING_PY) \
         .add_shadow_pipeline(label_errors) \
         .execute()
 

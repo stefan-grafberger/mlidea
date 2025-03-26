@@ -35,3 +35,6 @@ ANHEDONIA_LLM_PY = os.path.join(str(get_project_root()), "example_pipelines", "a
 ANHEDONIA_LLM_PNG = os.path.join(str(get_project_root()), "example_pipelines", "anhedonia_llm", "anhedonia_llm.png")
 ANHEDONIA_LLM_MODIFIED_PY = os.path.join(str(get_project_root()), "example_pipelines", "anhedonia_llm",
                                          "anhedonia_llm_modified.py")
+ANHEDONIA_LLM_CONCAT_DATA_LOADING_PY = os.path.join(str(get_project_root()), "example_pipelines", "anhedonia_llm",
+                                                    "anhedonia_llm_concat_data_loading.py")
+

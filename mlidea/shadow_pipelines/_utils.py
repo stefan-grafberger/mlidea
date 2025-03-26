@@ -529,9 +529,11 @@ def prov_join_with_data_source(intermediate_df, data_source):
             intermediate_df_prov_columns.append(prov_key)
             intermediate_df_prov_dict[prov_key] = prov_values
     assert len(intermediate_df_prov_dict) == 1
-    intermediate_df_prov_df = pandas.DataFrame({'join_prov': list(intermediate_df_prov.values())[0]})
+    assert len(intermediate_df_prov_columns) == 1
+    intermediate_df_prov_df = pandas.DataFrame({'join_prov': list(
+        intermediate_df_prov[intermediate_df_prov_columns[0]])})
 
-    result = pandas.merge(intermediate_df_prov_df, data_source, how="inner", on="join_prov")
+    result = pandas.merge(intermediate_df_prov_df, data_source, how="left", on="join_prov")
     assert len(result) == len(list(intermediate_df_prov.values())[0])
     result = result.drop("join_prov", axis=1)
     result = wrap_in_mlinspect_array_if_necessary(result)
@@ -681,7 +683,18 @@ def assert_standard_ml_shape(dag, shadow_pipeline_name):
 
 def concat_func(*inputs):
     # TODO: What if not all inputs are pandas dfs?
-    result = pandas.concat(inputs, axis=1)
+    result = inputs[0]
+    for df in inputs[1:]:
+        common_cols = result.columns.intersection(df.columns)
+
+        # If all common columns follow the mutually exclusive NaN pattern, use combine_first
+        if (result[common_cols].isna() == df[common_cols].notna()).all().all():
+            result = result.combine_first(df)
+        else:
+            # Otherwise, concatenate along columns, ensuring alignment
+            result = pandas.concat([result, df], axis=1)
+
+    # TODO: There might be rare edge cases where this removes important information
     result = result.loc[:, ~result.columns.duplicated()]
     result = wrap_in_mlinspect_array_if_necessary(result)
     # Not sure if this might be necessary at some point
