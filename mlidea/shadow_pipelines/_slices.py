@@ -74,12 +74,12 @@ class FixType(Enum):
     """
     NUM = "Num: IQR + Mean Impute"
     CAT = "Cat: Isolation Forest + Simple Impute"
-    TEXT_TRANSLATE = "Text: Translate"
+    TEXT_LLM_CODEGEN = "Text: LLM Codegen"
     TEXT_SPELLCHECK = "Text: Spellcheck"
 
 
 DATA_TYPE_TO_FIX_STRATEGY = {
-    DataType.TEXT: [FixType.TEXT_TRANSLATE, FixType.TEXT_SPELLCHECK],
+    DataType.TEXT: [FixType.TEXT_LLM_CODEGEN, FixType.TEXT_SPELLCHECK],
     DataType.NUM: [FixType.NUM],
     DataType.CAT: [FixType.CAT]
 }
@@ -121,7 +121,7 @@ FIX_STRATEGY_TO_CODE = {
         imputer = SimpleImputer(strategy="most_frequent", copy=True, missing_values=-1)
         df[columns_to_clean] = imputer.fit_transform(df[columns_to_clean).ravel()
     """),
-    FixType.TEXT_TRANSLATE.value: cleandoc("""
+    FixType.TEXT_LLM_CODEGEN.value: cleandoc("""
         import asyncio
         import nest_asyncio
         nest_asyncio.apply()
@@ -447,7 +447,7 @@ class FairnessSlices(ShadowPipeline):
         new_fix_node = self._get_fix_node(fix_strategy, new_dag, [data_parent, slice_finder_indices_node])
         new_fix_diff_node = get_changed_indices_node(singleton, new_dag, [data_parent, new_fix_node])
 
-        if fix_strategy == FixType.TEXT_TRANSLATE:
+        if fix_strategy == FixType.TEXT_LLM_CODEGEN:
             _ = get_intermediate_extraction_node(singleton, new_dag, [new_fix_node],
                                                  f"fairness-slices-fix-explanation-code-and-prompts-"
                                                  f"{fix_strategy_index}")
@@ -456,7 +456,7 @@ class FairnessSlices(ShadowPipeline):
     def _get_fix_node(self, fix_strategy, new_dag, parents):
         non_data_kwargs = {'database_path': self.database_path, 'fix_strategy': fix_strategy}
         processing_func = partial(FairnessSlices.fix_data, **non_data_kwargs)
-        if fix_strategy in {FixType.TEXT_TRANSLATE, FixType.TEXT_SPELLCHECK}:
+        if fix_strategy in {FixType.TEXT_LLM_CODEGEN, FixType.TEXT_SPELLCHECK}:
             # TODO: For slow text processing functions, we need to be able to have IVM, estimators are not an option
             operator_type = OperatorType.PROJECTION_MODIFY_SUBSET
         else:
@@ -646,7 +646,7 @@ class FairnessSlices(ShadowPipeline):
                     f"the pipeline performance. However, this does not mean that changing the preprocessing "
                     f"cannot help, it only means that Fairness Slices cannot find a promising "
                     f"repair strategy automatically.\n")
-            if fix_strategy_name != "Text: Translate":
+            if fix_strategy_name != "Text: LLM Codegen":
                 source_code = FIX_STRATEGY_TO_CODE[fix_strategy_name]
                 prompt = None
             else:
@@ -665,7 +665,7 @@ class FairnessSlices(ShadowPipeline):
         #  at some point
         fixed_corrupted = input_df.copy()
         generated_code, prompts = [], []
-        if fix_strategy in {FixType.TEXT_TRANSLATE, FixType.TEXT_SPELLCHECK}:
+        if fix_strategy in {FixType.TEXT_LLM_CODEGEN, FixType.TEXT_SPELLCHECK}:
             fixed_corrupted, generated_code, prompts = FairnessSlices.fix_data_type_text(
                 database_path, fix_strategy, fixed_corrupted, only_fix_indices)
         elif fix_strategy == FixType.CAT:
@@ -768,8 +768,7 @@ class FairnessSlices(ShadowPipeline):
             was_numpy = True
         for column_index, column in enumerate(fixed_corrupted.columns):
             if fixed_corrupted[column].dtype == object:
-                if fix_strategy == FixType.TEXT_TRANSLATE:
-
+                if fix_strategy == FixType.TEXT_LLM_CODEGEN:
                     try:
                         data_to_transform = fixed_corrupted.iloc[only_fix_indices, column_index]
                         function_transformer, prompt, llm_code = FairnessSlices.generate_llm_function_transformer(
@@ -813,29 +812,28 @@ class FairnessSlices(ShadowPipeline):
             import pandas as pd
             import numpy as np
             from sklearn.preprocessing import FunctionTransformer
-
+            
             translator = Translator()
-
+            
             def translate(series):
                 if isinstance(series, pd.Series):
                     series = [result.text for result in asyncio.run(translator.translate(series.to_list()))]
                 else:
                     series = [result.text for result in asyncio.run(translator.translate(series))]
                 return series
-
+            
             function_transformer = FunctionTransformer(translate)
         """)
+        # TODO: This is ugly and needs cleanup
         prompt = cleandoc(f"""
             Can you please help to generate a scikit-learn Function Transformer to fix data problems in a problematic data slice? I have a ML or LLM+RAG pipeline and want to improve its performance. Please directly reply with Python code only with the updated pipeline. Please don't wrap your response with backticks. The generated transformer should have the name `function_transformer`, so I can directly run your code and integrate it in my bigger application. Please make sure the result is directly executable by including all relevant imports and not using unknown libraries other than what you see in the code example. You do not need to apply the function_transformer, just creating it is enough.
-
+            
             __
-            A sample from the problematic data slice:
-            {llm_input}
-
+            A sample from the problematic data slice:\n
+        """) + llm_input + cleandoc(f"""
             __
-            Here is an example of the kind of code you should generate if there are, e.g., samples from a different language.
-            {code_example}
-            """)
+            Here is an example of the kind of code you should generate if there are, e.g., samples from a different language.\n
+        """) + code_example
         print(f"The generated prompt: \n{prompt}\n")
         llm_code = llm.predict(prompt)
         namespace = {}
