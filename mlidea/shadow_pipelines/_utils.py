@@ -459,6 +459,13 @@ def projection(column_names, input_df):
     return result
 
 
+def projection_to_df(column_name, input_df):
+    # TODO: What if not all inputs are pandas dfs?
+    result = pandas.DataFrame({column_name: list(input_df)})
+    result = wrap_in_mlinspect_array_if_necessary(result)
+    return result
+
+
 def changed_data_diff_detection(input_df, corrupted_result):
     corrupt_diff_mask = fix_data_diff_detection_mask_only(input_df, corrupted_result)
     changed_indices_corrupt = fix_data_mask_to_indices(corrupt_diff_mask)
@@ -754,8 +761,27 @@ def get_concat_node(singleton, new_dag, parents):
 
 def concat_func_X_y_pred_y_true(test_data, y_pred, y_true):
     # TODO: What if not all inputs are pandas dfs?
-    predictions = pandas.DataFrame({"y_pred": list(y_pred), "y_true": list(y_true)})
+    predictions = pandas.DataFrame({"y_pred": ensure_1d(y_pred), "y_true": ensure_1d(y_true)})
     result = pandas.concat([predictions, test_data], axis=1)
+    result = wrap_in_mlinspect_array_if_necessary(result)
+    # Not sure if this might be necessary at some point
+    # result._mlinspect_provenance = ...
+    return result
+
+
+def ensure_1d(array_like):
+    """Convert (n, 1) numpy arrays to 1D while preserving multi-label cases."""
+    if isinstance(array_like, numpy.ndarray):
+        if array_like.ndim == 2 and array_like.shape[1] == 1:
+            return array_like.ravel()
+    return list(array_like)
+
+
+def concat_func_y_pred_old_y_pred_new_y_true_X(y_pred_old, y_pred_new, y_true, X):
+    # TODO: What if not all inputs are pandas dfs?
+    predictions = pandas.DataFrame({"y_pred_before": ensure_1d(y_pred_old), "y_pred_after": ensure_1d(y_pred_new),
+                                    "y_true": ensure_1d(y_true)})
+    result = pandas.concat([predictions, X], axis=1)
     result = wrap_in_mlinspect_array_if_necessary(result)
     # Not sure if this might be necessary at some point
     # result._mlinspect_provenance = ...
@@ -764,7 +790,7 @@ def concat_func_X_y_pred_y_true(test_data, y_pred, y_true):
 
 def concat_shapley_X_data_y_pred(shapley, test_data, y_pred):
     # TODO: What if not all inputs are pandas dfs?
-    predictions = pandas.DataFrame({"y_pred": list(y_pred)})
+    predictions = pandas.DataFrame({"y_labeled": ensure_1d(y_pred)})
     result = pandas.concat([shapley, predictions, test_data], axis=1)
     result = wrap_in_mlinspect_array_if_necessary(result)
     # Not sure if this might be necessary at some point
@@ -775,7 +801,7 @@ def concat_shapley_X_data_y_pred(shapley, test_data, y_pred):
 def get_shapley_X_data_y_pred_concat_node(singleton, new_dag, parents):
     operator_context = OperatorContext(OperatorType.CONCATENATION,
                                        FunctionInfo('mlidea.shadow_pipelines._utils',
-                                                    'get_shapley_X_data_y_pred_concat_node'),
+                                                    'concat_shapley_X_data_y_pred'),
                                        {})
     operator_call_info = OperatorCallInfo(operator_context, parents)
     columns = []
@@ -817,7 +843,7 @@ def concat_X_before_X_after_y_pred_before_y_pred_after_y_true(test_data_before, 
 
 def get_X_y_pred_y_true_concat_node(singleton, new_dag, parents):
     operator_context = OperatorContext(OperatorType.CONCATENATION,
-                                       FunctionInfo('mlidea.shadow_pipelines._utils', 'get_X_y_pred_y_true_concat_node'),
+                                       FunctionInfo('mlidea.shadow_pipelines._utils', 'concat_func_X_y_pred_y_true'),
                                        {})
     operator_call_info = OperatorCallInfo(operator_context, parents)
     columns = []
@@ -831,6 +857,26 @@ def get_X_y_pred_y_true_concat_node(singleton, new_dag, parents):
                           concat_func_X_y_pred_y_true)
     add_parent_node_edges(singleton, new_dag, concat_node, parents)
     return concat_node
+
+
+def get_y_pred_old_y_pred_new_y_true_X_concat_node(singleton, new_dag, parents):
+    operator_context = OperatorContext(OperatorType.CONCATENATION,
+                                       FunctionInfo('mlidea.shadow_pipelines._utils',
+                                                    'concat_func_y_pred_old_y_pred_new_y_true_X'),
+                                       {})
+    operator_call_info = OperatorCallInfo(operator_context, parents)
+    columns = []
+    for parent in parents:
+        columns.extend(parent.details.columns)
+    concat_node = DagNode(singleton.get_next_op_id(operator_call_info),
+                          get_basic_code_location_for_current_line(),
+                          operator_context,
+                          DagNodeDetails("Concat for provenance explanation", columns),
+                          None,
+                          concat_func_y_pred_old_y_pred_new_y_true_X)
+    add_parent_node_edges(singleton, new_dag, concat_node, parents)
+    return concat_node
+
 
 
 def get_X_before_X_after_y_pred_before_y_pred_after_y_true_concat_node(singleton, new_dag, parents):
@@ -883,6 +929,25 @@ def get_projection_nodes(singleton, new_dag, parents, column_names, prov=False):
                               get_basic_code_location_for_current_line(),
                               operator_context,
                               DagNodeDetails(f"to {column_names}", column_names),
+                              None,
+                              projection_processing_func)
+    add_parent_node_edges(singleton, new_dag, projection_node, parents)
+    return projection_node
+
+
+def get_to_df_projection_nodes(singleton, new_dag, parents, column_name, prov=False):
+    if prov is True:
+        projection_processing_func = wrap_projection_func(partial(projection_to_df, column_name))
+    else:
+        projection_processing_func = partial(projection_to_df, column_name)
+    operator_context = OperatorContext(OperatorType.PROJECTION,
+                                       FunctionInfo('mlidea.shadow_pipelines._utils', 'projection_to_df'),
+                                       {'column_names': [column_name]})
+    operator_call_info = OperatorCallInfo(operator_context, parents)
+    projection_node = DagNode(singleton.get_next_op_id(operator_call_info),
+                              get_basic_code_location_for_current_line(),
+                              operator_context,
+                              DagNodeDetails(f"to ['{column_name}']", [column_name]),
                               None,
                               projection_processing_func)
     add_parent_node_edges(singleton, new_dag, projection_node, parents)

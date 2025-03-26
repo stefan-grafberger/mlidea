@@ -20,7 +20,8 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     assert_standard_llm_shape, assert_standard_ml_shape, get_proxy_model_node, df_or_array_non_empty, \
     df_or_array_non_empty_func_info, add_parent_node_edges, get_basic_code_location_for_current_line, \
     get_data_sources_to_all_columns, prov_join_node_with_data_sources, get_projection_nodes, get_concat_node, \
-    get_sorted_parent_nodes, get_shapley_X_data_y_pred_concat_node
+    get_sorted_parent_nodes, get_shapley_X_data_y_pred_concat_node, get_changed_indices_node, \
+    get_to_df_projection_nodes, get_y_pred_old_y_pred_new_y_true_X_concat_node
 
 
 @dataclasses.dataclass
@@ -168,7 +169,7 @@ class LabelErrors(ShadowPipeline):
 
         self._add_label_flip_computation_llm(likely_mislabeled_rows_condition_node, new_dag, new_shapley_node,
                                              predict_operators, rag_join_operators, score_operators, test_data_operators,
-                                             train_labels_operators)
+                                             train_labels_operators, test_labels_operators)
         return new_dag
 
     def generate_final_report(self, extracted_plan_results: dict[str, any]) -> any:
@@ -195,6 +196,7 @@ class LabelErrors(ShadowPipeline):
                 flip_result.append(extracted_plan_results[f"label-errors-flip-retrain-{score_index}"])
             summary += (f"After flipping the top {self._cleaning_batch_size} most "
                        f"likely incorrect row labels, the pipeline metric was {flip_result}")
+            flip_explanation = extracted_plan_results["label-errors-flip_explanation"]
             if self._proxy_model is True:
                 summary += " (with the proxy model)"
             summary += f".\nThe most likely mislabeled rows and their shapley values: \n{str(shapley_values)}"
@@ -205,18 +207,20 @@ class LabelErrors(ShadowPipeline):
             if max_score_improvement > 1.:
                 summary += (f"\n\nThe score increased by relabeling {self._cleaning_batch_size} rows by "
                            f"{max_score_improvement}. You probably want to take a look at "
-                           f"the row labels again!")
+                           f"the row labels again! Here is an overview of the predictions that were flipped by "
+                           f"updating the labels on the train side. \n{str(flip_explanation)}\n")
                 screened_issues = [ScreenedIssue("Likely label errors", True, shapley_values, True, [
                     PotentialSuggestion(True, f"Relabeling {self._cleaning_batch_size} rows",
-                                        flip_result, max_score_improvement, None)])]
+                                        flip_result, max_score_improvement, flip_explanation)])]
             else:
                 summary += (f"\n\nWhile there are rows with potentially problematic shapley values that you could "
                            f"take a look at, automatically flipping the top {self._cleaning_batch_size} most likely "
                            f"incorrect labels did not lead to an improvement (the max relative score "
-                           f"was {max_score_improvement}).")
+                           f"was {max_score_improvement}). Here is an overview of the predictions that were flipped by "
+                           f"updating the labels on the train side. \n{str(flip_explanation)}\n")
                 screened_issues = [ScreenedIssue("Likely label errors", True, shapley_values, False, [
                     PotentialSuggestion(False, f"Relabeling {self._cleaning_batch_size} rows", flip_result,
-                                        max_score_improvement, None)])]
+                                        max_score_improvement, flip_explanation)])]
             if self._proxy_model is True:
                 summary += (" (However, that relative score difference is only calculated using the proxy model, so "
                            "the score changes with the proxy model are not guaranteed to be similar to score changes "
@@ -296,7 +300,7 @@ class LabelErrors(ShadowPipeline):
 
     def _add_label_flip_computation_llm(self, likely_mislabeled_rows_condition_node, new_dag, new_shapley_node,
                                         predict_operators, rag_join_operators, score_operators, test_data_operators,
-                                        train_labels_operators):
+                                        train_labels_operators, test_labels_operators):
         new_label_flip_indices_node = self._get_label_flip_indices_node(
             new_dag, [rag_join_operators[0], new_shapley_node, likely_mislabeled_rows_condition_node])
         new_label_flip_node = self._get_label_flip_node_llm(
@@ -311,6 +315,34 @@ class LabelErrors(ShadowPipeline):
                                                                                        new_label_flip_indices_node])
         add_new_score_and_score_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
                                                  score_operators, "label-errors-flip-retrain")
+
+        # Generate provenance explanation for the label flips
+        # determine difference between new_fix_predict_diff_update_node and predict_operators[0]
+        changed_predictions_indices = get_changed_indices_node(singleton, new_dag, [
+            new_fix_predict_diff_update_node, predict_operators[0]])
+        # then, apply this to predict_operators[0]
+
+        changed_predictions_true_label_node = get_diff_filter_node(singleton, new_dag, [
+            test_labels_operators[0], changed_predictions_indices], prov=True)
+        changed_predictions_true_label_df_node = get_to_df_projection_nodes(singleton, new_dag, [
+            changed_predictions_true_label_node], "y_true", prov=True)
+
+        # then, do a provenance join as in fairness slices with the initial test set rows
+        relevant_data_sources_and_columns = get_data_sources_to_all_columns(new_dag)
+        prov_join_node = prov_join_node_with_data_sources(singleton, relevant_data_sources_and_columns, new_dag,
+                                                          changed_predictions_true_label_df_node)
+        # then, create the output with the proper column names y_pred_old, y_pred_new, y_true, X_data
+        changed_predictions_before_node = get_diff_filter_node(singleton, new_dag, [
+            predict_operators[0], changed_predictions_indices])
+        changed_predictions_after_node = get_diff_filter_node(singleton, new_dag, [
+            new_fix_predict_diff_update_node, changed_predictions_indices])
+
+        label_flip_explanation_node = get_y_pred_old_y_pred_new_y_true_X_concat_node(singleton, new_dag, [
+            changed_predictions_before_node, changed_predictions_after_node,
+            changed_predictions_true_label_node, prov_join_node])
+
+        _ = get_intermediate_extraction_node(singleton, new_dag, [label_flip_explanation_node],
+                                             "label-errors-flip_explanation")
 
     def _get_label_flip_node_llm(self, new_dag, parents):
         non_data_kwargs = {'cleaning_batch_size': self._cleaning_batch_size}

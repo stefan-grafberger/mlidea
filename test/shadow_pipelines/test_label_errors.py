@@ -119,7 +119,7 @@ def test_label_errors_anhedonia_llm_concat_data_sources(tmpdir):
     """
     Tests whether the Operator Fairness analysis works for a very simple pipeline with a DecisionTree score
     """
-    label_errors = LabelErrors(cleaning_batch_size=10000)
+    label_errors = LabelErrors(cleaning_batch_size=1)
     analysis_result = PipelineAnalyzer \
         .on_pipeline_from_py_file(ANHEDONIA_LLM_CONCAT_DATA_LOADING_PY) \
         .add_shadow_pipeline(label_errors) \
