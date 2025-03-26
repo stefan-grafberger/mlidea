@@ -130,13 +130,12 @@ class LabelErrors(ShadowPipeline):
                                                      prov=False)
         shapley_values = get_projection_nodes(singleton, new_dag, [new_shapley_node], "shapley_value",
                                               prov=False)
-        top_k_train_rows_filter_node = get_diff_filter_node(singleton, new_dag, [
+        y_pred_filter_node = get_diff_filter_node(singleton, new_dag, [
             y_pred_node, top_k_shapley_indices], prov=True)
         relevant_data_sources_and_columns = get_data_sources_to_all_columns(new_dag, False)
         prov_join_node = prov_join_node_with_data_sources(singleton, relevant_data_sources_and_columns, new_dag,
-                                                          top_k_train_rows_filter_node)
+                                                          y_pred_filter_node)
 
-        y_pred_filter_node = get_diff_filter_node(singleton, new_dag, [y_pred_node, top_k_shapley_indices])
         concat_node = get_shapley_X_data_y_pred_concat_node(singleton, new_dag, [
             shapley_values, prov_join_node, y_pred_filter_node])
         _ = get_intermediate_extraction_node(singleton, new_dag, [concat_node], "label-errors-shapley-values")
