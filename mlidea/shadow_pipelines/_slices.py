@@ -571,8 +571,8 @@ class FairnessSlices(ShadowPipeline):
             suggestions = []
             for fix_strategy_index, fix_strategy_name in enumerate(self.fix_strategy_names):
                 summary_strategy, suggestion = self.generate_report_for_fix_strategy(
-                    extracted_plan_results, fix_strategy_index, fix_strategy_name, orig_result, performance_increases,
-                    promising_fix_strategies)
+                    extracted_plan_results, fix_strategy_index, fix_strategy_name, orig_result, slice_result,
+                    performance_increases, promising_fix_strategies)
                 summary += summary_strategy
                 suggestions.append(suggestion)
             fix_found = len(promising_fix_strategies) != 0
@@ -593,7 +593,7 @@ class FairnessSlices(ShadowPipeline):
         return report
 
     def generate_report_for_fix_strategy(self, extracted_plan_results, fix_strategy_index, fix_strategy_name,
-                                         orig_result, performance_increases, promising_fix_strategies):
+                                         orig_result, slice_result, performance_increases, promising_fix_strategies):
         report = f"-\nRepair strategy {fix_strategy_index}: {fix_strategy_name}\n-\n"
         if extracted_plan_results[f"fairness-slices-fixing-made-changes-{fix_strategy_index}"] is False:
             report += "The fixing function did not make any changes.\n"
@@ -623,7 +623,7 @@ class FairnessSlices(ShadowPipeline):
 
             max_score_improvement = get_relative_score_change(*orig_result, *fix_result)
             performance_increases.append(max_score_improvement)
-            max_score_improvement_slice = get_relative_score_change(*orig_result, *fix_result_slice_only)
+            max_score_improvement_slice = get_relative_score_change(*slice_result, *fix_result_slice_only)
             report += (
                 f"After trying to automatically repair rows from this slice, "
                 f"the pipeline metric was {fix_result} (A change of {max_score_improvement}). "
