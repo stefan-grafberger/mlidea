@@ -1,4 +1,5 @@
 import dataclasses
+import os
 from collections import defaultdict
 from enum import Enum
 from functools import partial
@@ -7,6 +8,7 @@ from inspect import cleandoc
 import networkx
 import numpy
 import pandas
+from langchain_openai import ChatOpenAI
 from sklearn.ensemble import IsolationForest
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OneHotEncoder
@@ -745,9 +747,21 @@ class FairnessSlices(ShadowPipeline):
         for column_index, column in enumerate(fixed_corrupted.columns):
             if fixed_corrupted[column].dtype == object:
                 if fix_strategy == FixType.TEXT_TRANSLATE:
-                    translate_transformer = get_translate_transformer(column, database_path)
-                    fixed_corrupted.iloc[only_fix_indices, [column_index]] = translate_transformer.fit_transform(
-                        fixed_corrupted.iloc[only_fix_indices, [column_index]])
+
+                    try:
+                        data_to_transform = fixed_corrupted.iloc[only_fix_indices, column_index]
+                        function_transformer = FairnessSlices.generate_llm_function_transformer(data_to_transform)
+                        fixed_corrupted.iloc[only_fix_indices, column_index] = function_transformer.fit_transform(
+                            data_to_transform)
+                        print(f"LLM application successful!")
+                    except Exception as e:
+                        print(f"Error executing LLM code: {e}")
+                        data_to_transform = fixed_corrupted.iloc[only_fix_indices, [column_index]]
+                        translate_transformer = get_translate_transformer(column, database_path)
+                        fixed_corrupted.iloc[only_fix_indices, [column_index]] = translate_transformer.fit_transform(
+                            data_to_transform)
+                        print("Executed a backup translation transformer instead.")
+
                 elif fix_strategy == FixType.TEXT_SPELLCHECK:
                     typo_fixer = get_typo_fixer(column)
                     fixed_corrupted.iloc[only_fix_indices, [column_index]] = typo_fixer.fit_transform(
@@ -759,6 +773,51 @@ class FairnessSlices(ShadowPipeline):
         elif was_numpy is True:
             fixed_corrupted = fixed_corrupted["column"].to_numpy()
         return fixed_corrupted
+
+    @staticmethod
+    def generate_llm_function_transformer(data_to_transform):
+        llm_input = str(data_to_transform.head(20).reset_index(drop=True))
+        llm = ChatOpenAI(model_name="gpt-4o", temperature=0)
+        code_example = cleandoc("""
+            import asyncio
+            import nest_asyncio
+            nest_asyncio.apply()
+            from googletrans import Translator
+            from functools import partial
+            from sklearn.pipeline import Pipeline
+            import pandas as pd
+            import numpy as np
+            from sklearn.preprocessing import FunctionTransformer
+
+            translator = Translator()
+
+            def translate(series):
+                if isinstance(series, pd.Series):
+                    series = [result.text for result in asyncio.run(translator.translate(series.to_list()))]
+                else:
+                    series = [result.text for result in asyncio.run(translator.translate(series))]
+                return series
+
+            function_transformer = FunctionTransformer(translate)
+        """)
+        prompt = cleandoc(f"""
+            Can you please help to generate a scikit-learn Function Transformer to fix data problems in a problematic data slice? I have a ML or LLM+RAG pipeline and want to improve its performance. Please directly reply with Python code only with the updated pipeline. Please don't wrap your response with backticks. The generated transformer should have the name `function_transformer`, so I can directly run your code and integrate it in my bigger application. Please make sure the result is directly executable by including all relevant imports and not using unknown libraries other than what you see in the code example. You do not need to apply the function_transformer, just creating it is enough.
+
+            __
+            A sample from the problematic data slice:
+            {llm_input}
+
+            __
+            Here is an example of the kind of code you should generate if there are, e.g., samples from a different language.
+            {code_example}
+            """)
+        print(f"The generated prompt: \n{prompt}\n")
+        llm_code = llm.predict(prompt)
+        namespace = {}
+        print(f"The generated LLM code to try: {llm_code}")
+        exec(llm_code, namespace)
+        function_transformer = namespace["function_transformer"]
+        return function_transformer
 
     @staticmethod
     def get_slice_finder_slice_and_indices(side_info_df, encoded_test_labels, predicted_test_labels, alpha):
