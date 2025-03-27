@@ -70,7 +70,7 @@ def try_ivm_reuse_using_cache(current_dag_node, estimator_transformer_state, ext
         if dag_node not in singleton.reuse_info.new_node_to_old_node:
             singleton.reuse_info.new_node_to_old_node[dag_node] = dag_node, OperatorOutputChange(
                 OutputChangeType.NOTHING_CHANGED)
-            singleton.reuse_info.operator_fully_reused.add(current_dag_node)
+        singleton.reuse_info.operator_fully_reused.add(current_dag_node)
         # FIXME: Warning: If current_dag_node != dag_node because operator_call_info overlaps, e.g., because of a
         #  duplicate operation in a shadow pipeline, this can cause issues if the current_dag_node result
         #  does not get added to singleton.reuse_info.new_node_to_old_node
