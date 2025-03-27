@@ -82,6 +82,7 @@ class PipelineExecutor:
     # Put this into a new data class
     reuse_info = ReuseInfo({}, {}, {}, set(), set(), set(), set(), set(), set(), set(), {}, {}, set(), {}, {})
     captured_output = None
+    full_reuse_tracking_filter = None
 
     def run(self, *,
             notebook_path: str or None = None,
@@ -238,7 +239,14 @@ class PipelineExecutor:
 
             logger.info(f'Start plan execution for shadow pipeline {type(shadow_pipeline).__name__}...')
             execution_start = time.time()
+
+            # We only want to track reuse from original to original and shadow to shadow
+            nodes_only_in_shadow = set(shadow_dag.nodes) - set(original_dag_copy.nodes)
+            self.full_reuse_tracking_filter = nodes_only_in_shadow
             DagExecutor(self).execute(shadow_dag, self.use_dfs_exec_strategy)
+            self.full_reuse_tracking_filter = None
+
+
             filtered_shadow_dag = filter_shadow_dag(original_dag_copy, shadow_dag)
 
             # Update the runtime info
@@ -415,6 +423,7 @@ class PipelineExecutor:
         self.global_new_dag = networkx.DiGraph()
         self.reuse_info = ReuseInfo({}, {}, {}, set(), set(), set(), set(), set(), set(), set(), {}, {}, set(), {}, {})
         self.captured_output = None
+        self.full_reuse_tracking_filter = None
 
     @staticmethod
     def instrument_pipeline(parsed_ast, track_code_references):
