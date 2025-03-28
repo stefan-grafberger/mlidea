@@ -809,7 +809,7 @@ def concat_func_y_pred_old_y_pred_new_y_true_X(y_pred_old, y_pred_new, y_true, X
 
 def concat_shapley_X_data_y_pred(shapley, test_data, y_pred):
     # TODO: What if not all inputs are pandas dfs?
-    predictions = pandas.DataFrame({"y_labeled": ensure_1d(y_pred)})
+    predictions = pandas.DataFrame({"y_train": ensure_1d(y_pred)})
     result = pandas.concat([shapley, predictions, test_data], axis=1)
     result = wrap_in_mlinspect_array_if_necessary(result)
     # Not sure if this might be necessary at some point
