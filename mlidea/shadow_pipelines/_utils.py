@@ -711,17 +711,14 @@ def concat_func(*inputs):
     # TODO: What if not all inputs are pandas dfs?
     result = inputs[0]
     for df in inputs[1:]:
-        common_cols = result.columns.intersection(df.columns)
+        for col in df.columns:
+            if col not in result.columns:
+                # Column is new: add it directly
+                result[col] = df[col]
+            else:
+                # Column already exists: fill missing values using combine_first
+                result[col] = result[col].combine_first(df[col])
 
-        # If all common columns follow the mutually exclusive NaN pattern, use combine_first
-        if (result[common_cols].isna() == df[common_cols].notna()).all().all():
-            result = result.combine_first(df)
-        else:
-            # Otherwise, concatenate along columns, ensuring alignment
-            result = pandas.concat([result, df], axis=1)
-
-    # TODO: There might be rare edge cases where this removes important information
-    result = result.loc[:, ~result.columns.duplicated()]
     result = wrap_in_mlinspect_array_if_necessary(result)
     # Not sure if this might be necessary at some point
     # result._mlinspect_provenance = ...
