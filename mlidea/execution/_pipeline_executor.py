@@ -83,6 +83,7 @@ class PipelineExecutor:
     reuse_info = ReuseInfo({}, {}, {}, set(), set(), set(), set(), set(), set(), set(), {}, {}, set(), {}, {})
     captured_output = None
     full_reuse_tracking_filter = None
+    function_transformer_cache_path = None
 
     def run(self, *,
             notebook_path: str or None = None,
@@ -99,7 +100,8 @@ class PipelineExecutor:
             use_dfs_exec_strategy: bool = False,
             estimate_only=False,
             prov_enabled=True,
-            caching_enabled=True
+            caching_enabled=True,
+            function_transformer_cache_path
             ) -> AnalysisResults:
         """
         Instrument and execute the pipeline and evaluate all checks
@@ -128,6 +130,7 @@ class PipelineExecutor:
         self.prov_enabled = prov_enabled
         self.enable_caching = caching_enabled
         self.enable_cache_reuse = caching_enabled
+        self.function_transformer_cache_path = function_transformer_cache_path
 
         if extraction_info is not None:
             logger.info('Reusing DAG extraction results results from previously instrumented pipeline...')
@@ -424,6 +427,7 @@ class PipelineExecutor:
         self.reuse_info = ReuseInfo({}, {}, {}, set(), set(), set(), set(), set(), set(), set(), {}, {}, set(), {}, {})
         self.captured_output = None
         self.full_reuse_tracking_filter = None
+        self.function_transformer_cache_path = None
 
     @staticmethod
     def instrument_pipeline(parsed_ast, track_code_references):

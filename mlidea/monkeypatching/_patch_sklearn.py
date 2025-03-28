@@ -2,6 +2,7 @@
 Monkey patching for sklearn
 """
 import copy
+import hashlib
 import inspect
 import warnings
 from collections.abc import Callable
@@ -37,6 +38,7 @@ from mlidea.monkeypatching._monkey_patching_utils import add_dag_node, \
     wrap_in_mlinspect_array_if_necessary, get_simple_non_data_kwargs
 from mlidea.monkeypatching._provenance_propagation import wrap_train_test_split_func, wrap_projection_func, \
     wrap_predict_func
+from shadow_pipelines.cached_text_transformer import CachedTextTransformer
 
 
 @gorilla.patches(preprocessing)
@@ -1769,6 +1771,39 @@ class SklearnFunctionTransformerPatching:
 
         return execute_patched_func_no_op_id(original, execute_inspections, self, **self.mlinspect_non_data_func_args)
 
+    @staticmethod
+    def check_is_string_input(input_data):
+        if isinstance(input_data, pandas.Series) and input_data.dtype == 'object' and isinstance(input_data.iloc[0], str):
+            return True
+        elif isinstance(input_data, pandas.DataFrame) and len(input_data.columns) == 1 and input_data.dtypes[
+            0] == 'object' and isinstance(input_data.iloc[0, 0], str):
+            return True
+        return False
+
+    @staticmethod
+    def get_new_save_path(database_path, function_transformer):
+        transform_func = function_transformer.func
+        free_values = str(
+            [cell.cell_contents for cell in transform_func.__closure__]
+            if (hasattr(transform_func, '__closure__') and
+                transform_func.__closure__
+                ) else [])
+        if isinstance(transform_func, partial):
+            original_func = transform_func.func
+            args = transform_func.args
+            kwargs = transform_func.keywords or {}
+            source_code = inspect.getsource(original_func)
+            partial_repr = f"wrapped_func = partial({original_func.__name__}, " \
+                           f"{', '.join(map(repr, args))}, " \
+                           f"{', '.join(f'{k}={v!r}' for k, v in kwargs.items())})"
+
+            source_code = f"{source_code}\n\n{partial_repr}"
+        else:
+            source_code = inspect.getsource(transform_func)
+        function_transformer_hash = hashlib.sha256(f"{free_values}{source_code}".encode()).hexdigest()
+        new_data_base_path = database_path + "-" + str(function_transformer_hash) + ".db"
+        return new_data_base_path
+
     @gorilla.name('fit_transform')
     @gorilla.settings(allow_hit=True)
     def patched_fit_transform(self, *args, **kwargs):
@@ -1780,13 +1815,35 @@ class SklearnFunctionTransformerPatching:
             input_info = get_input_info(args[0], self.mlinspect_caller_filename, self.mlinspect_lineno, function_info,
                                         self.mlinspect_optional_code_reference, self.mlinspect_optional_source_code)
 
-            def processing_func(input_df):
-                input_df_copy = input_df.copy()
+            is_string_input = self.check_is_string_input(args[0])
+            if singleton.function_transformer_cache_path is not None and is_string_input:
+                new_data_base_path = self.get_new_save_path(singleton.function_transformer_cache_path,
+                                                            self)
+                def processing_func(input_df):
+                    input_df_copy = input_df.copy()
+                    transformer = preprocessing.FunctionTransformer(**self.mlinspect_non_data_func_args)
+                    transformer = CachedTextTransformer(transformer, database_path=new_data_base_path)
+
+                    transformed_data = transformer.fit_transform(input_df_copy, *args[1:], **kwargs)
+                    transformed_data = wrap_in_mlinspect_array_if_necessary(transformed_data)
+                    transformed_data._mlinspect_annotation = transformer  # pylint: disable=protected-access
+                    return transformed_data
+
                 transformer = preprocessing.FunctionTransformer(**self.mlinspect_non_data_func_args)
-                transformed_data = transformer.fit_transform(input_df_copy, *args[1:], **kwargs)
-                transformed_data = wrap_in_mlinspect_array_if_necessary(transformed_data)
-                transformed_data._mlinspect_annotation = transformer  # pylint: disable=protected-access
-                return transformed_data
+                transformer = CachedTextTransformer(self, database_path=new_data_base_path)
+                original_func = lambda df: original(self, df, *args[1:], **kwargs)
+                original_func_wrapped = lambda df: transformer.fit_transform_with_original(df, original_func)
+                orig_func_prov = wrap_projection_func(original_func_wrapped)
+            else:
+                def processing_func(input_df):
+                    input_df_copy = input_df.copy()
+                    transformer = preprocessing.FunctionTransformer(**self.mlinspect_non_data_func_args)
+                    transformed_data = transformer.fit_transform(input_df_copy, *args[1:], **kwargs)
+                    transformed_data = wrap_in_mlinspect_array_if_necessary(transformed_data)
+                    transformed_data._mlinspect_annotation = transformer  # pylint: disable=protected-access
+                    return transformed_data
+
+                orig_func_prov = wrap_projection_func(lambda df: original(self, df, *args[1:], **kwargs))
 
             processing_func = wrap_projection_func(processing_func)
 
@@ -1803,7 +1860,6 @@ class SklearnFunctionTransformerPatching:
             operator_call_info = OperatorCallInfo(operator_context, [input_info.dag_node])
             # This is to prevent udf monkey patching while a FunctionTransformer is active
             singleton.disable_monkey_patching = True
-            orig_func_prov = wrap_projection_func(lambda df: original(self, df, *args[1:], **kwargs))
             optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov,
                                                             [input_info.annotated_dfobject.result_data],
                                                             estimator_transformer_state=self)
