@@ -34,7 +34,7 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     get_rag_join_update_node, get_basic_code_location_for_current_line, add_new_score_and_score_extraction_nodes_slice, \
     get_top_n_filter_node, get_X_y_pred_y_true_concat_node, \
     get_X_before_X_after_y_pred_before_y_pred_after_y_true_concat_node, get_data_sources_to_all_columns
-from shadow_pipelines.cached_text_transformer import CachedTextTransformer
+from mlidea.shadow_pipelines.cached_text_transformer import CachedTextTransformer
 
 
 @dataclasses.dataclass
