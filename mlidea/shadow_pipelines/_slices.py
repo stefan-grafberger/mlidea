@@ -798,6 +798,10 @@ class FairnessSlices(ShadowPipeline):
                                                                          database_path=new_data_base_path)
                         fixed_corrupted.iloc[only_fix_indices, [column_index]] = function_transformer.fit_transform(
                             data_to_transform)
+                        source_code = FIX_STRATEGY_TO_CODE[fix_strategy.value]
+                        prompt = "N/A. LLM application failed. Used fallback FunctionTransformer."
+                        prompts.append(prompt)
+                        generated_code.append(source_code)
                         print("Executed a backup translation transformer instead.")
 
                 elif fix_strategy == FixType.TEXT_SPELLCHECK:
