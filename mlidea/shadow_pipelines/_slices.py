@@ -1,4 +1,6 @@
 import dataclasses
+import hashlib
+import inspect
 import os
 from collections import defaultdict
 from enum import Enum
@@ -32,6 +34,7 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     get_rag_join_update_node, get_basic_code_location_for_current_line, add_new_score_and_score_extraction_nodes_slice, \
     get_top_n_filter_node, get_X_y_pred_y_true_concat_node, \
     get_X_before_X_after_y_pred_before_y_pred_after_y_true_concat_node, get_data_sources_to_all_columns
+from shadow_pipelines.cached_text_transformer import CachedTextTransformer
 
 
 @dataclasses.dataclass
@@ -774,6 +777,11 @@ class FairnessSlices(ShadowPipeline):
                         data_to_transform = fixed_corrupted.iloc[only_fix_indices, column_index]
                         function_transformer, prompt, llm_code = FairnessSlices.generate_llm_function_transformer(
                             data_to_transform)
+                        if database_path and function_transformer.func is not None:
+                            new_data_base_path = FairnessSlices.get_new_save_path(database_path, function_transformer)
+                            function_transformer = CachedTextTransformer(function_transformer,
+                                                                         database_path=new_data_base_path)
+
                         fixed_corrupted.iloc[only_fix_indices, column_index] = function_transformer.fit_transform(
                             data_to_transform)
                         print(f"LLM application successful!")
@@ -782,8 +790,12 @@ class FairnessSlices(ShadowPipeline):
                     except Exception as e:
                         print(f"Error executing LLM code: {e}")
                         data_to_transform = fixed_corrupted.iloc[only_fix_indices, [column_index]]
-                        translate_transformer = get_translate_transformer(column, database_path)
-                        fixed_corrupted.iloc[only_fix_indices, [column_index]] = translate_transformer.fit_transform(
+                        function_transformer = get_translate_transformer(column, database_path)
+                        if database_path and function_transformer.func is not None:
+                            new_data_base_path = FairnessSlices.get_new_save_path(database_path, function_transformer)
+                            function_transformer = CachedTextTransformer(function_transformer,
+                                                                         database_path=new_data_base_path)
+                        fixed_corrupted.iloc[only_fix_indices, [column_index]] = function_transformer.fit_transform(
                             data_to_transform)
                         print("Executed a backup translation transformer instead.")
 
@@ -798,6 +810,32 @@ class FairnessSlices(ShadowPipeline):
         elif was_numpy is True:
             fixed_corrupted = fixed_corrupted["column"].to_numpy()
         return fixed_corrupted, generated_code, prompts
+
+    @staticmethod
+    def get_new_save_path(database_path, function_transformer):
+        transform_func = function_transformer.func
+        free_values = str(
+            [cell.cell_contents for cell in transform_func.__closure__]
+            if (hasattr(transform_func, '__closure__') and
+                transform_func.__closure__
+                ) else [])
+        if isinstance(transform_func, partial):
+            original_func = transform_func.func
+            args = transform_func.args
+            kwargs = transform_func.keywords or {}
+            source_code = inspect.getsource(original_func)
+            partial_repr = f"wrapped_func = partial({original_func.__name__}, " \
+                           f"{', '.join(map(repr, args))}, " \
+                           f"{', '.join(f'{k}={v!r}' for k, v in kwargs.items())})"
+
+            source_code = f"{source_code}\n\n{partial_repr}"
+        else:
+            source_code = inspect.getsource(transform_func)
+
+
+        function_transformer_hash = hashlib.sha256(f"{free_values}{source_code}".encode()).hexdigest()
+        new_data_base_path = database_path + "-" + str(function_transformer_hash) + ".db"
+        return new_data_base_path
 
     @staticmethod
     def generate_llm_function_transformer(data_to_transform):

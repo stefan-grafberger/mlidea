@@ -1,3 +1,4 @@
+import os
 import time
 
 import pandas as pd
@@ -64,29 +65,30 @@ class CachedTextTransformer(BaseEstimator, TransformerMixin):
         # TODO: Do we need to implement this more efficiently by doing batch updates to disk?
         with self.engine.connect() as conn:
             cached_data = pd.read_sql(text(f'SELECT * FROM {self.cache_table}'), conn)
-        cached_dict = dict(zip(cached_data['input'], cached_data['output']))
-        transformed_data = []
-        for x in X.iloc[:, 0].tolist():
-            input_str = str(x)
-            if input_str in cached_dict:
-                transformed_data.append(cached_dict[input_str])
-            else:
-                output = self.func_transformer.transform([x])[0]
-                transformed_data.append(output)
-                # Update cache
-                self._update_cache(input_str, output)
+            cached_dict = dict(zip(cached_data['input'], cached_data['output']))
+            transformed_data = []
+            for x in X.iloc[:, 0].tolist():
+                input_str = str(x)
+                if input_str in cached_dict:
+                    transformed_data.append(cached_dict[input_str])
+                else:
+                    output = self.func_transformer.transform([x])[0]
+                    transformed_data.append(output)
+                    # Update cache
+                    self._update_cache(input_str, output, conn)
+                    conn.commit()
         X.iloc[:, 0] = transformed_data
+
 
         translation_end = time.time()
         additional_sleep = max(realistic_wait_time_calculation - (translation_end - translation_start) / 1000,  0)
         # print(f"Sleeping an additional {additional_sleep}s to simulate real API call when cache was hit "
         #       f"({realistic_wait_time_calculation} - {(translation_end - translation_start) / 1000})!")
-        time.sleep(additional_sleep)
+        # time.sleep(additional_sleep)
         return X
 
-    def _update_cache(self, input_str, output):
-        with self.engine.connect() as conn:
-            conn.execute(text(f'''
-                INSERT OR REPLACE INTO {self.cache_table} (input, output)
-                VALUES (:input, :output)
-            '''), {'input': input_str, 'output': output})
+    def _update_cache(self, input_str, output, conn):
+        conn.execute(text(f'''
+            INSERT OR REPLACE INTO {self.cache_table} (input, output)
+            VALUES (:input, :output)
+        '''), {'input': input_str, 'output': output})

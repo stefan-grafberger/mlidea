@@ -392,10 +392,11 @@ def get_translate_transformer(column, database_path):
         return df
 
     translate = partial(translate, bound_column=column)
+
+
     warnings.filterwarnings('ignore')
     translate_transformer = FunctionTransformer(translate)
-    caching_translate_transformer = CachedTextTransformer(translate_transformer, database_path=database_path)
-    return caching_translate_transformer
+    return translate_transformer
 
 
 def get_relative_score_change(*old_scores_and_new_scores, max_not_min=True):
