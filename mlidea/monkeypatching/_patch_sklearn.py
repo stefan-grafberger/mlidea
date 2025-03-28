@@ -1910,9 +1910,23 @@ class SklearnFunctionTransformerPatching:
             operator_call_info = OperatorCallInfo(operator_context, [transformer_dag_node, input_info.dag_node])
             # This is to prevent udf monkey patching while a FunctionTransformer is active
             singleton.disable_monkey_patching = True
-            orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
-            optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov,
-                                                            [self, input_info.annotated_dfobject.result_data])
+
+            is_string_input = self.check_is_string_input(args[0])
+            if singleton.function_transformer_cache_path is not None and is_string_input:
+                new_data_base_path = self.get_new_save_path(singleton.function_transformer_cache_path,
+                                                            self)
+
+                transformer = preprocessing.FunctionTransformer(**self.mlinspect_non_data_func_args)
+                transformer = CachedTextTransformer(transformer, database_path=new_data_base_path)
+                original_func = lambda df: original(self, df, *args[1:], **kwargs)
+                orig_func_prov = wrap_predict_func(lambda transformer, df: transformer.fit_transform_with_original(df, original_func))
+                optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov,
+                                                                [transformer, input_info.annotated_dfobject.result_data])
+            else:
+                orig_func_prov = wrap_predict_func(lambda transformer, df: original(transformer, df, *args[1:], **kwargs))
+                optimizer_info, result = capture_optimizer_info(singleton, operator_call_info, orig_func_prov,
+                                                                [self, input_info.annotated_dfobject.result_data])
+
             # Enable monkey patching again
             singleton.disable_monkey_patching = False
             # End disable hack

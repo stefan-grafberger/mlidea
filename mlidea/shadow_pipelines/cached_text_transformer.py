@@ -144,7 +144,7 @@ class CachedTextTransformer(BaseEstimator, TransformerMixin):
                 if input_str in cached_dict:
                     transformed_data.append(cached_dict[input_str])
                 else:
-                    output = self.func_transformer.transform([x])[0]
+                    output = original_func([x])[0]
                     transformed_data.append(output)
                     # Update cache
                     self._update_cache(input_str, output, conn)
