@@ -778,7 +778,8 @@ class FairnessSlices(ShadowPipeline):
                         function_transformer, prompt, llm_code = FairnessSlices.generate_llm_function_transformer(
                             data_to_transform)
                         if database_path and function_transformer.func is not None:
-                            new_data_base_path = FairnessSlices.get_new_save_path(database_path, function_transformer)
+                            function_transformer_hash = hashlib.sha256(llm_code.encode()).hexdigest()
+                            new_data_base_path = database_path + "-" + str(function_transformer_hash) + ".db"
                             function_transformer = CachedTextTransformer(function_transformer,
                                                                          database_path=new_data_base_path)
 

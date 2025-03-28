@@ -28,6 +28,11 @@ class CachedTextTransformer(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X):
+        if isinstance(X, pd.Series):
+            was_series = True
+            X = pd.DataFrame({"input": X})
+        else:
+            was_series = False
         assert isinstance(X, pd.DataFrame) and len(list(X.columns)) == 1
         # this needs a wait because it is cache-only in our experiments
         # LLM throughput estimate:
@@ -85,6 +90,8 @@ class CachedTextTransformer(BaseEstimator, TransformerMixin):
         # print(f"Sleeping an additional {additional_sleep}s to simulate real API call when cache was hit "
         #       f"({realistic_wait_time_calculation} - {(translation_end - translation_start) / 1000})!")
         # time.sleep(additional_sleep)
+        if was_series is True:
+            X = X.iloc[:, 0]
         return X
 
     def _update_cache(self, input_str, output, conn):
