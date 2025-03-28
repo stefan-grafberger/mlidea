@@ -38,7 +38,7 @@ from mlidea.monkeypatching._monkey_patching_utils import add_dag_node, \
     wrap_in_mlinspect_array_if_necessary, get_simple_non_data_kwargs
 from mlidea.monkeypatching._provenance_propagation import wrap_train_test_split_func, wrap_projection_func, \
     wrap_predict_func
-from shadow_pipelines.cached_text_transformer import CachedTextTransformer
+from mlidea.shadow_pipelines.cached_text_transformer import CachedTextTransformer
 
 
 @gorilla.patches(preprocessing)
