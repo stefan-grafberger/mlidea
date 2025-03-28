@@ -178,7 +178,7 @@ class FairnessSlices(ShadowPipeline):
     def check_rebuilding_necessary(self, extracted_plan_results: dict[str, any]) -> any:
         return False
 
-    def __init__(self, additional_column_names=None, database_path=".function_transformer_cache.db",
+    def __init__(self, additional_column_names=None, database_path=".function_transformer_cache",
                  slice_finder_alpha=0.95):
         if additional_column_names is None:
             additional_column_names = []
@@ -832,7 +832,6 @@ class FairnessSlices(ShadowPipeline):
             source_code = f"{source_code}\n\n{partial_repr}"
         else:
             source_code = inspect.getsource(transform_func)
-
 
         function_transformer_hash = hashlib.sha256(f"{free_values}{source_code}".encode()).hexdigest()
         new_data_base_path = database_path + "-" + str(function_transformer_hash) + ".db"

@@ -1,4 +1,6 @@
 import dataclasses
+import hashlib
+import inspect
 from functools import partial
 
 import networkx
@@ -24,6 +26,7 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     add_new_score_and_score_extraction_nodes, assert_standard_llm_shape, assert_standard_ml_shape, get_top_n_df_rows, \
     df_or_array_non_empty, df_or_array_non_empty_func_info, add_parent_node_edges, get_rag_join_update_node, \
     get_basic_code_location_for_current_line
+from mlidea.shadow_pipelines.cached_text_transformer import CachedTextTransformer
 
 
 @dataclasses.dataclass
@@ -64,12 +67,14 @@ class DataErrorRobustness(ShadowPipeline):
     def check_rebuilding_necessary(self, extracted_plan_results: dict[str, any]) -> any:
         return False
 
-    def __init__(self, corruption_fraction=.1, corruption_significant_relative_threshold=0.99):
+    def __init__(self, corruption_fraction=.1, corruption_significant_relative_threshold=0.99,
+                 database_path=".function_transformer_cache"):
         self._corruption_fraction = corruption_fraction
         self._shadow_pipeline_id = (corruption_fraction, corruption_significant_relative_threshold)
         self.score_operator_count = 0
         self._transformer_inputs_to_check = []
         self._corruption_significant_relative_threshold = corruption_significant_relative_threshold
+        self._database_path = database_path
 
     @property
     def shadow_pipeline_id(self):
@@ -353,7 +358,7 @@ class DataErrorRobustness(ShadowPipeline):
         return new_fix_diff_indices_node, new_fix_node
 
     def _get_fix_node(self, data_type, new_dag, parents):
-        non_data_kwargs = {'data_type': data_type}
+        non_data_kwargs = {'database_path': self._database_path, 'data_type': data_type}
         processing_func = partial(DataErrorRobustness.fix_data, **non_data_kwargs)
         if data_type == DataType.TEXT:
             # TODO: For slow text processing functions, we need to be able to have IVM, estimators are not an option
@@ -395,7 +400,8 @@ class DataErrorRobustness(ShadowPipeline):
         return new_corruption_diff_node, new_corruption_node
 
     def _add_corruption_node(self, data_type, new_dag, parents):
-        non_data_kwargs = {'data_type': data_type, 'corruption_fraction': self._corruption_fraction}
+        non_data_kwargs = {'data_type': data_type, 'corruption_fraction': self._corruption_fraction,
+                           'database_path': self._database_path}
         processing_func = partial(DataErrorRobustness.corrupt_data, **non_data_kwargs)
         operator_context = OperatorContext(OperatorType.PROJECTION_MODIFY,
                                            FunctionInfo('mlidea.shadow_pipelines._data_errors.DataErrorRobustness',
@@ -488,20 +494,31 @@ class DataErrorRobustness(ShadowPipeline):
                                                  score_operators, "data-errors-corrupt-fix-0")
 
     @staticmethod
-    def corrupt_data(input_df, data_type, corruption_fraction):
+    def corrupt_data(input_df, data_type, corruption_fraction, database_path):
         corrupted_result = input_df.copy()
         if data_type == DataType.TEXT:
             if isinstance(corrupted_result, pandas.DataFrame):
                 for column in corrupted_result.columns:
-                    corrupted_result = get_typo_adder(column, corruption_fraction).fit_transform(corrupted_result)
+                    typo_adder = get_typo_adder(column, corruption_fraction)
+                    if database_path and typo_adder.func is not None:
+                        new_data_base_path = DataErrorRobustness.get_new_save_path(database_path, typo_adder)
+                        typo_adder = CachedTextTransformer(typo_adder, database_path=new_data_base_path)
+                    corrupted_result = typo_adder.fit_transform(corrupted_result)
             elif isinstance(corrupted_result, pandas.Series):
                 corrupted_result = pandas.DataFrame(corrupted_result)
-                corrupted_result = get_typo_adder(list(corrupted_result.columns)[0], corruption_fraction).fit_transform(
-                    corrupted_result)
+                typo_adder = get_typo_adder(list(corrupted_result.columns)[0], corruption_fraction)
+                if database_path and typo_adder.func is not None:
+                    new_data_base_path = DataErrorRobustness.get_new_save_path(database_path, typo_adder)
+                    typo_adder = CachedTextTransformer(typo_adder, database_path=new_data_base_path)
+                corrupted_result = typo_adder.fit_transform(corrupted_result)
                 corrupted_result = corrupted_result.iloc[:, 0]
             elif isinstance(corrupted_result, list):
                 corrupted_result = pandas.DataFrame({"text": corrupted_result})
-                corrupted_result = get_typo_adder("text", corruption_fraction).fit_transform(corrupted_result)
+                typo_adder = get_typo_adder("text", corruption_fraction)
+                if database_path and typo_adder.func is not None:
+                    new_data_base_path = DataErrorRobustness.get_new_save_path(database_path, typo_adder)
+                    typo_adder = CachedTextTransformer(typo_adder, database_path=new_data_base_path)
+                corrupted_result = typo_adder.fit_transform(corrupted_result)
                 corrupted_result = corrupted_result["text"].to_list()
             else:
                 raise NotImplementedError("TODO")
@@ -531,7 +548,32 @@ class DataErrorRobustness(ShadowPipeline):
         return corrupted_result
 
     @staticmethod
-    def fix_data(input_df, only_fix_indices=None, data_type=None):
+    def get_new_save_path(database_path, function_transformer):
+        transform_func = function_transformer.func
+        free_values = str(
+            [cell.cell_contents for cell in transform_func.__closure__]
+            if (hasattr(transform_func, '__closure__') and
+                transform_func.__closure__
+                ) else [])
+        if isinstance(transform_func, partial):
+            original_func = transform_func.func
+            args = transform_func.args
+            kwargs = transform_func.keywords or {}
+            source_code = inspect.getsource(original_func)
+            partial_repr = f"wrapped_func = partial({original_func.__name__}, " \
+                           f"{', '.join(map(repr, args))}, " \
+                           f"{', '.join(f'{k}={v!r}' for k, v in kwargs.items())})"
+
+            source_code = f"{source_code}\n\n{partial_repr}"
+        else:
+            source_code = inspect.getsource(transform_func)
+
+        function_transformer_hash = hashlib.sha256(f"{free_values}{source_code}".encode()).hexdigest()
+        new_data_base_path = database_path + "-" + str(function_transformer_hash) + ".db"
+        return new_data_base_path
+
+    @staticmethod
+    def fix_data(input_df, only_fix_indices=None, data_type=None, database_path=None):
         fixed_corrupted = input_df.copy()
         if data_type == DataType.TEXT:
             was_series = False
@@ -549,6 +591,9 @@ class DataErrorRobustness(ShadowPipeline):
             for column_index, column in enumerate(fixed_corrupted.columns):
                 if fixed_corrupted[column].dtype == object:
                     typo_fixer = get_typo_fixer(column)
+                    if database_path and typo_fixer.func is not None:
+                        new_data_base_path = DataErrorRobustness.get_new_save_path(database_path, typo_fixer)
+                        typo_fixer = CachedTextTransformer(typo_fixer, database_path=new_data_base_path)
                     fixed_corrupted.iloc[only_fix_indices, [column_index]] = typo_fixer.fit_transform(
                         fixed_corrupted.iloc[only_fix_indices, [column_index]])
             if was_series is True:

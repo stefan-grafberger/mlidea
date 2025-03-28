@@ -109,9 +109,17 @@ def find_train_or_test_pipeline_part_end(dag, train_not_test):
 
 
 def add_typos(column, fraction_to_typo, df):
+    if isinstance(df, list):
+        was_df = True
+        df = pandas.DataFrame({column: df})
+    else:
+        was_df = False
     indices = numpy.arange(len(df))
     numpy.random.shuffle(indices)
-    num_values_to_typo = int(len(df) * fraction_to_typo)
+    if len(df) == 1:
+        num_values_to_typo = 1 if numpy.random.rand() < fraction_to_typo else 0
+    else:
+        num_values_to_typo = int(len(df) * fraction_to_typo)
     indices_to_typo = indices[:num_values_to_typo]
     df = df.reset_index(drop=True)
     # df.loc[indices_to_typo, 'tweet'] = df.loc[indices_to_typo, 'tweet'].apply(lambda txt: typo_augmenter.augment(txt)[0])
@@ -192,6 +200,8 @@ def add_typos(column, fraction_to_typo, df):
         ORDER BY row_id
         """).df()[column]
     df[column].iloc[indices_to_typo] = corrupted_data
+    if was_df is True:
+        df = list(df[column])
     return df
 
 
@@ -232,7 +242,10 @@ def get_typo_fixer(column):
 
     def fix_typos(bound_column, bound_spell, df):
         # df['tweet'] = df['tweet'].map(lambda txt: str(TextBlob(txt).correct()))
-        df[bound_column] = df[column].map(bound_spell)
+        if isinstance(df, list):
+            df = [bound_spell(row) for row in df]
+        else:
+            df[bound_column] = df[column].map(bound_spell)
         return df
 
     processing_func = partial(fix_typos, column, spell)
