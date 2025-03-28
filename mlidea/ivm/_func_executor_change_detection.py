@@ -224,6 +224,33 @@ def determine_is_addition(singleton, new_dag, new_dag_parent_node, operator_call
             )
             is_addition = test_addition_operator_call_info in singleton.reuse_info.operator_call_info_to_dag_node
         result = is_addition, before_addition_parent
+    elif len(parent_parents) == 2 and new_dag_parent_node.operator_info.operator == OperatorType.SUBSCRIPT:
+        is_addition = False
+        before_addition_parent_candidate = []
+        before_addition_parent = None
+        for parent in parent_parents:
+            if parent in singleton.reuse_info.operator_fully_reused:
+                before_addition_parent_candidate.append(parent)
+        if len(before_addition_parent_candidate) == 1:
+            before_addition_parent = before_addition_parent_candidate[0]
+            old_parent_node_ids = []
+            for arg_index, parent_node_id in enumerate(list(operator_call_info.parent_node_ids)):
+                parent_node = singleton.get_dag_node_for_id(parent_node_id)
+                if arg_index == parent_index:
+                    old_parent_node_ids.append(before_addition_parent.node_id)
+                elif parent_node in singleton.reuse_info.new_node_to_old_node:
+                    old_parent_node_ids.append(singleton.reuse_info.new_node_to_old_node[parent_node][0].node_id)
+                else:
+                    old_parent_node_ids.append(parent_node_id)
+
+            test_addition_operator_call_info = OperatorCallInfo(
+                OperatorContext(operator_call_info.operator,
+                                operator_call_info.function_info,
+                                operator_call_info.non_data_kwargs),
+                old_parent_node_ids
+            )
+            is_addition = test_addition_operator_call_info in singleton.reuse_info.operator_call_info_to_dag_node
+        result = is_addition, before_addition_parent
     else:
         result = False, None  # Fast updates for addition of operations like joins is not supported currently
     return result
