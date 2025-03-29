@@ -203,12 +203,13 @@ class LabelErrors(ShadowPipeline):
                 max_score_improvement = get_relative_score_change(*proxy_result, *flip_result)
             else:
                 max_score_improvement = get_relative_score_change(*orig_result, *flip_result)
+            issue_found = len(flip_explanation) > 0
             if max_score_improvement > 1.:
                 summary += (f"\n\nThe score increased by relabeling {self._cleaning_batch_size} rows by "
                            f"{max_score_improvement}. You probably want to take a look at "
                            f"the row labels again! Here is an overview of the predictions that were flipped by "
                            f"updating the labels on the train side. \n{str(flip_explanation)}\n")
-                screened_issues = [ScreenedIssue("Likely label errors", True, shapley_values, True, [
+                screened_issues = [ScreenedIssue("Likely label errors", issue_found, shapley_values, True, [
                     PotentialSuggestion(True, f"Relabeling {self._cleaning_batch_size} rows",
                                         flip_result, max_score_improvement, flip_explanation)])]
             else:
@@ -217,7 +218,7 @@ class LabelErrors(ShadowPipeline):
                            f"incorrect labels did not lead to an improvement (the max relative score "
                            f"was {max_score_improvement}). Here is an overview of the predictions that were flipped by "
                            f"updating the labels on the train side. \n{str(flip_explanation)}\n")
-                screened_issues = [ScreenedIssue("Likely label errors", True, shapley_values, False, [
+                screened_issues = [ScreenedIssue("Likely label errors", issue_found, shapley_values, False, [
                     PotentialSuggestion(False, f"Relabeling {self._cleaning_batch_size} rows", flip_result,
                                         max_score_improvement, flip_explanation)])]
             if self._proxy_model is True:

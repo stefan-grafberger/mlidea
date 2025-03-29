@@ -589,8 +589,9 @@ class FairnessSlices(ShadowPipeline):
                 summary += (f"While the slice {column_with_slice_value} seems to be problematic, Fairness Slices"
                            f" cannot find any promising repair strategy automatically. However, you could try finding"
                            f" one on your own.")
+            issue_found = max_score_decrease < 0.95
             report = FairnessSlicesReport(orig_result, [ScreenedIssue(
-                "Underperforming slices", True, readable_slice_result, slice_result, problematic_slice_sample,
+                "Underperforming slices", issue_found, readable_slice_result, slice_result, problematic_slice_sample,
                 fix_found, suggestions)], summary)
 
         return report
