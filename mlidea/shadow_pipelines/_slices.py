@@ -589,7 +589,7 @@ class FairnessSlices(ShadowPipeline):
                 summary += (f"While the slice {column_with_slice_value} seems to be problematic, Fairness Slices"
                            f" cannot find any promising repair strategy automatically. However, you could try finding"
                            f" one on your own.")
-            issue_found = max_score_decrease < 0.95
+            issue_found = max_score_decrease < 0.95 and fix_found is True
             report = FairnessSlicesReport(orig_result, [ScreenedIssue(
                 "Underperforming slices", issue_found, readable_slice_result, slice_result, problematic_slice_sample,
                 fix_found, suggestions)], summary)
@@ -870,7 +870,7 @@ class FairnessSlices(ShadowPipeline):
         """)
         # TODO: This is ugly and needs cleanup
         prompt = cleandoc(f"""
-            Can you please help to generate a scikit-learn Function Transformer to fix data problems in a problematic data slice? I have a ML or LLM+RAG pipeline and want to improve its performance. Please directly reply with Python code only with the updated pipeline. Please don't wrap your response with backticks. The generated transformer should have the name `function_transformer`, so I can directly run your code and integrate it in my bigger application. Please make sure the result is directly executable by including all relevant imports and not using unknown libraries other than what you see in the code example. You do not need to apply the function_transformer, just creating it is enough. Also, please avoid issues with async by just using `asyncio.run` instead of writing async code directly. Please make sure the code works for at least pandas.Series and list[str] data.
+            Can you please help to generate a scikit-learn Function Transformer to fix data problems in a problematic data slice? I have a ML or LLM+RAG pipeline and want to improve its performance. Please directly reply with Python code only with the updated pipeline. Please don't wrap your response with backticks. The generated transformer should have the name `function_transformer`, so I can directly run your code and integrate it in my bigger application. Please make sure the result is directly executable by including all relevant imports and not using unknown libraries other than what you see in the code example. You do not need to apply the function_transformer, just creating it is enough. Also, please avoid issues with async by just using `asyncio.run` instead of writing async code directly. For example, if you want to use `Translator`, you need to always use `asyncio.run`. Please make sure the code works for at least pandas.Series and list[str] data.
             
             __
             A sample from the problematic data slice:\n
