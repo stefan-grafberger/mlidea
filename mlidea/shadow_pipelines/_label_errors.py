@@ -203,7 +203,7 @@ class LabelErrors(ShadowPipeline):
                 max_score_improvement = get_relative_score_change(*proxy_result, *flip_result)
             else:
                 max_score_improvement = get_relative_score_change(*orig_result, *flip_result)
-            issue_found = len(flip_explanation) > 0
+            issue_found = len(flip_explanation) > 0 and max_score_improvement > 1.
             if max_score_improvement > 1.:
                 summary += (f"\n\nThe score increased by relabeling {self._cleaning_batch_size} rows by "
                            f"{max_score_improvement}. You probably want to take a look at "
