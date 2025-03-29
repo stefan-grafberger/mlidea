@@ -33,7 +33,7 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
     prov_join_node_with_data_sources, df_or_array_non_empty, df_or_array_non_empty_func_info, add_parent_node_edges, \
     get_rag_join_update_node, get_basic_code_location_for_current_line, add_new_score_and_score_extraction_nodes_slice, \
     get_top_n_filter_node, get_X_y_pred_y_true_concat_node, \
-    get_X_before_X_after_y_pred_before_y_pred_after_y_true_concat_node, get_data_sources_to_all_columns
+    get_X_before_X_after_y_pred_before_y_pred_after_y_true_prov_info_concat_node, get_data_sources_to_all_columns
 from mlidea.shadow_pipelines.cached_text_transformer import CachedTextTransformer
 
 
@@ -429,13 +429,18 @@ class FairnessSlices(ShadowPipeline):
                                     test_labels_operators):
         prediction_old_filter_node = get_diff_filter_node(singleton, new_dag,
                                                           [predict_operators[0],
-                                                           new_fix_diff_node])
+                                                           new_fix_diff_node],
+                                                          prov=True)
+
         labels_filter_node = get_diff_filter_node(singleton, new_dag, [test_labels_operators[0],
                                                                        new_fix_diff_node])
-        explanation_node = get_X_before_X_after_y_pred_before_y_pred_after_y_true_concat_node(
+        relevant_data_sources_and_columns = get_data_sources_to_all_columns(new_dag)
+        prov_join_node = prov_join_node_with_data_sources(singleton, relevant_data_sources_and_columns, new_dag,
+                                                          prediction_old_filter_node)
+        explanation_node = get_X_before_X_after_y_pred_before_y_pred_after_y_true_prov_info_concat_node(
             singleton, new_dag,
             [new_unmodified_fix_filter_node, new_fix_diff_filter_node, prediction_old_filter_node, new_predict,
-             labels_filter_node]
+             labels_filter_node, prov_join_node]
         )
         _ = get_intermediate_extraction_node(singleton, new_dag, [explanation_node],
                                              f"fairness-slices-fix-explanation-{fix_strategy_index}")

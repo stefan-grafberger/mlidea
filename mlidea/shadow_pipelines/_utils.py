@@ -833,24 +833,24 @@ def get_shapley_X_data_y_pred_concat_node(singleton, new_dag, parents):
     return concat_node
 
 
-def concat_X_before_X_after_y_pred_before_y_pred_after_y_true(test_data_before, test_data_after, y_pred_before,
-                                                              y_pred_after, y_true):
+def concat_X_before_X_after_y_pred_before_y_pred_after_y_true_prov_info(test_data_before, test_data_after,
+                                                                    y_pred_before, y_pred_after, y_true, prov_info):
     # TODO: What if not all inputs are pandas dfs?
     predictions = pandas.DataFrame({"y_true": list(y_true), "y_pred_before": list(y_pred_before),
                                     "y_pred_after": list(y_pred_after)})
     if isinstance(test_data_before, (numpy.ndarray, pandas.Series, list)):
-        test_data_before = pandas.DataFrame({"before": list(test_data_before)})
+        test_data_before = pandas.DataFrame({"before_intermediate": list(test_data_before)})
     elif isinstance(test_data_before, pandas.DataFrame):
         test_data_before = test_data_before.copy()
-        test_data_before.columns = [f"before_{column}" for column in list(test_data_before.columns)]
+        test_data_before.columns = [f"before_intermediate_{column}" for column in list(test_data_before.columns)]
 
     if isinstance(test_data_after, (numpy.ndarray, pandas.Series, list)):
-        test_data_after = pandas.DataFrame({"after": list(test_data_after)})
+        test_data_after = pandas.DataFrame({"after_intermediate": list(test_data_after)})
     elif isinstance(test_data_after, pandas.DataFrame):
         test_data_after = test_data_after.copy()
-        test_data_after.columns = [f"after_{column}" for column in list(test_data_after.columns)]
+        test_data_after.columns = [f"after_intermediate_{column}" for column in list(test_data_after.columns)]
 
-    result = pandas.concat([predictions, test_data_before, test_data_after], axis=1)
+    result = pandas.concat([predictions, test_data_before, test_data_after, prov_info], axis=1)
     result = wrap_in_mlinspect_array_if_necessary(result)
     # Not sure if this might be necessary at some point
     # result._mlinspect_provenance = ...
@@ -895,7 +895,7 @@ def get_y_pred_old_y_pred_new_y_true_X_concat_node(singleton, new_dag, parents):
 
 
 
-def get_X_before_X_after_y_pred_before_y_pred_after_y_true_concat_node(singleton, new_dag, parents):
+def get_X_before_X_after_y_pred_before_y_pred_after_y_true_prov_info_concat_node(singleton, new_dag, parents):
     operator_context = OperatorContext(OperatorType.CONCATENATION,
                                        FunctionInfo('mlidea.shadow_pipelines._utils',
                                                     'get_X_before_X_after_y_pred_before_y_pred_after_y_true_concat_node'),
@@ -909,7 +909,7 @@ def get_X_before_X_after_y_pred_before_y_pred_after_y_true_concat_node(singleton
                           operator_context,
                           DagNodeDetails("Concat for provenance explanation", columns),
                           None,
-                          concat_X_before_X_after_y_pred_before_y_pred_after_y_true)
+                          concat_X_before_X_after_y_pred_before_y_pred_after_y_true_prov_info)
     add_parent_node_edges(singleton, new_dag, concat_node, parents)
     return concat_node
 
