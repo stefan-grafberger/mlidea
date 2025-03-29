@@ -29,6 +29,13 @@ from mlidea.shadow_pipelines._utils import get_intermediate_extraction_node, cop
 from mlidea.shadow_pipelines.cached_text_transformer import CachedTextTransformer
 
 
+DATA_TYPE_NAME_TO_NICE_DESCRIPTION = {
+    DataType.NUM.value: "Robustness to numerical scaling",
+    DataType.CAT.value: "Robustness to categorical missing values",
+    DataType.TEXT.value: "Robustness to text typos",
+}
+
+
 @dataclasses.dataclass
 class PotentialSuggestion:
     improves_score: bool
@@ -183,6 +190,7 @@ class DataErrorRobustness(ShadowPipeline):
                                          data_types_w_repairs, extracted_plan_results, fix_score_increases, orig_result,
                                          transformer_index):
         summary = f"Issue {transformer_index}: {data_type_name}\n-\n"
+        nice_description = DATA_TYPE_NAME_TO_NICE_DESCRIPTION[data_type_name]
         if extracted_plan_results[f"data-errors-corruption-made-changes-{transformer_index}"] is False:
             summary += "The corruption function did not make any changes."
             screened_issue = None
@@ -247,8 +255,7 @@ class DataErrorRobustness(ShadowPipeline):
                 summary += "Unfortunately, the fix method was not able to automatically address the corrupted rows."
 
             suggestion_found = len([suggestion for suggestion in suggestions_tried if suggestion.improves_score]) > 0
-            screened_issue = ScreenedIssue(f"Issue {transformer_index}: {data_type_name}",
-                                           issue_significant, corrupt_result, max_score_decrease,
+            screened_issue = ScreenedIssue(nice_description, issue_significant, corrupt_result, max_score_decrease,
                                            corruption_diff_df_sample, suggestion_found, suggestions_tried)
         summary += "\n"
         return summary, screened_issue
