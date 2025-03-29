@@ -839,16 +839,16 @@ def concat_X_before_X_after_y_pred_before_y_pred_after_y_true_prov_info(test_dat
     predictions = pandas.DataFrame({"y_true": list(y_true), "y_pred_before": list(y_pred_before),
                                     "y_pred_after": list(y_pred_after)})
     if isinstance(test_data_before, (numpy.ndarray, pandas.Series, list)):
-        test_data_before = pandas.DataFrame({"before_intermediate": list(test_data_before)})
+        test_data_before = pandas.DataFrame({"intermediate_before": list(test_data_before)})
     elif isinstance(test_data_before, pandas.DataFrame):
         test_data_before = test_data_before.copy()
-        test_data_before.columns = [f"before_intermediate_{column}" for column in list(test_data_before.columns)]
+        test_data_before.columns = [f"intermediate_{column}_before" for column in list(test_data_before.columns)]
 
     if isinstance(test_data_after, (numpy.ndarray, pandas.Series, list)):
-        test_data_after = pandas.DataFrame({"after_intermediate": list(test_data_after)})
+        test_data_after = pandas.DataFrame({"intermediate_after": list(test_data_after)})
     elif isinstance(test_data_after, pandas.DataFrame):
         test_data_after = test_data_after.copy()
-        test_data_after.columns = [f"after_intermediate_{column}" for column in list(test_data_after.columns)]
+        test_data_after.columns = [f"intermediate_{column}_after" for column in list(test_data_after.columns)]
 
     result = pandas.concat([predictions, test_data_before, test_data_after, prov_info], axis=1)
     result = wrap_in_mlinspect_array_if_necessary(result)
