@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import dataclasses
 from functools import partial
-from typing import cast
+from typing import cast, TypedDict
 
 import gorilla
 import numpy
@@ -144,7 +144,7 @@ class RunnableSequencePatching:
                     inputs, input_info_a.dag_node.operator_info.function_info, lineno, optional_code_reference,
                     optional_source_code, caller_filename)
 
-                non_data_kwargs = {'chain': str(retriever_with_info[2].to_json()), 'config': config,
+                non_data_kwargs = {'chain': str(retriever_with_info[2].to_json()),
                                    'return_exceptions': return_exceptions, **kwargs}
                 operator_context_rag = OperatorContext(OperatorType.RAG_JOIN,
                                                    input_info_a.dag_node.operator_info.function_info,
