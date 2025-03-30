@@ -172,7 +172,7 @@ class RunnableSequencePatching:
                 processing_func_predict = partial(
                     RunnableSequencePatching.execute_langchain_batch_with_preexecuted_retriever,
                     self, config, return_exceptions)
-                non_data_kwargs = {'prompt': str(self.get_prompts()), 'config': config,
+                non_data_kwargs = {'prompt': str(self.get_prompts()),
                                    'return_exceptions': return_exceptions, **kwargs}
                 operator_context_predict = OperatorContext(OperatorType.PREDICT, function_info, non_data_kwargs)
                 operator_call_info_predict = OperatorCallInfo(operator_context_predict,
