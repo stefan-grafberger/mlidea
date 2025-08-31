@@ -531,6 +531,13 @@ def monkey_patch():
     monkey_patch_start = time.time()
     patch_sources = get_monkey_patching_patch_sources()
     patches = gorilla.find_patches(patch_sources)
+    # First undo in case they’re already applied
+    for patch in patches:
+        try:
+            gorilla.revert(patch)
+        except Exception:
+            # Ignore if not yet applied
+            pass
     for patch in patches:
         gorilla.apply(patch)
     singleton.monkey_patch_duration = time.time() - monkey_patch_start
