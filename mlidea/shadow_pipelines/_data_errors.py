@@ -7,6 +7,7 @@ import networkx
 import numpy
 import pandas
 from fairlearn.metrics import MetricFrame
+from inspect import cleandoc
 from jenga.corruptions.generic import MissingValues
 from jenga.corruptions.numerical import Scaling
 from sklearn.impute import SimpleImputer
@@ -35,6 +36,56 @@ DATA_TYPE_NAME_TO_NICE_DESCRIPTION = {
     DataType.TEXT.value: "Robustness to text typos",
 }
 
+FIX_STRATEGY_TO_CODE = {
+    DataType.NUM.value: cleandoc("""
+        def detect_outlier_interquartile_range(x, k=1.5, fitted_detector=None):
+            if fitted_detector is None:
+                q25, q75 = numpy.percentile(x, 25), numpy.percentile(x, 75)
+                iqr = q75 - q25
+                cut_off = iqr * k
+                lower, upper = q25 - cut_off, q75 + cut_off
+            else:
+                lower, upper = fitted_detector
+            return lambda y: (y > upper) | (y < lower), (lower, upper)
+
+        is_int = df[column_to_clean].dtype == int
+
+        _, fitted_detector = detect_outlier_interquartile_range(df[[column_to_clean]], k=0.25)
+
+        imputer = SimpleImputer(strategy='mean', copy=True)
+        imputer.fit(df[[column_to_clean]])
+
+        outlier_indicator, _ = detect_outlier_interquartile_range(df[[column_to_clean]], fitted_detector=fitted_detector)
+        detector_mask = df[[column_to_clean]].apply(outlier_indicator).to_numpy()
+        if numpy.any(detector_mask):
+            df.iloc[detector_mask, [column_to_clean]] = numpy.nan
+            df.iloc[detector_mask, [column_to_clean]] = imputer.transform(df.iloc[detector_mask, [column_to_clean]])
+        if is_int:
+            df[column_to_clean] = df[column_to_clean].astype(int)
+    """),
+    DataType.CAT.value: cleandoc("""
+        imputer = SimpleImputer(strategy="most_frequent", copy=True)
+    """),
+    DataType.TEXT.value: cleandoc("""
+        from autocorrect import Speller
+        from functools import partial
+
+        spell = Speller()
+
+        def fix_typos(series):
+            series = series.map(spell)
+            return series
+
+        typo_fixer = FunctionTransformer(spell)
+        # If the pipeline is a ML pipeline that uses a ColumnTransformer:
+        # pipeline_transformer = Pipeline([
+        #     ('translate', typo_fixer),
+        #     ('...previous transformer...', ...previous transformer...)
+        # ])
+        # The previous transformer can now be replaced with the new pipeline_transformer
+    """)
+}
+
 
 @dataclasses.dataclass
 class PotentialSuggestion:
@@ -43,6 +94,7 @@ class PotentialSuggestion:
     suggestion_metric_results: any
     suggestion_max_score_improvement: float or None
     suggestion_df: any or None
+    source_code_to_integrate: str or None
 
 
 @dataclasses.dataclass
@@ -249,8 +301,10 @@ class DataErrorRobustness(ShadowPipeline):
                                "your pipeline more robust. However, you might still want to fix the robustness "
                                "problems Data Errors found.\n")
                 summary += f"A sample of the fixed rows:\n{str(corruption_diff_fix_df_sample)}\n"
+                fix_source_code = FIX_STRATEGY_TO_CODE[data_type_name]
                 suggestions_tried.append(PotentialSuggestion(improves_score, data_type_name, score_after_fixing,
-                                                             max_score_increase, corruption_diff_fix_df_sample))
+                                                             max_score_increase, corruption_diff_fix_df_sample,
+                                                             fix_source_code))
             elif extracted_plan_results[f"data-errors-corruption-significant-{transformer_index}"] is True:
                 summary += "Unfortunately, the fix method was not able to automatically address the corrupted rows."
 
