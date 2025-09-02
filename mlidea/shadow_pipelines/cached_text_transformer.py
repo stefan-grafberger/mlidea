@@ -183,7 +183,7 @@ class CachedTextTransformer(BaseEstimator, TransformerMixin):
                 "dtype": str(output.dtype),
                 "shape": output.shape,
                 "data": output.tolist()
-            })
+            }), is_numpy
         else:
             return output, is_numpy
 
