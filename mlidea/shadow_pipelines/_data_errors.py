@@ -340,7 +340,6 @@ class DataErrorRobustness(ShadowPipeline):
                                        score_operators, test_labels_operators):
         new_corruption_diff_node, new_corruption_node = self._add_corruption_func_computation(data_parent, data_type,
                                                                                               new_dag)
-
         conditional_corruption_made_changes_node = self.conditional_corruption_changed_something_node(data_type_index,
                                                                                                       new_corruption_diff_node,
                                                                                                       new_dag)
@@ -357,7 +356,7 @@ class DataErrorRobustness(ShadowPipeline):
         new_corruption_diff_filter_node = get_diff_filter_node(singleton, new_dag,
                                                                [new_corruption_node, new_corruption_diff_node,
                                                                 conditional_corruption_made_changes_node])
-        new_unmodified_corruption_filter_node = get_diff_filter_node(singleton, new_dag, [data_parent, new_corruption_diff_filter_node])
+        new_unmodified_corruption_filter_node = get_diff_filter_node(singleton, new_dag, [data_parent, new_corruption_diff_node])
 
         new_predict = duplicate_descendants_and_filter_concat_inputs(singleton, dag, new_dag, data_parent,
                                                                      new_corruption_diff_filter_node,
@@ -436,9 +435,11 @@ class DataErrorRobustness(ShadowPipeline):
         _ = get_intermediate_extraction_node(singleton, new_dag, [fix_node_to_extract],
                                              f"data-errors-corruption-diff-fix-{data_type_index}")
 
+        _ = get_intermediate_extraction_node(singleton, new_dag, [fix_node_to_extract], f"data-errors-corruption-diff-fix-{data_type_index}")
         DataErrorRobustness.generate_fix_explanation_df(data_type_index, new_dag,
-                                                               corruption_diff_node, # unsure if we need a "_filter" node
-                                                               fix_node_to_extract, new_predict,
+                                                               fix_node_to_extract,
+                                                               corruption_diff_node,
+                                                               new_predict,
                                                                corruption_node,
                                                                predict_operators, test_labels_operators,
                                                                conditional_fixes_changed_something_node)
@@ -467,7 +468,7 @@ class DataErrorRobustness(ShadowPipeline):
              labels_filter_node, prov_join_node]
         )
         _ = get_intermediate_extraction_node(singleton, new_dag, [explanation_node],
-                                             f"data-errors-corruption-diff-{data_type_index}")
+                                             f"data-errors-corruption-diff-fix-{data_type_index}")
 
     @staticmethod
     def _get_fix_function_made_changes_conditional_node(data_type_index, new_dag, new_fix_diff_indices_node):
@@ -541,7 +542,8 @@ class DataErrorRobustness(ShadowPipeline):
                                       get_basic_code_location_for_current_line(),
                                       operator_context,
                                       DagNodeDetails(
-                                          f"Corrupt {self._corruption_fraction} of {data_type.value} values", None),
+                                          f"Corrupt {self._corruption_fraction} of {data_type.value} values",
+                                          parents[0].details.columns),
                                       parents[0].details.columns,
                                       processing_func)
         add_parent_node_edges(singleton, new_dag, new_corruption_node, parents)
