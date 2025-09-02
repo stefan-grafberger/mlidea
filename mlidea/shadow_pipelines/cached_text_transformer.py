@@ -185,7 +185,7 @@ class CachedTextTransformer(BaseEstimator, TransformerMixin):
                 "data": output.tolist()
             })
         else:
-            return json.dumps(output)
+            return output
 
     @staticmethod
     def deserialize_output(s, is_numpy):
