@@ -1,6 +1,8 @@
+import json
 import os
 import time
 
+import numpy
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 from sqlalchemy import create_engine
@@ -19,7 +21,8 @@ class CachedTextTransformer(BaseEstimator, TransformerMixin):
             conn.execute(text(f'''
                 CREATE TABLE IF NOT EXISTS {self.cache_table} (
                     input TEXT PRIMARY KEY,
-                    output TEXT
+                    output TEXT,
+                    is_numpy INTEGER
                 )
             '''))
 
@@ -70,7 +73,9 @@ class CachedTextTransformer(BaseEstimator, TransformerMixin):
         # TODO: Do we need to implement this more efficiently by doing batch updates to disk?
         with self.engine.connect() as conn:
             cached_data = pd.read_sql(text(f'SELECT * FROM {self.cache_table}'), conn)
-            cached_dict = dict(zip(cached_data['input'], cached_data['output']))
+            cached_dict = {}
+            for inp, outp, is_numpy in zip(cached_data['input'], cached_data['output'], cached_data['is_numpy']):
+                cached_dict[inp] = CachedTextTransformer.deserialize_output(outp, is_numpy)
             transformed_data = []
             for x in X.iloc[:, 0].tolist():
                 input_str = str(x)
@@ -137,7 +142,9 @@ class CachedTextTransformer(BaseEstimator, TransformerMixin):
         # TODO: Do we need to implement this more efficiently by doing batch updates to disk?
         with self.engine.connect() as conn:
             cached_data = pd.read_sql(text(f'SELECT * FROM {self.cache_table}'), conn)
-            cached_dict = dict(zip(cached_data['input'], cached_data['output']))
+            cached_dict = {}
+            for inp, outp, is_numpy in zip(cached_data['input'], cached_data['output'], cached_data['is_numpy']):
+                cached_dict[inp] = CachedTextTransformer.deserialize_output(outp, is_numpy)
             transformed_data = []
             for x in X.iloc[:, 0].tolist():
                 input_str = str(x)
@@ -162,7 +169,28 @@ class CachedTextTransformer(BaseEstimator, TransformerMixin):
         return X
 
     def _update_cache(self, input_str, output, conn):
+        is_numpy = isinstance(output, numpy.ndarray)
+        serialized = CachedTextTransformer.serialize_output(output)
         conn.execute(text(f'''
-            INSERT OR REPLACE INTO {self.cache_table} (input, output)
-            VALUES (:input, :output)
-        '''), {'input': input_str, 'output': output})
+            INSERT OR REPLACE INTO {self.cache_table} (input, output, is_numpy)
+            VALUES (:input, :output, :is_numpy)
+        '''), {'input': input_str, 'output': output, 'is_numpy': is_numpy})
+
+    @staticmethod
+    def serialize_output(output):
+        if isinstance(output, numpy.ndarray):
+            return json.dumps({
+                "dtype": str(output.dtype),
+                "shape": output.shape,
+                "data": output.tolist()
+            })
+        else:
+            return json.dumps(output)
+
+    @staticmethod
+    def deserialize_output(s, is_numpy):
+        obj = json.loads(s)
+        if is_numpy:
+            return numpy.array(obj["data"], dtype=obj["dtype"]).reshape(obj["shape"])
+        else:
+            return obj
