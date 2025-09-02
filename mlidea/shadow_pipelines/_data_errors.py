@@ -170,16 +170,16 @@ class DataErrorRobustness(ShadowPipeline):
         self._transformer_inputs_to_check = []
 
         for data_type_index, (data_parent, data_type) in enumerate(data_parent_transformer_and_data_type):
-            corrupted_predictions, corruption_diff, corruption, new_score_nodes = self._add_corruption_computation_ml(
-                dag, data_parent, data_type, data_type_index, new_dag, predict_operators, score_operators,
-                test_labels_operators)
+            corrupted_predictions, corruption_diff, corruption, new_score_nodes, new_corruption_diff_filter_node = (
+                self._add_corruption_computation_ml(dag, data_parent, data_type, data_type_index, new_dag,
+                                                    predict_operators, score_operators, test_labels_operators))
 
             conditional_corruption_significant_node = self._get_corruption_significant_conditional_node(
                 data_type_index, new_dag, [*score_operators, *new_score_nodes])
             self._add_fix_computation_ml(conditional_corruption_significant_node, corrupted_predictions,
                                          corruption_diff, corruption, dag, data_parent, data_type,
                                          data_type_index, new_dag, score_operators, predict_operators,
-                                         test_labels_operators)
+                                         test_labels_operators, new_corruption_diff_filter_node)
             # End evaluate
         return new_dag
 
@@ -198,15 +198,16 @@ class DataErrorRobustness(ShadowPipeline):
 
         add_orig_score_extraction_nodes(singleton, new_dag, score_operators)
 
-        corrupted_predictions, corruption_diff, corruption, new_score_nodes = self._add_corruption_computation_llm(
-            new_dag, predict_operators, rag_join_operators, score_operators, test_data_operators, test_labels_operators)
+        corrupted_predictions, corruption_diff, corruption, new_score_nodes, new_corruption_diff_filter_node = (
+            self._add_corruption_computation_llm(new_dag, predict_operators, rag_join_operators, score_operators,
+                                                 test_data_operators, test_labels_operators))
 
         conditional_corruption_significant_node = self._get_corruption_significant_conditional_node(
             0, new_dag, [*score_operators, *new_score_nodes])
         self._add_fix_computation_llm(conditional_corruption_significant_node,
                                       corrupted_predictions, corruption_diff,
                                       corruption, new_dag, predict_operators, rag_join_operators,
-                                      score_operators, test_labels_operators)
+                                      score_operators, test_labels_operators, new_corruption_diff_filter_node)
         # End evaluate
         return new_dag
 
@@ -321,7 +322,8 @@ class DataErrorRobustness(ShadowPipeline):
 
     def _add_fix_computation_ml(self, conditional_corruption_significant_node, corrupted_predictions_node,
                                 corruption_diff_node, corruption_node, dag, data_parent, data_type, data_type_index,
-                                new_dag, score_operators, predict_operators, test_labels_operators):
+                                new_dag, score_operators, predict_operators, test_labels_operators,
+                                new_corruption_diff_filter_node):
         # pylint: disable=too-many-arguments
         new_fix_diff_indices_node, new_fix_node = self._add_fix_function_computation(
             conditional_corruption_significant_node, corruption_diff_node, corruption_node, data_type, data_type_index,
@@ -335,7 +337,8 @@ class DataErrorRobustness(ShadowPipeline):
                                                                data_type_index, new_dag, new_fix_diff_indices_node,
                                                                new_fix_node, score_operators, predict_operators,
                                                                test_labels_operators, corruption_diff_node,
-                                                               conditional_corruption_significant_node, corruption_node)
+                                                               conditional_corruption_significant_node, corruption_node,
+                                                               new_corruption_diff_filter_node)
 
     def _add_corruption_computation_ml(self, dag, data_parent, data_type, data_type_index, new_dag, predict_operators,
                                        score_operators, test_labels_operators):
@@ -345,18 +348,20 @@ class DataErrorRobustness(ShadowPipeline):
                                                                                                       new_corruption_diff_node,
                                                                                                       new_dag)
 
-        new_corrupt_predict_diff_update_node, new_score_nodes = DataErrorRobustness._add_corruption_evaluation_ml(
-            conditional_corruption_made_changes_node, dag, data_parent, data_type_index, new_corruption_diff_node,
-            new_corruption_node, new_dag, predict_operators, score_operators, test_labels_operators)
-        return new_corrupt_predict_diff_update_node, new_corruption_diff_node, new_corruption_node, new_score_nodes
-
-    @staticmethod
-    def _add_corruption_evaluation_ml(conditional_corruption_made_changes_node, dag, data_parent, data_type_index,
-                                      new_corruption_diff_node, new_corruption_node, new_dag, predict_operators,
-                                      score_operators, test_labels_operators):
         new_corruption_diff_filter_node = get_diff_filter_node(singleton, new_dag,
                                                                [new_corruption_node, new_corruption_diff_node,
                                                                 conditional_corruption_made_changes_node])
+
+        new_corrupt_predict_diff_update_node, new_score_nodes = DataErrorRobustness._add_corruption_evaluation_ml(
+            conditional_corruption_made_changes_node, dag, data_parent, data_type_index, new_corruption_diff_node,
+            new_corruption_diff_filter_node, new_dag, predict_operators, score_operators, test_labels_operators)
+        return (new_corrupt_predict_diff_update_node, new_corruption_diff_node, new_corruption_node, new_score_nodes,
+                new_corruption_diff_filter_node)
+
+    @staticmethod
+    def _add_corruption_evaluation_ml(conditional_corruption_made_changes_node, dag, data_parent, data_type_index,
+                                      new_corruption_diff_node, new_corruption_diff_filter_node, new_dag, predict_operators,
+                                      score_operators, test_labels_operators):
         new_unmodified_corruption_filter_node = get_diff_filter_node(singleton, new_dag, [data_parent, new_corruption_diff_node])
 
         new_predict = duplicate_descendants_and_filter_concat_inputs(singleton, dag, new_dag, data_parent,
@@ -415,7 +420,8 @@ class DataErrorRobustness(ShadowPipeline):
     def _add_fix_evaluation_computation_ml(conditional_fixes_changed_something_node, corrupted_predictions_node, dag,
                                            data_parent, data_type_index, new_dag, new_fix_diff_indices_node,
                                            new_fix_node, score_operators, predict_operators, test_labels_operators,
-                                           corruption_diff_node, conditional_corruption_significant_node, corruption_node):
+                                           corruption_diff_node, conditional_corruption_significant_node, corruption_node,
+                                           new_corruption_diff_filter_node):
         new_fix_diff_filter_node = get_diff_filter_node(singleton, new_dag, [new_fix_node, new_fix_diff_indices_node,
                                                                              conditional_fixes_changed_something_node])
 
@@ -443,7 +449,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                                fix_node_to_extract,
                                                                corruption_diff_node,
                                                                updated_corruption_predict_filter_node,
-                                                               corruption_node,
+                                                               new_corruption_diff_filter_node,
                                                                predict_operators, test_labels_operators,
                                                                conditional_fixes_changed_something_node)
 
@@ -555,7 +561,8 @@ class DataErrorRobustness(ShadowPipeline):
     def _add_fix_computation_llm(self,
                                  conditional_corruption_significant_node,
                                  corrupted_predictions_node, corruption_diff_node, corruption_node,
-                                 new_dag, predict_operators, rag_join_operators, score_operators, test_labels_operators):
+                                 new_dag, predict_operators, rag_join_operators, score_operators, test_labels_operators,
+                                 new_corruption_diff_filter_node):
         new_fix_diff_indices_node, new_fix_node = self._add_fix_function_computation(
             conditional_corruption_significant_node, corruption_diff_node, corruption_node, DataType.TEXT, 0, new_dag)
 
@@ -569,7 +576,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                                 rag_join_operators, score_operators,
                                                                 test_labels_operators, corruption_diff_node,
                                                                 conditional_corruption_significant_node,
-                                                                corruption_node)
+                                                                corruption_node, new_corruption_diff_filter_node)
 
     def _add_corruption_computation_llm(self, new_dag, predict_operators, rag_join_operators, score_operators,
                                         test_data_operators, test_labels_operators):
@@ -580,18 +587,20 @@ class DataErrorRobustness(ShadowPipeline):
         conditional_corruption_made_changes_node = DataErrorRobustness.conditional_corruption_changed_something_node(
             0, new_corruption_diff_node, new_dag)
 
-        new_corrupt_predict_diff_update_node, new_score_nodes = DataErrorRobustness._add_corruption_evaluation_llm(
-            conditional_corruption_made_changes_node, new_corruption_diff_node, new_corruption_node, new_dag,
-            predict_operators, rag_join_operators, score_operators, test_labels_operators, data_parent)
-        return new_corrupt_predict_diff_update_node, new_corruption_diff_node, new_corruption_node, new_score_nodes
-
-    @staticmethod
-    def _add_corruption_evaluation_llm(conditional_corruption_made_changes_node, new_corruption_diff_node,
-                                       new_corruption_node, new_dag, predict_operators, rag_join_operators,
-                                       score_operators, test_labels_operators, data_parent):
         new_corruption_diff_filter_node = get_diff_filter_node(singleton, new_dag,
                                                                [new_corruption_node, new_corruption_diff_node,
                                                                 conditional_corruption_made_changes_node])
+
+        new_corrupt_predict_diff_update_node, new_score_nodes = DataErrorRobustness._add_corruption_evaluation_llm(
+            conditional_corruption_made_changes_node, new_corruption_diff_node, new_corruption_diff_filter_node, new_dag,
+            predict_operators, rag_join_operators, score_operators, test_labels_operators, data_parent)
+        return (new_corrupt_predict_diff_update_node, new_corruption_diff_node, new_corruption_node, new_score_nodes,
+                new_corruption_diff_filter_node)
+
+    @staticmethod
+    def _add_corruption_evaluation_llm(conditional_corruption_made_changes_node, new_corruption_diff_node,
+                                       new_corruption_diff_filter_node, new_dag, predict_operators, rag_join_operators,
+                                       score_operators, test_labels_operators, data_parent):
         _ = get_intermediate_extraction_node(singleton, new_dag, [new_corruption_diff_filter_node],
                                              "data-errors-corruption-diff-0")
 
@@ -625,7 +634,7 @@ class DataErrorRobustness(ShadowPipeline):
                                             new_dag, new_fix_diff_indices_node, new_fix_node, predict_operators,
                                             rag_join_operators, score_operators, test_labels_operators,
                                             corruption_diff_node, conditional_corruption_significant_node,
-                                            corruption_node):
+                                            corruption_node, new_corruption_diff_filter_node):
         new_fix_diff_filter_node = get_diff_filter_node(singleton, new_dag, [new_fix_node, new_fix_diff_indices_node,
                                                                              conditional_fixes_changed_something_node])
         # Evaluate with fixed data
@@ -652,7 +661,7 @@ class DataErrorRobustness(ShadowPipeline):
                                                         fix_node_to_extract,
                                                         corruption_diff_node,
                                                         updated_corrupted_predictions_filter_node,
-                                                        corruption_node,
+                                                        new_corruption_diff_filter_node,
                                                         predict_operators, test_labels_operators,
                                                         conditional_fixes_changed_something_node)
 
