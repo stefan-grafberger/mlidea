@@ -797,6 +797,7 @@ class FairnessSlices(ShadowPipeline):
                     except Exception as e:
                         print(f"Error executing LLM code: {e}")
                         data_to_transform = fixed_corrupted.iloc[only_fix_indices, [column_index]]
+                        # TODO: Some sensible default for non-string values
                         function_transformer = get_translate_transformer(column, database_path)
                         if database_path and function_transformer.func is not None:
                             new_data_base_path = FairnessSlices.get_new_save_path(database_path, function_transformer)

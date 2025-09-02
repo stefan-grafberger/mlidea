@@ -427,6 +427,8 @@ class DataErrorRobustness(ShadowPipeline):
         parents = [corrupted_predictions_node, new_predict, new_fix_diff_indices_node,
                    conditional_fixes_changed_something_node]
         new_fix_predict_diff_update_node = merge_prediction_diff_with_old_predictions(singleton, new_dag, parents)
+        updated_corruption_predict_filter_node = get_diff_filter_node(singleton, new_dag, [
+            new_fix_predict_diff_update_node, corruption_diff_node, conditional_corruption_significant_node])
 
         add_new_score_and_score_extraction_nodes(singleton, new_dag, new_fix_predict_diff_update_node,
                                                  score_operators, f"data-errors-corrupt-fix-{data_type_index}")
@@ -440,7 +442,7 @@ class DataErrorRobustness(ShadowPipeline):
         DataErrorRobustness.generate_fix_explanation_df(data_type_index, new_dag,
                                                                fix_node_to_extract,
                                                                corruption_diff_node,
-                                                               new_fix_predict_diff_update_node,
+                                                               updated_corruption_predict_filter_node,
                                                                corruption_node,
                                                                predict_operators, test_labels_operators,
                                                                conditional_fixes_changed_something_node)
