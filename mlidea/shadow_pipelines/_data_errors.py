@@ -374,21 +374,23 @@ class DataErrorRobustness(ShadowPipeline):
 
         DataErrorRobustness.generate_corruption_explanation_df(data_type_index, new_dag, new_corruption_diff_filter_node,
                                                    new_corruption_diff_node, new_predict, new_unmodified_corruption_filter_node,
-                                                   predict_operators, test_labels_operators)
+                                                   predict_operators, test_labels_operators, conditional_corruption_made_changes_node)
 
         return new_corrupt_predict_diff_update_node, new_score_nodes
 
     @staticmethod
     def generate_corruption_explanation_df(data_type_index, new_dag, new_corruption_diff_filter_node, new_corruption_diff_node,
                                     new_predict, new_unmodified_corruption_filter_node, predict_operators,
-                                    test_labels_operators):
+                                    test_labels_operators, conditional_corruption_made_changes_node):
         prediction_old_filter_node = get_diff_filter_node(singleton, new_dag,
                                                           [predict_operators[0],
-                                                           new_corruption_diff_node],
+                                                           new_corruption_diff_node,
+                                                           conditional_corruption_made_changes_node],
                                                           prov=True)
 
         labels_filter_node = get_diff_filter_node(singleton, new_dag, [test_labels_operators[0],
-                                                                       new_corruption_diff_node])
+                                                                       new_corruption_diff_node,
+                                                                       conditional_corruption_made_changes_node])
         relevant_data_sources_and_columns = get_data_sources_to_all_columns(new_dag)
         prov_join_node = prov_join_node_with_data_sources(singleton, relevant_data_sources_and_columns, new_dag,
                                                           prediction_old_filter_node)
@@ -438,19 +440,23 @@ class DataErrorRobustness(ShadowPipeline):
                                                                corruption_diff_node, # unsure if we need a "_filter" node
                                                                fix_node_to_extract, new_predict,
                                                                corruption_node,
-                                                               predict_operators, test_labels_operators)
+                                                               predict_operators, test_labels_operators,
+                                                               conditional_fixes_changed_something_node)
 
     @staticmethod
     def generate_fix_explanation_df(data_type_index, new_dag, new_corruption_diff_filter_node, new_corruption_diff_node,
                                     new_predict, new_unmodified_corruption_filter_node, predict_operators,
-                                    test_labels_operators):
+                                    test_labels_operators, conditional_fixes_changed_something_node):
         prediction_old_filter_node = get_diff_filter_node(singleton, new_dag,
                                                           [predict_operators[0],
-                                                           new_corruption_diff_node],
+                                                           new_corruption_diff_node,
+                                                           conditional_fixes_changed_something_node],
                                                           prov=True)
 
         labels_filter_node = get_diff_filter_node(singleton, new_dag, [test_labels_operators[0],
-                                                                       new_corruption_diff_node])
+                                                                       new_corruption_diff_node,
+                                                                       conditional_fixes_changed_something_node
+                                                                       ])
         relevant_data_sources_and_columns = get_data_sources_to_all_columns(new_dag)
         prov_join_node = prov_join_node_with_data_sources(singleton, relevant_data_sources_and_columns, new_dag,
                                                           prediction_old_filter_node)
