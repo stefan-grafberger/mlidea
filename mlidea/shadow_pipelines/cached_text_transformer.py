@@ -169,8 +169,7 @@ class CachedTextTransformer(BaseEstimator, TransformerMixin):
         return X
 
     def _update_cache(self, input_str, output, conn):
-        is_numpy = isinstance(output, numpy.ndarray)
-        serialized = CachedTextTransformer.serialize_output(output)
+        output, is_numpy = CachedTextTransformer.serialize_output(output)
         conn.execute(text(f'''
             INSERT OR REPLACE INTO {self.cache_table} (input, output, is_numpy)
             VALUES (:input, :output, :is_numpy)
@@ -178,19 +177,20 @@ class CachedTextTransformer(BaseEstimator, TransformerMixin):
 
     @staticmethod
     def serialize_output(output):
-        if isinstance(output, numpy.ndarray):
+        is_numpy = isinstance(output, numpy.ndarray)
+        if is_numpy:
             return json.dumps({
                 "dtype": str(output.dtype),
                 "shape": output.shape,
                 "data": output.tolist()
             })
         else:
-            return output
+            return output, is_numpy
 
     @staticmethod
     def deserialize_output(s, is_numpy):
-        obj = json.loads(s)
         if is_numpy:
+            obj = json.loads(s)
             return numpy.array(obj["data"], dtype=obj["dtype"]).reshape(obj["shape"])
         else:
-            return obj
+            return s
