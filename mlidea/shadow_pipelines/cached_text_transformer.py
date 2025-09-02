@@ -74,10 +74,13 @@ class CachedTextTransformer(BaseEstimator, TransformerMixin):
         with self.engine.connect() as conn:
             cached_data = pd.read_sql(text(f'SELECT * FROM {self.cache_table}'), conn)
             cached_dict = {}
+            return_numpy = False
             for inp, outp, is_numpy in zip(cached_data['input'], cached_data['output'], cached_data['is_numpy']):
                 cached_dict[inp] = CachedTextTransformer.deserialize_output(outp, is_numpy)
+                if is_numpy:
+                    return_numpy = True
             transformed_data = []
-            is_numpy = False
+
             for x in X.iloc[:, 0].tolist():
                 input_str = str(x)
                 if input_str in cached_dict:
@@ -87,6 +90,8 @@ class CachedTextTransformer(BaseEstimator, TransformerMixin):
                     transformed_data.append(output)
                     # Update cache
                     is_numpy = self._update_cache(input_str, output, conn)
+                    if is_numpy:
+                        return_numpy = True
                     conn.commit()
         X.iloc[:, 0] = transformed_data
 
@@ -96,7 +101,7 @@ class CachedTextTransformer(BaseEstimator, TransformerMixin):
         # print(f"Sleeping an additional {additional_sleep}s to simulate real API call when cache was hit "
         #       f"({realistic_wait_time_calculation} - {(translation_end - translation_start) / 1000})!")
         # time.sleep(additional_sleep)
-        if is_numpy:
+        if return_numpy is True:
             X = numpy.stack(X.iloc[:, 0].to_numpy())
         elif was_series is True:
             X = X.iloc[:, 0]
@@ -146,10 +151,12 @@ class CachedTextTransformer(BaseEstimator, TransformerMixin):
         with self.engine.connect() as conn:
             cached_data = pd.read_sql(text(f'SELECT * FROM {self.cache_table}'), conn)
             cached_dict = {}
+            return_numpy = False
             for inp, outp, is_numpy in zip(cached_data['input'], cached_data['output'], cached_data['is_numpy']):
                 cached_dict[inp] = CachedTextTransformer.deserialize_output(outp, is_numpy)
+                if is_numpy:
+                    return_numpy = True
             transformed_data = []
-            is_numpy = False
             for x in X.iloc[:, 0].tolist():
                 input_str = str(x)
                 if input_str in cached_dict:
@@ -159,6 +166,8 @@ class CachedTextTransformer(BaseEstimator, TransformerMixin):
                     transformed_data.append(output)
                     # Update cache
                     is_numpy = self._update_cache(input_str, output, conn)
+                    if is_numpy:
+                        return_numpy = True
                     conn.commit()
         X.iloc[:, 0] = transformed_data
 
@@ -168,7 +177,7 @@ class CachedTextTransformer(BaseEstimator, TransformerMixin):
         # print(f"Sleeping an additional {additional_sleep}s to simulate real API call when cache was hit "
         #       f"({realistic_wait_time_calculation} - {(translation_end - translation_start) / 1000})!")
         # time.sleep(additional_sleep)
-        if is_numpy:
+        if return_numpy is True:
             X = numpy.stack(X.iloc[:, 0].to_numpy())
         elif was_series is True:
             X = X.iloc[:, 0]
